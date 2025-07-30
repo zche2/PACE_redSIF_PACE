@@ -1,0 +1,448 @@
+### A Pluto.jl notebook ###
+# v0.20.3
+
+using Markdown
+using InteractiveUtils
+
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    #! format: off
+    quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+    #! format: on
+end
+
+# ╔═╡ 7d4eac2d-c7bf-4e87-bfb7-3799c026b5c8
+begin
+	# %% import
+	import Pkg
+	Pkg.activate("/home/zhe2/FraLab/ESE156.jl")
+	
+	# %% instantiate - download all dependencies for the very first time
+	# see explanations: https://pkgdocs.julialang.org/v1/environments/
+	# Pkg.instantiate()
+	
+	# %% dependencies
+	using Markdown, InteractiveUtils, Plots
+	using PlutoUI
+	using ESE156         # This package loads most of our utilities
+	using vSmartMOM,  vSmartMOM.Absorption
+end
+
+# ╔═╡ 5dc87e41-ffee-4c8b-b964-0c749d6ba14b
+using ImageFiltering, Distributions, Interpolations
+
+# ╔═╡ 9d2556e3-f63d-43f3-919d-143adb649dd6
+using JLD2
+
+# ╔═╡ 977fbc37-6d5d-43ff-b7ea-1e0b5457efac
+using NCDatasets, Parameters
+
+# ╔═╡ 606c87da-b9a1-4677-9f73-f698eed7e109
+using Einsum, LinearAlgebra
+
+# ╔═╡ 9aaceecb-b575-409b-921d-c004fb6400e4
+begin
+	# Specify our wavenumber grid
+	ν_min = 14540 # 14534.
+	ν_max = 14545 # 14556.
+	ν = ν_min:0.001:ν_max;
+end
+
+# ╔═╡ 0c6a9074-363c-48f4-941e-0cfe308335c6
+# %% O2 absorption
+o2_par = Absorption.read_hitran(artifact("O2"), mol=7, iso=1, ν_min=ν_min, ν_max=ν_max);
+
+# ╔═╡ 883f545a-e760-4b2d-89a1-39162f382844
+line_voigt   = make_hitran_model(o2_par, Voigt(), wing_cutoff=10, architecture=CPU())
+
+# ╔═╡ 8ef7f10f-c840-4433-9316-9e59f637d0fc
+# conver wavenumber (1/cm) to wavelength (nm)
+λ = 1 ./ ν .* 1E7
+
+# ╔═╡ 055e1761-a303-442b-aaf8-568d338fbb51
+plotly()
+
+# ╔═╡ 9fc3215d-eeff-4eab-9aa0-d92b473a8785
+@bind p Slider(1.0:5:1100.0, default=1000.0)
+
+# ╔═╡ f356d6b5-30d7-4ab5-91c5-588138b6cf7d
+@bind T Slider(100.0:1:360.0, default=290.0)
+
+# ╔═╡ 45ade605-d2c9-4b40-959e-db8a2dae292d
+begin
+	σ1 = absorption_cross_section(line_voigt, ν, p, T);
+	# σ2 = absorption_cross_section(line_voigt, ν, p+50, T);
+	# σ3 = absorption_cross_section(line_voigt, ν, p, T+50);
+end
+
+# ╔═╡ 4f7eff07-d39e-497e-93e6-f401ba2a9e05
+begin
+	plot(λ, σ1,
+		label="p=$p hPa, T=$T K",
+		legend = :outerbottom)
+	title!("cross section of O2")
+	xlabel!("λ [nm]")
+	ylims!(-8E-26, 4E-24)
+	# @show p, T # (hPa, K)
+end
+
+# ╔═╡ 6e528f11-89f5-4aa8-9d8c-26be08d61f9d
+md"""
+##### Try convolution first
+"""
+
+# ╔═╡ 6df7737e-5022-44a5-b3fe-2ef3d97cb868
+# gaussian reponse function independent of wavelength
+begin
+	FWHM  = 10.  # (cm-1) resolution
+	Δν    = 1.
+	res   = 0.001
+	ν_out = ν_min:Δν:ν_max
+	inst  = 
+		ESE156.KernelInstrument(ESE156.gaussian_kernel(FWHM, res), collect(ν_out));
+	σ_conv = ESE156.conv_spectra(inst, ν, σ1)
+	
+end
+
+# ╔═╡ 0ab98307-9ace-4478-8e6a-c1f1f042f269
+# gaussian kernel
+function gaussian_kernel(FWHM, res; fac=5)
+    co = 2.355
+    width = FWHM / res / co
+    extent = ceil(fac * width)
+    d = Normal(0, width)
+    kernel = centered(pdf.(d, -extent:extent))
+    return kernel ./ sum(kernel)
+end;
+
+# ╔═╡ 95b26851-f8ff-40bc-b532-ab126b3b12f3
+begin
+kernel = gaussian_kernel(FWHM, res)
+end
+
+# ╔═╡ 4ded8c60-df16-4f50-9b43-32726493de93
+s = imfilter(σ1, kernel, Algorithm.FIR())
+
+# ╔═╡ 29321e21-ac4f-41dd-94e0-068cb7055ccb
+# interp_cubic = CubicSplineInterpolation(ν, s)
+
+
+# ╔═╡ df27c93a-a5c7-49f8-915c-bb351dc9fe2e
+# begin
+# 	Δν    = 1.
+# 	ν_out = ν_min:Δν:ν_max
+# 	σ_conv = interp_cubic(ν_out)
+# 	length(σ_conv)
+# end
+
+# ╔═╡ a066436f-cf3c-4520-bc38-66edd450ea01
+begin
+	plot(λ, σ1,
+		label="p=$p hPa, T=$T K",
+		legend = :outerbottom)
+	plot!(1 ./ ν_out .* 1E7, σ_conv, label="convolved")
+	title!("cross section of O2")
+	xlabel!("λ [nm]")
+	# @show p, T # (hPa, K)
+end
+
+# ╔═╡ 8c7ddb4f-ae4c-4115-9379-8642c7d58420
+md"""
+##### from xSection to atm. transmission
+"""
+
+# ╔═╡ b8c5fe5a-7fd7-4619-b365-cb23c8d22bd8
+begin
+	# use prescribed vertical profile of pressure and temperature 
+	MyPath = "/home/zhe2/FraLab/PACE_redSIF_PACE/sample_data/"
+	file_path = joinpath(MyPath, "air_profile_ESE156Lec04.jld2")
+	@load file_path temp pressure vcd_dry
+	pressure /= 100  # convert to hPa
+end
+
+# ╔═╡ 67ea1e3d-84ef-4071-847e-207feff88fdd
+begin    
+	FT = eltype(σ1)
+    n_layers = length(temp)
+    σ_matrix = zeros(FT, (length(ν), n_layers))
+	for i = 1:n_layers
+		p_ = pressure[i]
+		T_ = temp[i]
+		σ_matrix[:,i] = absorption_cross_section(line_voigt, ν, p_, T_);
+	end
+end
+
+# ╔═╡ 0530e701-6b31-4fad-a107-82d9d300a07a
+md"""
+By hydrostatic balance, assume homogeneity within every layer
+
+$$Δp = -ρgΔz$$
+
+ρ is calculated as $$\rho=M\times n$$, where [M]=kg/molec, [n]=molec/m^3.
+
+Vertical column density, [VCD]=molec/m^2, is the vertical intergral of volumetric number density over ∆z: $$VCD = n × Δz$$
+
+The calculation of vcd_dry per layer is documented in ESE156 Lec04. Note that the values in pressure profile are the so-called half-level pressure. In order to get ∆p, the boundaries are retrieved from MERRA file.
+"""
+
+# ╔═╡ 5ad5aaed-d360-4eec-91ff-03fa5f7a7789
+begin
+	AMF = 1  # 1/cos(sza), sza=90˚
+	# g₀ = 9.8196 # (m/s^2) 
+	# Na = 6.0221415e23;
+	# dryMass = 28.9647e-3  / Na
+	vmr_o2  = 0.21
+	# vcd_dry = p * 100 / (dryMass * g₀ * 100^2)  
+	# vcd_o2  = vcd_dry * vmr_o2
+	τ = sum(σ_matrix .* vcd_dry' * .21, dims=2)
+	T_o2 = exp.(- AMF * τ[:,1])
+
+	# convolve
+	trans_conv = ESE156.conv_spectra(inst, ν, T_o2)
+	
+	plot(λ, T_o2,
+		label="p=$p hPa, T=$T K",
+		legend = :outerbottom)
+	plot!(1 ./ ν_out .* 1E7, trans_conv, label="convolved")
+	title!("transmission of O2")
+	xlabel!("λ [nm]")
+	
+end
+
+# ╔═╡ 5838d397-5ba4-4152-8344-e8bbc4de4d17
+md"""
+##### try generating cross section spectra with gridded T and p (O2 first)
+"""
+
+# ╔═╡ 4d53bd7d-c936-41b7-83ec-eb3a14f42298
+begin
+	dλ   = 0.01   # nm
+	λ_min = 687
+	λ_max = 899
+	dT = 10.       # K
+	dp = 100.      # hPa
+	T_min = 100   # K
+	T_max = 400   # K
+	p_min = 100   # hPa
+	p_max = 1200  # hPa
+	wavelength_grid = λ_min:dλ:λ_max
+	T_grid = T_min:dT:T_max
+	p_grid = p_min:dp:p_max
+
+	wavelength_flag = true   # the input is wavelength (nm) not wavenumber
+	
+end
+
+# ╔═╡ b67d6d04-e846-4328-916a-916b25475286
+begin
+	# make hitran table
+	# o2_par = Absorption.read_hitran(artifact("O2"), mol=7, iso=1, ν_min=ν_min, ν_max=ν_max)
+	# make interpolation model
+	itp_model = make_interpolation_model(
+		o2_par,
+		Voigt(),
+		ν,
+		p_grid,
+		T_grid,
+		wavelength_flag=false,
+		wing_cutoff=10,
+		architecture=CPU()
+	)
+	
+end
+
+# ╔═╡ 74f996c6-ba82-4fc6-b537-3c88eb5ee14e
+begin
+	# compare
+	single = absorption_cross_section(line_voigt, ν, p_grid[10], T_grid[1]);
+	
+	plot(λ, single,
+		label="p=$(p_grid[10]) hPa, T=$(T_grid[1]) K",
+		legend = :outerbottom)
+	plot!(λ, itp_model.itp[:, 10, 1], label="itp")
+	title!("cross section of O2")
+	xlabel!("λ [nm]")
+end
+
+# ╔═╡ eb2db844-9382-4d3e-b2ea-f948b2413d61
+plot(λ, single .- itp_model.itp[:, 1, 1])
+
+# ╔═╡ 1a88f7b3-de78-404d-ab3d-41f8548a46e0
+md"""
+Get transmission assuming uniform VMR (relatively valid for O2) and p (single column)
+"""
+
+# ╔═╡ 482b5aee-676c-47aa-b5f0-6d92d6b24412
+begin
+	# get back to atm. transmission => a.u. as it does not matter for SVD
+	τ_scale = sum(vcd_dry' * .21);
+	atm_trans = exp.( - itp_model.itp * τ_scale);
+end
+
+# ╔═╡ 60b17515-75b9-4856-8da9-9f7485c08831
+τ_scale
+
+# ╔═╡ c2f1ffc1-0fa3-4940-b63b-a04f79f58856
+md"""
+##### Convolution by introducing PACE RSR
+"""
+
+# ╔═╡ e55b879f-9650-4eda-85b3-b0d82d788d63
+begin
+	function interpolate_RSR(band, wvlen, RSR, wvlen_out)
+	    # interpolate RSR to this resolution
+		# RSR matrix: m x n
+		# m - number of bands; n - number of wavelength in reference spectrum
+		RSR_out = zeros(Float64, length(band), length(wvlen_out));
+		for i=1:length(band)
+			# interpolator: knots & value
+			interp_linear = 
+				LinearInterpolation(wvlen, RSR[:,i], extrapolation_bc=Line());
+			# evaluate at wvlen_out
+			RSR_out[i,:]  = interp_linear(wvlen_out);
+		end
+		# normalize
+		RSR_out_norm = RSR_out ./ sum(RSR_out, dims=2);
+		return RSR_out_norm
+	end
+		
+	@with_kw struct KernelInstrument
+	    band    # ::Array{Any,1}
+	    wvlen   # ::Array{FT,1}
+	    RSR     # ::Matrix{FT}
+	    wvlen_out  # ::Array{FT,1}
+	    RSR_out = interpolate_RSR(band, wvlen, RSR, wvlen_out)  # ::Matrix{FT} 
+	end;
+
+	function conv_matx(
+		m::KernelInstrument,
+		spectrum
+		)::Vector{Float64}       # specify the return type
+		# check the length of spectrum, make sure the dimensions are matching
+		try 
+			spec_conv = m.RSR_out * spectrum
+			return spec_conv
+		catch err
+			println("error emerges when convolving the spectrum: ", err)
+		end;
+	end;
+end
+
+# ╔═╡ 373c9d6f-0b46-4839-86e2-d5eacfe0d403
+begin
+	# read data
+	filename = "/home/zhe2/FraLab/PACE_redSIF_PACE/sample_data/PACE_OCI_RSRs.nc";
+	ds = Dataset(filename, "r");
+
+	wavlen = ds["wavelength"][:];
+	RSR = ds["RSR"];
+	band = ds["bands"];
+
+	if_wavenumber = true;
+	λ_ref = if_wavenumber ? reverse(λ) : λ;
+	atm_trans_ref = if_wavenumber ? reverse(atm_trans, dims=1) : atm_trans ;
+	# println(λ_ref)
+
+	ind₁   = findall( λ_ref[1] .< wavlen .< λ_ref[end]);
+	ind₂   = findall( λ_ref[1] .< band   .< λ_ref[end]);
+	λ_msr  = wavlen[ind₁];
+	MyRSR  = RSR[ind₁, ind₂];
+	
+	MyKernel = KernelInstrument(
+		band=band[ind₂],
+		wvlen=λ_msr,
+		RSR=RSR[ind₁, ind₂],
+		wvlen_out=λ_ref
+	);
+
+	println(size(MyKernel.RSR_out))
+
+end
+
+# ╔═╡ eeeb0174-8d87-4a43-a1f3-594e06a229c6
+begin
+	# preallocate
+	spec_conv_loop = 
+		zeros(eltype(atm_trans_ref),
+			(length(MyKernel.band), length(p_grid), length(T_grid)));
+	for j=1:length(p_grid)
+		for k=1:length(T_grid)
+			spec_conv_loop[:, j, k] = MyKernel.RSR_out * atm_trans_ref[:, j, k]
+		end
+	end
+end
+
+# ╔═╡ e29036bc-9578-461d-9cbc-1d229cc52d1e
+# ╠═╡ disabled = true
+#=╠═╡
+begin
+	a = MyKernel.RSR_out;
+	@einsum spec_conv_einsum[i, j, k] := a[i, r] * atm_trans[r, j, k]
+end
+  ╠═╡ =#
+
+# ╔═╡ 8e8ed939-868c-44b2-8846-3f8089006f1c
+begin
+	plotly()
+	for k=1:5:12
+		plot!(λ, atm_trans[:, k, k],
+			label="p=$(p_grid[k]) hPa, T=$(T_grid[k]) K",
+			legend = :outerbottom)
+		plot!(MyKernel.band, spec_conv_loop[:, k, k],
+			label="p=$(p_grid[k]) hPa, T=$(T_grid[k]) K, conv",
+			legend = :outerbottom)
+		# plot!(MyKernel.band, spec_conv_einsum[:, k, k],
+		# 	label="p=$(p_grid[k]) hPa, T=$(T_grid[k]) K, einsum",
+		# 	legend = :outerbottom)
+	end
+	title!("transmission of O2")
+	xlabel!("λ [nm]")
+end
+
+# ╔═╡ Cell order:
+# ╠═7d4eac2d-c7bf-4e87-bfb7-3799c026b5c8
+# ╠═9aaceecb-b575-409b-921d-c004fb6400e4
+# ╠═0c6a9074-363c-48f4-941e-0cfe308335c6
+# ╠═883f545a-e760-4b2d-89a1-39162f382844
+# ╠═8ef7f10f-c840-4433-9316-9e59f637d0fc
+# ╠═055e1761-a303-442b-aaf8-568d338fbb51
+# ╠═9fc3215d-eeff-4eab-9aa0-d92b473a8785
+# ╠═f356d6b5-30d7-4ab5-91c5-588138b6cf7d
+# ╠═45ade605-d2c9-4b40-959e-db8a2dae292d
+# ╠═4f7eff07-d39e-497e-93e6-f401ba2a9e05
+# ╟─6e528f11-89f5-4aa8-9d8c-26be08d61f9d
+# ╠═6df7737e-5022-44a5-b3fe-2ef3d97cb868
+# ╠═5dc87e41-ffee-4c8b-b964-0c749d6ba14b
+# ╠═0ab98307-9ace-4478-8e6a-c1f1f042f269
+# ╠═95b26851-f8ff-40bc-b532-ab126b3b12f3
+# ╠═4ded8c60-df16-4f50-9b43-32726493de93
+# ╠═29321e21-ac4f-41dd-94e0-068cb7055ccb
+# ╠═df27c93a-a5c7-49f8-915c-bb351dc9fe2e
+# ╠═a066436f-cf3c-4520-bc38-66edd450ea01
+# ╟─8c7ddb4f-ae4c-4115-9379-8642c7d58420
+# ╠═9d2556e3-f63d-43f3-919d-143adb649dd6
+# ╠═b8c5fe5a-7fd7-4619-b365-cb23c8d22bd8
+# ╠═67ea1e3d-84ef-4071-847e-207feff88fdd
+# ╟─0530e701-6b31-4fad-a107-82d9d300a07a
+# ╠═5ad5aaed-d360-4eec-91ff-03fa5f7a7789
+# ╟─5838d397-5ba4-4152-8344-e8bbc4de4d17
+# ╠═4d53bd7d-c936-41b7-83ec-eb3a14f42298
+# ╠═b67d6d04-e846-4328-916a-916b25475286
+# ╠═74f996c6-ba82-4fc6-b537-3c88eb5ee14e
+# ╟─eb2db844-9382-4d3e-b2ea-f948b2413d61
+# ╟─1a88f7b3-de78-404d-ab3d-41f8548a46e0
+# ╠═482b5aee-676c-47aa-b5f0-6d92d6b24412
+# ╠═60b17515-75b9-4856-8da9-9f7485c08831
+# ╟─c2f1ffc1-0fa3-4940-b63b-a04f79f58856
+# ╠═977fbc37-6d5d-43ff-b7ea-1e0b5457efac
+# ╠═606c87da-b9a1-4677-9f73-f698eed7e109
+# ╟─e55b879f-9650-4eda-85b3-b0d82d788d63
+# ╠═373c9d6f-0b46-4839-86e2-d5eacfe0d403
+# ╠═eeeb0174-8d87-4a43-a1f3-594e06a229c6
+# ╠═e29036bc-9578-461d-9cbc-1d229cc52d1e
+# ╠═8e8ed939-868c-44b2-8846-3f8089006f1c
