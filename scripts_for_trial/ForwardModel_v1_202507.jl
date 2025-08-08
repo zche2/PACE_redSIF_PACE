@@ -380,6 +380,9 @@ end
 # ╔═╡ 9c788de3-982d-4fd3-8cde-d036d17a6720
 @time ForwardDiff.jacobian!(result, model_for_jacobian, x);
 
+# ╔═╡ 729ddce4-c5d8-410c-a65c-ad640d3ae1bf
+typeof(x)
+
 # ╔═╡ 7050b5e9-fb25-4d2e-98fc-cf354b2dc4fa
 begin
 	# extract Jacobian
@@ -464,7 +467,7 @@ md"""
 """
 
 # ╔═╡ 9f99b16d-c6e6-415e-a547-5d6b998ae589
-G
+x
 
 # ╔═╡ 6b2b3870-2383-4301-b5ef-7ca9933a1a9d
 G2
@@ -616,7 +619,7 @@ end
 # ╠═9f7e209e-454c-4cc6-9d5c-838c373620c1
 # ╠═78653793-ece0-49b3-ace8-24ac0a84a695
 # ╠═4a17175f-d424-4f09-95b9-407f2cbd74f1
-# ╟─3452c8b6-884e-41d0-a52a-a033545ed5f5
+# ╠═3452c8b6-884e-41d0-a52a-a033545ed5f5
 # ╟─8e1a0685-bcec-45ac-aab9-87cca07361bc
 # ╟─169c4d69-9b8f-425e-a1b6-9e03c2c49236
 # ╠═7a8de7e1-a009-4cff-8520-f93b7efcecf9
@@ -640,9 +643,10 @@ end
 # ╠═41f16839-c13c-489c-91a4-3a09479a9457
 # ╠═98174303-e52c-46ec-8bec-1a8acbf4e76d
 # ╠═a8d6634d-2482-48c3-9173-52b198ad3dfc
-# ╠═abe8c084-b018-4926-b762-b4263c03b56e
+# ╟─abe8c084-b018-4926-b762-b4263c03b56e
 # ╠═aeb6c5da-3ce0-4092-a502-aadf36519f7c
 # ╠═9c788de3-982d-4fd3-8cde-d036d17a6720
+# ╠═729ddce4-c5d8-410c-a65c-ad640d3ae1bf
 # ╠═7050b5e9-fb25-4d2e-98fc-cf354b2dc4fa
 # ╠═9cbe62b6-6efa-4982-bd1a-e9515aa922d3
 # ╠═2aea0e9a-4f6d-470b-b1f6-d16c3f73c034
