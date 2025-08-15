@@ -143,7 +143,7 @@ end
 
 # ╔═╡ d42e7040-06ec-4b94-bece-78ab4728cfc8
 begin
-	n     = 10;
+	n     = 5;
 	λm    = mean(oci_band);
 	range = λ_max - λ_min;
 	λc    = (oci_band .- λm) ./ range;
@@ -152,9 +152,6 @@ begin
 	x̂     = G * R_TOA;
 	ŷ     = K * x̂;
 end
-
-# ╔═╡ 9075c8bf-efaf-4836-9acc-f8de96fb840d
-1e7 / 900
 
 # ╔═╡ 6feb3c6c-cd8c-469a-bb41-cde87a967f04
 println("state vectors: $x̂")
@@ -445,7 +442,6 @@ end
 # ╟─40796346-a6e5-49e4-a619-b28e5fda2521
 # ╠═e61f28fc-25bd-41c8-9290-a849e43d5776
 # ╠═d42e7040-06ec-4b94-bece-78ab4728cfc8
-# ╠═9075c8bf-efaf-4836-9acc-f8de96fb840d
 # ╠═6feb3c6c-cd8c-469a-bb41-cde87a967f04
 # ╟─c7845a6b-c7de-4bee-84b7-8bd922dccae4
 # ╟─073ae8ca-e8f3-41e1-b460-cf00d51cf2fb

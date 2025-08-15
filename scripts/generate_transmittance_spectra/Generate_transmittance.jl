@@ -1,5 +1,5 @@
-import Pkg; Pkg.activate("..");
-include("../PACE_SIF.jl")
+import Pkg; Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE");
+include("/home/zhe2/FraLab/PACE_redSIF_PACE/PACE_SIF.jl")
 
 using vSmartMOM,  vSmartMOM.Absorption
 using JLD2
@@ -24,16 +24,16 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
 	# --- reanalysis data used --- #
 	dir  = "/home/zhe2/data/MERRA2_reanalysis/";
-	file = "MERRA2_400.inst6_3d_ana_Nv.20231230.nc4";
+	file = "MERRA2_400.inst6_3d_ana_Nv.20240705.nc4";
 	# --- specify the output NetCDF filename ---
-	output_filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/transmittance_winter_FineWvResModel.nc";
+	output_filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/transmittance_summer_FineWvResModel_FullRange_Aug01.nc";
 
-	o2_jld2 = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_Jul11/Finer_Wavenumber_grid_Jul11_O2.jld2";
+	o2_jld2 = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01/Finer_Wavenumber_grid_FullRange_Aug01_O2.jld2";
 	o2_sitp = read_rescale(o2_jld2);
-	h2o_jld2 = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_Jul11/Finer_Wavenumber_grid_Jul11_H2O.jld2";
+	h2o_jld2 = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01/Finer_Wavenumber_grid_FullRange_Aug01_H2O.jld2";
 	h2o_sitp = read_rescale(h2o_jld2);
 
-	metadata = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_Jul11/Finer_Wavenumber_grid_Jul11.log"
+	metadata = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01/Finer_Wavenumber_grid_FullRange_Aug01.log"
 
 	ν_grid, p_grid_hPa, t_grid = o2_sitp.ranges;
 
