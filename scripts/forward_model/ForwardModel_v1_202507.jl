@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ bbd4b752-5e7e-11f0-0ac9-43833ecaae94
-import Pkg; Pkg.activate("..");
+import Pkg; Pkg.activate("/FraLab/PACE_redSIF_PACE");
 
 # ╔═╡ 9f7e209e-454c-4cc6-9d5c-838c373620c1
 using Polynomials, ForwardDiff, DiffResults, Plots, LinearAlgebra
@@ -17,7 +17,7 @@ using Statistics
 using NCDatasets
 
 # ╔═╡ 78653793-ece0-49b3-ace8-24ac0a84a695
-include("../PACE_SIF.jl")
+include("../../PACE_SIF.jl")
 
 # ╔═╡ 3452c8b6-884e-41d0-a52a-a033545ed5f5
 md"""

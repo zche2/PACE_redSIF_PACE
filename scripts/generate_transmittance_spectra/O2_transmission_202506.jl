@@ -55,6 +55,33 @@ md"""
 > ##### Read atmospheric profile and get xsection & transmission for arbitrary number of absorbers 
 """
 
+# ╔═╡ 5d186afe-cc00-42a9-aa88-bbaed86a5908
+begin
+	MF = "../sample_data/atm_profile.nc"
+	
+	ds = Dataset(MF)
+	
+	# See how easy it is to actually extract data? Note the [:] in the end reads in ALL the data in one step
+	lat   = ds["YDim"][:]
+	lon   = ds["XDim"][:]
+	# Temperature profile
+	T     = ds["T"][:]
+	# specific humidity profile
+	q     = ds["QV"][:]
+	# mean pressure profile:
+	# p     = ds["Height"][:]
+	# Surafce pressure
+	psurf = ds["PS"][:]
+	# Time in UTC
+	time  = ds["TIME"][:]
+	
+	# AK and BK global attributes (important to calculate pressure half-levels)
+	ak = ds.attrib["HDF_GLOBAL.ak"][:]
+	bk = ds.attrib["HDF_GLOBAL.bk"][:]
+	
+	close(ds)
+end
+
 # ╔═╡ 68c5fbe1-45d2-41e2-a6ab-ff95c1a06804
 function layer_VCD(
 	p,    # pressure (Pa)
@@ -90,6 +117,17 @@ end
 md"""
 read hitran table and make hitran model
 """
+
+# ╔═╡ c03fbd2e-6798-4c6d-adbd-250861774c37
+begin
+	# (we have to know the HITRAN molecule numbers, given in http://hitran.org/docs/molec-meta/)
+	# Read in HITRAN tables
+	o2_par  = Absorption.read_hitran(artifact("O2"), mol=7, iso=1, ν_min=ν_min, ν_max=ν_max);
+	h2o_par = Absorption.read_hitran(artifact("H2O"), mol=1, iso=1, ν_min=ν_min, ν_max=ν_max);
+
+	o2_voigt   = make_hitran_model(o2_par, Voigt(), wing_cutoff=10, architecture=CPU());
+	h2o_voigt   = make_hitran_model(h2o_par, Voigt(), wing_cutoff=10, architecture=CPU());
+end
 
 # ╔═╡ 722d3879-7e43-4e34-8d65-04b888047afb
 begin
@@ -282,10 +320,30 @@ begin
 	p_grid = p_min:dp:p_max;
 end
 
-# ╔═╡ 579423f0-cde7-4acc-bd4f-02d78350a156
+# ╔═╡ 11a03d19-0302-4dd6-8db5-aaaadf18a360
+# ╠═╡ disabled = true
 #=╠═╡
-println("interpolation model generated: $(size(itp_model.itp))")
+begin
+	o2_par = 
+		Absorption.read_hitran(artifact("H2O"), mol=1, iso=1, ν_min=ν_min, ν_max=ν_max);
+		# Absorption.read_hitran(artifact("O2"), mol=7, iso=1, ν_min=ν_min, ν_max=ν_max);
+	
+	itp_model = 
+		make_interpolation_model(
+			o2_par,
+			Voigt(),
+			ν,
+			p_grid,
+			T_grid,
+			wavelength_flag=false,
+			wing_cutoff=10,
+			architecture=CPU()
+		)
+end
   ╠═╡ =#
+
+# ╔═╡ 579423f0-cde7-4acc-bd4f-02d78350a156
+println("interpolation model generated: $(size(itp_model.itp))")
 
 # ╔═╡ e31af66b-cb28-46c7-8061-6370d15c7b09
 md"""
@@ -300,6 +358,38 @@ begin
 	τ_scale = 1.0e22;
 		#  4.29e24;  # sum(vcd_dry' * .21); VCD from measurements of O2
 	atm_trans = exp.( - itp_model.itp * τ_scale );
+end
+  ╠═╡ =#
+
+# ╔═╡ d1148803-1909-4706-a885-afe6916318e9
+#=╠═╡
+begin
+	# read data
+	filename = "/home/zhe2/FraLab/PACE_redSIF_PACE/sample_data/PACE_OCI_RSRs.nc";
+	ds = Dataset(filename, "r");
+
+	wavlen = ds["wavelength"][:];
+	RSR = ds["RSR"];
+	band = ds["bands"];
+
+	λ_ref = if_wavenumber ? reverse(λ) : λ;
+	atm_trans_ref = if_wavenumber ? reverse(atm_trans, dims=1) : atm_trans ;
+	# println(λ_ref)
+
+	ind₁   = findall( λ_ref[1] .< wavlen .< λ_ref[end]);
+	ind₂   = findall( λ_ref[1] .< band   .< λ_ref[end]);
+	λ_msr  = wavlen[ind₁];
+	MyRSR  = RSR[ind₁, ind₂];
+	
+	MyKernel = KernelInstrument(
+		band=band[ind₂],
+		wvlen=λ_msr,
+		RSR=RSR[ind₁, ind₂],
+		wvlen_out=λ_ref
+	);
+
+	println(size(MyKernel.RSR_out))
+
 end
   ╠═╡ =#
 
@@ -395,102 +485,6 @@ begin
 	    show(ds) # Show the dataset summary in the REPL
 	end
 
-end
-  ╠═╡ =#
-
-# ╔═╡ 5d186afe-cc00-42a9-aa88-bbaed86a5908
-#=╠═╡
-begin
-	MF = "../sample_data/atm_profile.nc"
-	
-	ds = Dataset(MF)
-	
-	# See how easy it is to actually extract data? Note the [:] in the end reads in ALL the data in one step
-	lat   = ds["YDim"][:]
-	lon   = ds["XDim"][:]
-	# Temperature profile
-	T     = ds["T"][:]
-	# specific humidity profile
-	q     = ds["QV"][:]
-	# mean pressure profile:
-	# p     = ds["Height"][:]
-	# Surafce pressure
-	psurf = ds["PS"][:]
-	# Time in UTC
-	time  = ds["TIME"][:]
-	
-	# AK and BK global attributes (important to calculate pressure half-levels)
-	ak = ds.attrib["HDF_GLOBAL.ak"][:]
-	bk = ds.attrib["HDF_GLOBAL.bk"][:]
-	
-	close(ds)
-end
-  ╠═╡ =#
-
-# ╔═╡ 11a03d19-0302-4dd6-8db5-aaaadf18a360
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	o2_par = 
-		Absorption.read_hitran(artifact("H2O"), mol=1, iso=1, ν_min=ν_min, ν_max=ν_max);
-		# Absorption.read_hitran(artifact("O2"), mol=7, iso=1, ν_min=ν_min, ν_max=ν_max);
-	
-	itp_model = 
-		make_interpolation_model(
-			o2_par,
-			Voigt(),
-			ν,
-			p_grid,
-			T_grid,
-			wavelength_flag=false,
-			wing_cutoff=10,
-			architecture=CPU()
-		)
-end
-  ╠═╡ =#
-
-# ╔═╡ d1148803-1909-4706-a885-afe6916318e9
-#=╠═╡
-begin
-	# read data
-	filename = "/home/zhe2/FraLab/PACE_redSIF_PACE/sample_data/PACE_OCI_RSRs.nc";
-	ds = Dataset(filename, "r");
-
-	wavlen = ds["wavelength"][:];
-	RSR = ds["RSR"];
-	band = ds["bands"];
-
-	λ_ref = if_wavenumber ? reverse(λ) : λ;
-	atm_trans_ref = if_wavenumber ? reverse(atm_trans, dims=1) : atm_trans ;
-	# println(λ_ref)
-
-	ind₁   = findall( λ_ref[1] .< wavlen .< λ_ref[end]);
-	ind₂   = findall( λ_ref[1] .< band   .< λ_ref[end]);
-	λ_msr  = wavlen[ind₁];
-	MyRSR  = RSR[ind₁, ind₂];
-	
-	MyKernel = KernelInstrument(
-		band=band[ind₂],
-		wvlen=λ_msr,
-		RSR=RSR[ind₁, ind₂],
-		wvlen_out=λ_ref
-	);
-
-	println(size(MyKernel.RSR_out))
-
-end
-  ╠═╡ =#
-
-# ╔═╡ c03fbd2e-6798-4c6d-adbd-250861774c37
-#=╠═╡
-begin
-	# (we have to know the HITRAN molecule numbers, given in http://hitran.org/docs/molec-meta/)
-	# Read in HITRAN tables
-	o2_par  = Absorption.read_hitran(artifact("O2"), mol=7, iso=1, ν_min=ν_min, ν_max=ν_max);
-	h2o_par = Absorption.read_hitran(artifact("H2O"), mol=1, iso=1, ν_min=ν_min, ν_max=ν_max);
-
-	o2_voigt   = make_hitran_model(o2_par, Voigt(), wing_cutoff=10, architecture=CPU());
-	h2o_voigt   = make_hitran_model(h2o_par, Voigt(), wing_cutoff=10, architecture=CPU());
 end
   ╠═╡ =#
 

@@ -22,6 +22,13 @@ using NonlinearSolve, BenchmarkTools
 # ╔═╡ 0ec3629f-0278-42b1-8ab8-f399d4d4f216
 include("/home/zhe2/FraLab/PACE_redSIF_PACE/PACE_SIF.jl")
 
+# ╔═╡ 857eaa38-cc95-42d7-82f6-853ffa39dfe6
+md"""
+> ## Two solutions to Fix Non-convergence in V2.1
+- "Baseline fit": bypass O2 B-band and SIF
+- Scale transmittance according to baseline region: Avoid absorption feature
+"""
+
 # ╔═╡ 05837924-482b-4564-a770-3544f736889b
 md"""
 > #### Load transmittance spectra and do SVD
@@ -42,8 +49,13 @@ begin
 	println("\nConcatenated!")
 
 	bands  = summer["band"][:];
-	
+
+	close(summer);
+	close(winter);
 end
+
+# ╔═╡ 3ac1d3eb-a22b-441c-8343-062f1d733779
+bands
 
 # ╔═╡ 6f24e4fe-94b5-45bd-bf46-a98a0fdbaf48
 begin
@@ -62,18 +74,20 @@ md"""
 """
 
 # ╔═╡ a42bd26f-46d5-44a4-81d8-7788899b95bc
-# ╠═╡ disabled = true
-#=╠═╡
 begin
 	oci = Dataset(
-		"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample_swath_20250130T20.nc");
-	pixel  = 776;  # cross-track
-	scan   = 1525;
-	# E      = oci["red_solar_irradiance"][:];
+		"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample_granule_20250501T183011_new.nc");
+	pixel  = 456;  # cross-track
+	scan   = 901;
 	red_band = oci["red_wavelength"][:];
+	# red_band = oci["red_bands"][:];
 	# cloud    = oci["cloud_flag_dilated"][:, :];
 	nflh     = oci["nflh"][:, :];
-	# select the pixel
+end
+
+# ╔═╡ cc1acba5-d114-4579-a64f-8546c2df40b1
+begin
+	# select band (continuum spectrum)
 	ind      = findall( λ_min .< red_band .< λ_max );
 	E        = oci["red_solar_irradiance"][ind];
 	oci_band = red_band[ind];
@@ -82,33 +96,33 @@ begin
 	vza      = oci["sensor_zenith"][pixel, scan];
 	sza      = oci["solar_zenith"][pixel, scan];
 	println("Data read!")
-	@show oci["chlor_a"][pixel, scan];
+	# @show oci["chlor_a"][pixel, scan];
 	@show nflh[pixel, scan];
-	
+
+	# close
+	close(oci)
 end
-  ╠═╡ =#
 
-# ╔═╡ 41465a2f-f3ff-4792-8ac1-9dabce29e09b
+# ╔═╡ 672286a7-5b44-49f3-8098-9371f5928826
 begin
-	oci = Dataset(
-		"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample_granule_20250501T183011_new.nc");
-	pixel  = 471;  # cross-track
-	scan   = 899;
-	red_band = oci["red_wavelength"][:];
-	# red_band = oci["red_bands"][:];
-	# cloud    = oci["cloud_flag_dilated"][:, :];
-	nflh     = oci["nflh"][:, :];
+	# select fitting band
+	λ_left  = 650.; # 670.;
+	λ_right = 640.; # 710.;
+	ind_fit = findall( ( oci_band .< λ_left) .| (λ_right .< oci_band) );
+	oci_band_fit = oci_band[ind_fit];
+	R_TOA_fit    = R_TOA[ind_fit];
+end
 
-	ind      = findall( λ_min .< red_band .< λ_max );
+# ╔═╡ f80f7a81-000a-4784-9d10-713406303102
+begin
+	p1 = plot(oci_band, R_TOA, size=(500, 300), label="obs");
+	scatter!(p1, oci_band_fit, R_TOA_fit, label="fitting band (TBD)", markersize=1.5);
 
-	E        = oci["red_solar_irradiance"][ind];
-	oci_band = red_band[ind];
-	rhot     = oci["rhot_red"][pixel, scan, ind];
-	R_TOA    = oci["radiance_red"][pixel, scan, ind];
-	vza      = oci["sensor_zenith"][pixel, scan];
-	sza      = oci["solar_zenith"][pixel, scan];
+	p2 = plot(oci_band, E, size=(500, 300), label="obs");
+	scatter!(p2, oci_band_fit, E[ind_fit], label="solar irr.", markersize=1.5)
 
-	@show nflh[pixel, scan]
+	plot(p1, p2, layout=(2, 1))
+	ylabel!("W/m2/µm/sr")
 end
 
 # ╔═╡ acacde64-9957-409d-ae67-428d13428e9d
@@ -119,7 +133,7 @@ begin
 end
 
 # ╔═╡ 0d68673e-5d07-4703-96f6-d1a4ef919f0e
-findall(coalesce.(nflh .> .6, false))
+findall(coalesce.(nflh .> 1., false))
 
 # ╔═╡ 063343a5-5879-4cb7-91ad-5068fe0b33d2
 md"""
@@ -138,14 +152,23 @@ begin
 	c1    = parse.(Float64, data[:, 4]);  # 4th column: c1
 	c2    = parse.(Float64, data[:, 5]);  # 5th column: c2
 
-	snr_ind = findall((FPA .== "Red") .& (λ_min .< wvlen .< λ_max));
+	wv_val  = (λ_min .< wvlen .< λ_left) .| (λ_right .< wvlen .< λ_max);
+	snr_ind = findall((FPA .== "Red") .& wv_val);
+
+	# to make sure I use the right wvlen
+	@show wvlen[snr_ind]
+	
 	# see instruction in .txt file
-	noise   = sqrt.( c1[snr_ind] .+ c2[snr_ind] .* R_TOA);
+	noise   = sqrt.( c1[snr_ind] .+ c2[snr_ind] .* R_TOA_fit);
 	Se      = Diagonal(noise.^2);
 end
 
-# ╔═╡ f80f7a81-000a-4784-9d10-713406303102
-plot(oci_band, R_TOA, size=(500, 200), label="obs"); ylabel!("W/m2/µm/sr")
+# ╔═╡ 3c5964a2-c1e5-4dff-9932-5db894771191
+begin
+	# compare to make sure wavelengths are consistent
+	scatter(oci_band_fit, wvlen[snr_ind], label="fit wv", size=(300, 300))
+	plot!([610, 850], [610, 850], label="1:1")
+end
 
 # ╔═╡ 434ee765-087e-456a-9696-2ba87fa3c5f3
 md"""
@@ -155,7 +178,12 @@ $$R_{TOA}=\frac{E(\lambda)cos(SZA)\rho_s(\lambda)T(\lambda)}{\pi}$$
  $T(\lambda)$ is set to have a maximum of 1.
 """
 
-# ╔═╡ 810f2417-3f25-4fab-a88f-a99642a1e2c6
+# ╔═╡ 40253fb3-981f-4c2d-9f43-ce1c802fc6ef
+md"""
+🟢 For polynomial term, the argument needs to satisfy -1 <= x <= 1.
+"""
+
+# ╔═╡ 9dcc1616-91d6-45d8-9873-2c449b6e321e
 function center_wavelength(λ)
 	# get the range and medium of λ and center it to [0,1]
 	λ_max = ceil(maximum(λ));
@@ -167,18 +195,49 @@ function center_wavelength(λ)
 	return λc
 end
 
+# ╔═╡ b2dbaa15-ac40-40cd-b022-d49193febaa9
+bl_wvlen=[649.599976, 650.900024, 652.099976, 653.299988, 654.599976, 655.799988, 657.099976, 658.299988, 659.599976, 710.500000, 711.799988, 713.000000, 714.299988, 716.799988, 719.200012]
+
+# ╔═╡ ab74fe0c-cfa8-45fc-b4fd-8fea3f93c51b
+function scale_transmittance(T, λ; 
+							 bl_wvlen=[649.599976, 650.900024, 652.099976, 653.299988, 654.599976, 655.799988, 657.099976, 658.299988, 659.599976, 710.500000, 711.799988, 713.000000, 714.299988, 716.799988, 719.200012]
+		)
+	# Use a one-liner to find the indices
+	closest_ind = map(bl_wvlen -> argmin(abs.(λ .- bl_wvlen)), bl_wvlen);
+	# find max
+	bl_mean = mean(T[closest_ind]);
+	# force the mean val to be 1
+	T_norm = T ./ bl_mean
+	return T_norm
+end
+
 # ╔═╡ e59a4998-c578-42c3-b4e8-61585544f69b
 begin
 	# number of polynormial terms and PCs used
-	n = 5; nPC = 25;
+	n = 5; nPC = 10;
 	# inital guess 
-	λm    = mean(oci_band);
-	range = λ_max - λ_min;
-	λc    = (oci_band .- λm) ./ range;
-	K     = E .* cosd(sza) ./ pi .* hcat(collectPl.(λc, lmax=n)...)';
+	λc    = center_wavelength(oci_band_fit)
+	K     = E[ind_fit] .* cosd(sza) ./ pi .* hcat(collectPl.(λc, lmax=n)...)';
 	G     = inv( K'inv(Se)K )K'inv(Se);
-	x̂     = G * R_TOA;
+	x̂     = G * R_TOA_fit;
 	ŷ     = K * x̂;
+end
+
+# ╔═╡ 3948942d-e754-445a-aa4f-e7dc79537822
+begin
+	# define priori error matrix
+	# priori cov
+	Sa  = zeros(n+nPC+1, n+nPC+1);
+	# uodate diagonal term
+	for i=1:(n+1)
+	    Sa[i,i] = 1e20;     
+		# large variance applies no constrain to these polynomial term
+	end
+	rel_error   = .001
+	for i=(n+2):(n+nPC+1)
+	    Sa[i,i] = rel_error .* HighResSVD.VarExp[i - (n+1)];
+	end
+	Sa
 end
 
 # ╔═╡ c4d3782c-f85d-492e-a805-61d6f98fb657
@@ -194,47 +253,41 @@ function forward_model1(
 		)
 	
 	# adjust to [-1,1]
-	λc    = center_wavelength(λ);
+	λc    = center_wavelength(λ)
 	v     = collectPl.(λc, lmax=nPoly);
 	# reflectance
 	rho   = hcat(v...)' * x[1 : nPoly+1];
 	# transmittance
-	T     = trans_mat * x[(nPoly+2):(nPoly+nPC+1)];
-	T_min = minimum(T);
-	T_max = maximum(T);
-	factor = maximum(abs.([T_min, T_max]))
-	T_norm = abs.(T) / factor
+	T      = trans_mat * x[(nPoly+2):(nPoly+nPC+1)];
+	T_norm = scale_transmittance(T, λ)
 	# TOA radiance
 	rad    = E .* cosd(sza) ./ pi .* T_norm .* rho
 	return rad
 end
 
 
+# ╔═╡ 407cf364-32c6-4d9f-9596-6a04bbd5a588
+begin
+	# wrap the func
+	forward_model1_wrap = x -> forward_model1(x,
+		λ = oci_band_fit, 
+		nPoly = n, 
+		trans_mat = HighResSVD.PrinComp[ind_fit, 1:nPC],
+		E = E[ind_fit],
+	)
+end
+
 # ╔═╡ d5cfaed6-0063-4649-83da-a64727487741
 begin
 	tmp  = zeros(nPC-2) .+ .001;
 	xa   = [x̂... -6. .05 tmp...]';
-	rad  = forward_model1(xa, nPoly=n);
+	rad  = forward_model1_wrap(xa);
 	plot(oci_band, R_TOA, size=(500, 200), label="obs.")
-	plot!(oci_band, rad, label="initial guess, n=$n")
+	scatter!(oci_band_fit, rad, 
+			 label="initial guess, n=$n, nPC=$nPC",
+		     markersize=1.5
+	)
 	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
-end
-
-# ╔═╡ 3cb579f3-c9c4-48b3-997d-967f4e1df546
-begin
-	# define priori error matrix
-	# priori cov
-	Sa  = zeros(n+nPC+1, n+nPC+1);
-	# uodate diagonal term
-	for i=1:(n+1)
-	    Sa[i,i] = 1e20;     
-		# large variance applies no constrain to these polynomial term
-	end
-	rel_error   = .001
-	for i=(n+2):(n+nPC+1)
-	    Sa[i,i] = rel_error .* HighResSVD.VarExp[i - (n+1)];
-	end
-	Sa
 end
 
 # ╔═╡ d0cbf663-ac73-413a-951c-f99bf8d2cd8d
@@ -271,7 +324,7 @@ function iter(
 		xa,              # priori
 	    rad; 
 		Sa    = Sa,      # measurements
-		model = x -> forward_model1(x)
+		model = forward_model1_wrap
 	)
 	
 	# get results from last iteration x̂ₙ, note that K and y are evaluated at x̂ₙ
@@ -280,7 +333,7 @@ function iter(
 	yn     = m.y_x
 	G      = m.G
 	x̂      = xa .+ G * (rad .- yn .+ Kn * (xn .- xa));
-	K_n1, y_n1 = Jacobian(x̂, model);
+	K_n1, y_n1 = Jacobian(x̂, model, len=length(rad));
 
 	# update 
 	m_new  = retrieval(
@@ -300,19 +353,24 @@ md"""
 # ╔═╡ bdcc5bf7-7ab0-43a2-8710-09b4b4366b1a
 begin
 	# start from xa
-	Ka, ya = Jacobian(xa, x -> forward_model1(x))
+	Ka, ya = Jacobian(xa, forward_model1_wrap, len=length(oci_band_fit))
 	ma = retrieval(x=xa, y_x=ya, K=Ka)
 end
 
 # ╔═╡ b621fa58-9f13-48a2-9144-b3a3cb5292ac
 begin
 	# 1st iteration
-	m1 = iter(ma, xa, R_TOA, Sa=Sa);
+	m1 = iter(ma, xa, R_TOA_fit);
 	plot(oci_band, R_TOA, size=(500, 200), label="obs.", linewidth=4, linestyle=:dash, color=:black)
-	plot!(oci_band, ma.y_x, label="initial guess, n=$n", linewidth=2)
-	plot!(oci_band, m1.y_x, label="iter#1, n=$n", linewidth=2)
+	scatter!(oci_band_fit, ma.y_x, label="initial guess, n=$n", markersize=1.5)
+	scatter!(oci_band_fit, m1.y_x, label="iter#1, n=$n", markersize=1.5)
 	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
 end
+
+# ╔═╡ e9bc8ce0-14a1-4cbe-9df0-c5b5098ecede
+md"""
+> ##### The trick here is to believe (close-to) linear fit out side of SIF/O$_2$ B-Band, and recover the O$_2$ absorption within the band
+"""
 
 # ╔═╡ 7b0a281d-daaa-4aaa-a001-12be469225f9
 md"""
@@ -322,10 +380,7 @@ md"""
 # ╔═╡ c17a958d-fec3-445a-ba1f-59f65ad63af6
 begin
 	T1     = HighResSVD.PrinComp[:, 1:nPC] * m1.x[(n+2):(n+nPC+1)];
-	T1_min = minimum(T1);
-	T1_max = maximum(T1);
-	factor1 = maximum(abs.([T1_min, T1_max]))
-	T1_norm = abs.(T1) / factor1
+	T1_norm = scale_transmittance(T1, oci_band_fit)
 	# @show T1_norm
 
 	plot(oci_band, T1_norm, size=(500, 200), label="iter#1")
@@ -339,13 +394,29 @@ md"""
 
 # ╔═╡ 3d80255b-7409-4d8b-9fb7-b05ed286b18a
 begin
-	v1   = collectPl.(λc, lmax=n);
+	v1   = collectPl.(center_wavelength(oci_band), lmax=n);
 	rho1 = hcat(v1...)' * m1.x[1 : n+1];
-	plot(oci_band, ŷ ./ (E .* cosd(sza) ) .* pi,
-		label="linear fit ρₜ",
-		size=(500, 200))
-	plot!(oci_band, rho1, label="iter#1 ρₜ")
+	plot(oci_band, rho1, label="iter#1 ρₜ", size=(500, 200))
 	title!("Total reflectance", titlefont=10)
+end
+
+# ╔═╡ 0d03bf4e-64d7-4f52-b52c-8ad17a93157c
+# fit the full spectral range and get the residual
+spectra1 = forward_model1(m1.x); residual1 = R_TOA .- spectra1;
+
+# ╔═╡ aed98d25-2b7a-4755-bb5a-3acbd1bae0a4
+begin
+	# fit the full spectral range and get the residual
+	plot(oci_band, R_TOA, size=(500, 200), label="obs.", linewidth=4,
+		linestyle=:dash, color=:black)
+	plot!(oci_band, spectra1, label="iter#1, n=$n")
+	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
+end
+
+# ╔═╡ f8320953-b1b2-4954-8215-2fa6f27cb87e
+begin
+	plot(oci_band, residual1, label="iter#1, n=$n", size=(500, 200))
+	title!("Residual (W/m2/µm/sr)", titlefont=10)
 end
 
 # ╔═╡ 556e3e8b-aae5-4462-9aab-1f5c3f90c5a4
@@ -353,24 +424,30 @@ md"""
 > ##### 2nd iter.
 """
 
+# ╔═╡ d8810003-05c7-495f-b4d1-77a057698d2e
+m1.x
+
 # ╔═╡ abb9b4e8-9c9c-4d82-8190-06ededcbfd52
 begin
 	# 2nd iteration
-	m2 = iter(m1, xa, R_TOA);
+	m2 = iter(m1, xa, R_TOA_fit);
 	plot(oci_band, R_TOA, size=(500, 200), label="obs.", linewidth=4, linestyle=:dash, color=:black)
-	plot!(oci_band, ma.y_x, label="initial guess, n=$n", linewidth=2)
-	plot!(oci_band, m1.y_x, label="iter#1, n=$n", linewidth=2)
-	plot!(oci_band, m2.y_x, label="iter#2, n=$n", linewidth=2)
+	scatter!(oci_band_fit, ma.y_x, label="initial guess, n=$n", markersize=1.5)
+	scatter!(oci_band_fit, m1.y_x, label="iter#1, n=$n", markersize=1.5)
+	scatter!(oci_band_fit, m2.y_x, label="iter#2, n=$n", markersize=1.5)
 	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
 end
+
+# ╔═╡ c9d962f6-8722-4faa-b34f-092de7a76bcf
+m2.x
 
 # ╔═╡ 2a4b61f9-328a-4e92-ae84-58bdda55dc74
 begin
 	T2     = HighResSVD.PrinComp[:, 1:nPC] * m2.x[(n+2):(n+nPC+1)];
-	T2_min = minimum(T2);
-	T2_max = maximum(T2);
-	factor2 = maximum(abs.([T2_min, T2_max]))
-	T2_norm = abs.(T2) / factor2
+	# T2_min = minimum(T2);
+	# T2_max = maximum(T2);
+	# factor2 = maximum(abs.([T2_min, T2_max]))
+	T2_norm = scale_transmittance(T2, oci_band_fit)
 	# @show T1_norm
 	
 	plot(oci_band, T1_norm, size=(500, 200), label="iter#1")
@@ -380,322 +457,25 @@ end
 
 # ╔═╡ 33a4a5b0-ae07-4536-9c45-a2043d136f9f
 begin
-	v2   = collectPl.(λc, lmax=n);
+	v2   = collectPl.(center_wavelength(oci_band), lmax=n);
 	rho2 = hcat(v2...)' * m2.x[1 : n+1];
-	plot(oci_band, ŷ ./ (E .* cosd(sza) ) .* pi,
-		label="linear fit ρₜ",
-		size=(500, 200))
-	plot!(oci_band, rho1, label="iter#1 ρₜ", lw=2)
+	plot(oci_band, rho1, label="iter#1 ρₜ", lw=2, size=(500, 200))
 	plot!(oci_band, rho2, label="iter#2 ρₜ")
 	title!("Total reflectance", titlefont=10)
 end
 
 # ╔═╡ 93b65f52-c5a5-4580-a64b-5a50a44208af
 begin
+	spectra2  = forward_model1(m2.x);
+	residual2 = R_TOA .- spectra2;
 	# resildual
-	plot(oci_band, R_TOA .- m1.y_x, size=(500, 200), label="residual, iter#1")
-	plot!(oci_band, R_TOA .- m2.y_x, label="residual, iter#2")
+	plot(oci_band, residual1, size=(500, 200), label="residual, iter#1")
+	plot!(oci_band, residual2, label="residual, iter#2")
 	title!("Residuals", titlefont=10)
-end
-
-# ╔═╡ 4872795f-8afd-41fa-abbf-ebf2cba48bb0
-md"""
-> ##### More iterations
-"""
-
-# ╔═╡ d88a1ffb-04ac-41ab-bcb4-a039e9516f03
-m3 = iter(m2, xa, R_TOA);
-
-# ╔═╡ 79a5ff51-b649-4d56-80e4-95ec9470fced
-m4 = iter(m3, xa, R_TOA);
-
-# ╔═╡ 5587f936-e9c0-4b50-b2cb-f1dc6ca93eba
-md"""
-> ##### Add SIF with designated shape and peak wavelength
-$$\rho_{s}=\sum{a_jP_j}$$
-$$R_{TOA}=\frac{E(\lambda)cos(SZA)\rho_s(\lambda)T_{\downarrow\uparrow}(\lambda)}{\pi} + SIF(\lambda)T_{\uparrow}(\lambda)$$
- $T_{\uparrow}(\lambda)$ is set to have a maximum of 1, and relates with $T_{\downarrow\uparrow}(\lambda)$ by:
-
-$$T_{\downarrow\uparrow}(\lambda)=exp(SVF \times ln(T_{\uparrow}(\lambda)))$$
-Where SVF is some solar/viewing zenith angle correction factor:
-
-$$SVF=\frac{Sec(SZA)+Sec(VZA)}{Sec(VZA)}$$
-
-Assuming a Gaussian shape of SIF emisison:
-
-$$SIF(\lambda)=Aexp(-\frac{(\lambda-\lambda_0)^2}{2\sigma^2})$$
-Where $\lambda_0=683$ is the peak wavelength and $\sigma=9$ (to be tuned).
-
-🔴 Q: Shall I give A more constraint? e.g., non-negative? - probably not, it is possible to have negative nFLH detected during some cyanbacteria bloom.
-"""
-
-# ╔═╡ 42cd6dc2-4c8a-4862-b45d-242f51ae9bfb
-md"""
-> ##### Check one-way / two-way transmittance
-"""
-
-# ╔═╡ eaacce7b-c6ad-4e8f-9768-74c7c88fec1a
-function two_way_trans(T, sza, vza)
-	svf = (secd(sza)+secd(vza)) / secd(vza);
-	T2  = exp.( svf .* log.(T));
-	return T2
-end
-
-# ╔═╡ 0474ac88-6908-4337-9039-277751c6bd75
-function SIF_shape(λ; λ₀=683., σ=5.0)
-	return exp.( - ( λ .- λ₀ ).^2 ./ ( 2 * σ^2 ) )
-end
-
-# ╔═╡ b64fdb6c-e4d3-4ca8-aea9-02618bcecd02
-begin
-	# one-way to two-way transmittance
-	plot(oci_band, T1_norm, size=(500, 200), label="T↑")
-	plot!(oci_band, two_way_trans(T1_norm, sza, vza), label="T↓↑")
-	title!("transmittance")
-end
-
-# ╔═╡ e8040280-82ea-4af2-b8dd-1653deb069a5
-begin
-	# plot spectra of SIF
-	plot(oci_band, SIF_shape(oci_band), size=(500, 100), label="SIF (normalzied)" )
-	xlims!(645, 720)
-end
-
-# ╔═╡ 22a31224-df90-4484-807b-a3f2d36a178d
-md"""
-🟢 defining new forward model
-"""
-
-# ╔═╡ 5ad3d348-3997-4e11-8221-602f6c6d3b3e
-begin
-	# define priori error matrix
-	nSIF    = 3;
-	# priori cov
-	Sa_new  = zeros(n+nPC+nSIF+1, n+nPC+nSIF+1);
-	# uodate diagonal term
-	for i=1:(n+1)
-	    Sa_new[i,i] = 1e20;     
-		# large variance applies no constrain to these polynomial term
-	end
-	for i=(n+2):(n+nPC+1)
-	    Sa_new[i,i] = rel_error .* HighResSVD.VarExp[i - (n+1)];
-	end
-	# SIF uncertainty
-	Sa_new[end-2, end-2] = 1.5;
-	Sa_new[end-1, end-1] = 5.;
-	Sa_new[end, end] = 10;
-	Sa_new
-end
-
-# ╔═╡ 5aee9d76-54b1-4143-b0df-b6005b1d14e7
-function forward_model2(
-			x; 
-			λ = oci_band,     # wavelength range
-			nPoly::Int = n,   # degree of polynomials
-			nPC::Int   = nPC,   # number of eigen vectors used
-			nSIF::Int  = nSIF,
-			trans_mat  = HighResSVD.PrinComp[:, 1:nPC],
-			sza        = sza,
-			vza        = vza,
-			E          = E,
-		)
-	
-	# adjust to [-1,1]
-	λm    = mean(λ);
-	range = λ_max - λ_min;
-	λc    = (λ .- λm) ./ range;
-	v     = collectPl.(λc, lmax=nPoly);
-	# reflectance
-	rho   = hcat(v...)' * x[1 : nPoly+1];
-	# upward transmittance
-	T     = trans_mat * x[(nPoly+2):(nPoly+nPC+1)];
-	T_min = minimum(T);
-	T_max = maximum(T);
-	factor  = maximum(abs.([T_min, T_max]));
-	T1_norm = abs.(T) / factor;
-	# downward transmittance (no need to normalize)
-	T2_norm = two_way_trans(T1_norm, sza, vza);
-	# water-leaving SIF
-	SIF_w   = x[end-nSIF+1] .* SIF_shape(λ, λ₀=x[end-nSIF+2], σ=x[end-nSIF+3]);
-	# TOA radiance
-	rad    = E .* cosd(sza) ./ pi .* T2_norm .* rho + SIF_w .* T1_norm;
-	return rad
-end
-
-
-# ╔═╡ 31f80fa5-8229-4c4b-bb26-b27bdce65c2f
-begin
-	# set inital guess
-	x_for_PCs    = zeros(nPC);
-	x_for_PCs[1] = -6.;
-	x_for_PCs[2] = .1;
-	nflh_val = nflh[pixel, scan]
-	# @show xa_new   = [x̂... x_for_PCs... nflh_val 683. 5.]';
-	@show xa_new   = [x̂... x_for_PCs... 0. 683. 5.]';
-	# xa_new   = [m2.x... nflh_val]';
-	
-	# wrap up in a struct
-	Ka_new, ya_new = Jacobian(xa_new, x -> forward_model2(x));
-	ma_new = retrieval(x=xa_new, y_x=ya_new, K=Ka_new, G=GainMatrix(Ka_new,Sa=Sa_new));
-	
-end
-
-# ╔═╡ 261af164-b584-4aca-b064-714a226b79a8
-nflh_val
-
-# ╔═╡ 9f6bc382-7e26-4832-a57e-7d664aa8c322
-begin
-	plot(oci_band, R_TOA, size=(600, 200), label="obs.")
-	plot!(oci_band, ya_new, label="initial guess, n=$n, nPC=$nPC, SIF=$nflh_val")
-	# plot!(oci_band, ya, label="another initial guess, n=$n, nPC=$nPC, SIF=0")
-	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
-end
-
-# ╔═╡ 32c99105-fa5f-422a-bf85-6696d983b0c3
-md"""
-🟢 visualize Jacobian for each term
-
-Notes: 
-- PC#3 the O2 absoprtion is most likely to confound with SIF?
-- PC#1 and #2, the shapes look so alike (see the PC )
-
-"""
-
-# ╔═╡ fadd7cf1-7a27-4202-94c0-60f09c9657e7
-begin
-	# Create individual plots
-	p1 = plot(oci_band, Ka_new[:,1], title="Jacobian @ the priori", label="refl. const. Jac.")
-	plot!(oci_band, Ka_new[:,2], title="Jacobian @ the priori", label="refl. 1st Jac.")
-	p2 = plot(oci_band, Ka_new[:,n+2], label="PC#1 Jac.")
-	p3 = plot(oci_band, Ka_new[:,n+3], label="PC#2 Jac.")
-	plot!(p3, oci_band, Ka_new[:,n+4], label="PC#3 Jac.")
-	p4 = plot(oci_band, Ka_new[:,n+5], label="PC#4 Jac.")
-	p5 = plot(oci_band, Ka_new[:,end-nSIF+1], label="SIF mag. Jac.")
-	plot!(p5, oci_band, Ka_new[:,end-nSIF+2], label="SIF λ₀ Jac.")
-	plot!(p5, oci_band, Ka_new[:,end-nSIF+3], label="SIF σ Jac.")
-	
-	# Combine the plots in a 1x4 gri6
-	plot(p1, p2, p3, p4, p5, layout=(5,1), size=(600, 600))
-	# xlims!(640, 730)
-end
-
-# ╔═╡ 2068e446-0265-4b91-b2f0-9e5a2d7e5dec
-md"""
-> ##### Iterations
-"""
-
-# ╔═╡ 369724ff-0c8a-4ce6-9943-fae894146392
-begin
-	# 1st iteration
-	m1_new = iter(ma_new, xa_new, R_TOA, Sa=Sa_new, model=x->forward_model2(x));
-	
-	plot(oci_band, R_TOA, size=(500, 200), label="obs.", linewidth=3, linestyle=:dash, color=:blue)
-	plot!(oci_band, ma_new.y_x, label="initial guess, SIF=$(ma_new.x[end-nSIF+1])", linewidth=2)
-	plot!(oci_band, m1_new.y_x, label="iter#1, SIF=$(m1_new.x[end-nSIF+1])", linewidth=2)
-	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
-end
-
-# ╔═╡ 05caf90e-0895-4664-ae2e-d8ac88cf2b40
-begin
-	# 2nd iteration
-	m2_new = iter(m1_new, xa_new, R_TOA, Sa=Sa_new, model=x->forward_model2(x));
-	
-	plot(oci_band, R_TOA, size=(500, 200), label="obs.", linewidth=3, linestyle=:dash, color=:blue)
-	plot!(oci_band, ma_new.y_x, label="initial guess, n=$n", linewidth=1)
-	plot!(oci_band, m1_new.y_x, label="iter#1, n=$n", linewidth=1)
-	plot!(oci_band, m2_new.y_x, label="iter#2, n=$n", linewidth=1)
-	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
-end
-
-# ╔═╡ 9d99d5a9-be2c-4a6f-bdba-189f35591a78
-begin
-	# 2nd iteration
-	m3_new = iter(m2_new, xa_new, R_TOA, Sa=Sa_new, model=x->forward_model2(x));
-	
-	plot(oci_band, R_TOA, size=(500, 200), label="obs.", linewidth=3, linestyle=:dash, color=:blue)
-	plot!(oci_band, ma_new.y_x, label="initial guess, n=$n", linewidth=1)
-	plot!(oci_band, m1_new.y_x, label="iter#1, n=$n", linewidth=1)
-	plot!(oci_band, m2_new.y_x, label="iter#2, n=$n", linewidth=1)
-	plot!(oci_band, m3_new.y_x, label="iter#3, n=$n", linewidth=1)
-	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
-end
-
-# ╔═╡ 1e1881c5-4bea-4159-b750-87e941abec5a
-begin
-	# resildual
-	plot(oci_band, R_TOA .- m1_new.y_x, size=(700, 200), label="residual, iter#1")
-	plot!(oci_band, R_TOA .- m2_new.y_x, label="residual, iter#2")
-	plot!(oci_band, R_TOA .- m3_new.y_x, label="residual, iter#3")
-	title!("Residuals", titlefont=10)
-end
-
-# ╔═╡ fd12c14c-fd48-411e-bdae-00109afcce8b
-md"""
-🔴 to make it comparable with nFLH globalwise, normalize it with SZA or VZA?
-"""
-
-# ╔═╡ 581fd278-129c-4fae-841c-16458a656f52
-# more iter
-m4_new = iter(m3_new, xa_new, R_TOA, Sa=Sa_new, model=x->forward_model2(x));
-
-# ╔═╡ c2bcb483-fa85-416b-a0fb-15870d62084e
-@show "reconstructed SIF peak emission", m1_new.x[end-nSIF+1], m2_new.x[end-nSIF+1], m3_new.x[end-nSIF+1], m4_new.x[end-nSIF+1]
-
-# ╔═╡ 61653ce7-35fe-4ee4-93db-46b0918446c2
-"reconstructed SIF peak emission (normalized by SZA)", m1_new.x[end-nSIF+1] / cosd(sza), m2_new.x[end-nSIF+1] / cosd(sza), m3_new.x[end-nSIF+1] / cosd(sza), m4_new.x[end-nSIF+1] / cosd(sza)
-
-# ╔═╡ ea37b0a0-36c4-4e00-894f-b37cf4b51b8a
-begin
-	# resildual
-	plot(oci_band, R_TOA .- m4_new.y_x, size=(700, 200), label="residual, iter#4, w/ SIF fit")
-	plot!(oci_band, R_TOA .- m4.y_x, label="residual, iter#4, w/o SIF fit")
-	title!("Residuals", titlefont=10)
-end
-
-# ╔═╡ 20c699ed-4455-4a70-ae91-9e04a8e9f365
-md"""
-> ##### Reconstruct each component 
-"""
-
-# ╔═╡ cce6b779-bb3a-4307-86be-2fd6bd9f716f
-function scale_transmittance(T)
-	T_min = minimum(T);
-	T_max = maximum(T);
-	factor = maximum(abs.([T_min, T_max]))
-	return abs.(T) / factor
-end
-
-# ╔═╡ e0195a93-c1a8-47c2-b699-63eb9911f87d
-begin
-	rho0_new = hcat(v1...)' * ma_new.x[1 : n+1];
-	rho1_new = hcat(v1...)' * m1_new.x[1 : n+1];
-	rho2_new = hcat(v1...)' * m2_new.x[1 : n+1];
-	rho4_new = hcat(v1...)' * m4_new.x[1 : n+1];
-	
-	plot(oci_band, rho0_new, label="a priori", size=(500, 150))
-	plot!(oci_band, rho1_new, label="iter#1 ρₜ")
-	plot!(oci_band, rho2_new, label="iter#2 ρₜ")
-	plot!(oci_band, rho4_new, label="iter#4 ρₜ")
-	title!("Total reflectance", titlefont=10)
-end
-
-# ╔═╡ 4e4054fd-d88f-43aa-a043-3ffd503e2278
-begin
-	T0_new = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * ma_new.x[(n+2):(n+nPC+1)]);
-	T1_new = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * m1_new.x[(n+2):(n+nPC+1)]);
-	T2_new = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * m2_new.x[(n+2):(n+nPC+1)]);
-	T3_new = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * m3_new.x[(n+2):(n+nPC+1)]);
-	T4_new = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * m4_new.x[(n+2):(n+nPC+1)]);
-	
-	plot(oci_band, T0_new, size=(600, 200), label="inital guess", dpi=300)
-	plot!(oci_band, T1_new, label="iter#1")
-	plot!(oci_band, T2_new, label="iter#2")
-	plot!(oci_band, T3_new, label="iter#3")
-	plot!(oci_band, T4_new, label="iter#4")
-	title!("transmittance")
 end
 
 # ╔═╡ 0ff68f72-cc18-415b-a7b9-b94d49ee74dd
+#=╠═╡
 begin
 	plot(oci_band, ma_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=ma_new.x[end-nSIF+2], σ=ma_new.x[end-nSIF+3]), label="initial guess (nFLH)", size=(500, 150))
 	plot!(oci_band, m1_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=m1_new.x[end-nSIF+2], σ=m1_new.x[end-nSIF+3]), label="iter#1")
@@ -704,9 +484,7 @@ begin
 	plot!(oci_band, m4_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=m4_new.x[end-nSIF+2], σ=m4_new.x[end-nSIF+3]), label="iter#4")
 	title!("retrieved SIF")
 end
-
-# ╔═╡ 152d1672-0eca-472a-adae-d73604521b98
-ma_new.x[end-nSIF+1], m4_new.x[end-nSIF+1]
+  ╠═╡ =#
 
 # ╔═╡ 0bf97b73-04c9-4eb5-906a-23827a2c5f3a
 md"""
@@ -745,6 +523,7 @@ end
   ╠═╡ =#
 
 # ╔═╡ e648c84e-2ecb-4fe2-997b-7c96cc4a1940
+#=╠═╡
 function loss_function(x, p)
 	# p is params for forward model and error matrix
 	λ     = p.λ;       # wavelength range
@@ -770,8 +549,10 @@ function loss_function(x, p)
 	J = L .+ R ;
 	return J
 end
+  ╠═╡ =#
 
 # ╔═╡ 0aad0a27-d51e-4da5-b11b-d0c04859af73
+#=╠═╡
 begin
 	# define a problem
 	param = (
@@ -793,21 +574,29 @@ begin
 	# define non linear prob
 	prob = NonlinearLeastSquaresProblem(loss_function, x0, param);
 end
+  ╠═╡ =#
 
 # ╔═╡ 60a70269-81a9-4f93-9155-f2d769432ddc
+#=╠═╡
 @time sol_gn = solve(prob, NewtonRaphson(), store_trace = Val(true))
+  ╠═╡ =#
 
 # ╔═╡ 9ecaf87a-22c0-45d6-b6d8-93a9bb74e15d
+#=╠═╡
 @time sol_lm = solve(
 					 prob, 
 					 LevenbergMarquardt(),
 					 store_trace = Val(true),
 				)
+  ╠═╡ =#
 
 # ╔═╡ 4ab52ce5-f5ea-4f76-a922-228c28a67005
+#=╠═╡
 u_gn = sol_gn.u; u_lm = sol_lm.u;
+  ╠═╡ =#
 
 # ╔═╡ 1945df2f-7f87-4fb6-ad5e-349c3008e4ee
+#=╠═╡
 begin
 	# residual
 	K_lm, y_lm = Jacobian(u_lm, x -> forward_model2(x));
@@ -822,14 +611,20 @@ begin
 	A_gn = G_gn * K_gn;
 	
 end
+  ╠═╡ =#
 
 # ╔═╡ 8740635d-4c4a-4fdf-a487-1ae2b158ff96
+#=╠═╡
 heatmap(A_lm, size=(450, 400)); title!("G-N")
+  ╠═╡ =#
 
 # ╔═╡ 825c5181-e807-43e7-a086-ce7abda4999d
+#=╠═╡
 tr(A_lm)
+  ╠═╡ =#
 
 # ╔═╡ 755931f2-2c51-4cf9-ae12-cba4add9c7be
+#=╠═╡
 begin
 	# Create individual plots
 	p1__ = plot(oci_band, K_gn[:,1], title="Jacobian @ the priori", label="refl. const. Jac.")
@@ -846,8 +641,10 @@ begin
 	plot(p1, p2, p3, p4, p5, layout=(5,1), size=(600, 600))
 	# xlims!(640, 730)
 end
+  ╠═╡ =#
 
 # ╔═╡ ce85ad78-1c64-4822-84cc-e9f748105145
+#=╠═╡
 begin
 	# vis
 	plot(oci_band, R_TOA .- m4_new.y_x, size=(700, 200), label="residual, iter#4, w/ SIF fit")
@@ -856,8 +653,10 @@ begin
 	plot!(oci_band, R_TOA .- y_lm, label="L-M")
 	title!("Residuals", titlefont=10)
 end
+  ╠═╡ =#
 
 # ╔═╡ 12f0d3f8-a95e-46e4-adfa-46e41746a284
+#=╠═╡
 begin
 	rho_gn = hcat(v1...)' * u_gn[1 : n+1];
 	rho_lm = hcat(v1...)' * u_lm[1 : n+1];
@@ -871,8 +670,10 @@ begin
 	
 	title!("Total reflectance", titlefont=10)
 end
+  ╠═╡ =#
 
 # ╔═╡ 96f6e86b-acd2-4e13-b5f6-de049dd6b43d
+#=╠═╡
 begin
 	plot(oci_band, ma_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=ma_new.x[end-nSIF+2], σ=ma_new.x[end-nSIF+3]), label="initial guess (nFLH)", size=(1000, 300))
 	plot!(oci_band, m1_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=m1_new.x[end-nSIF+2], σ=m1_new.x[end-nSIF+3]), label="iter#1")
@@ -886,8 +687,10 @@ begin
 	
 	title!("retrieved SIF")
 end
+  ╠═╡ =#
 
 # ╔═╡ 648b4340-c819-44dd-b666-714db5e5c62a
+#=╠═╡
 begin
 	T_gn = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * u_gn[(n+2):(n+nPC+1)]);
 	T_lm = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * u_lm[(n+2):(n+nPC+1)]);
@@ -899,8 +702,10 @@ begin
 	plot!(oci_band, T_lm, label="L-M")
 	title!("transmittance")
 end
+  ╠═╡ =#
 
 # ╔═╡ 2c3a3310-7355-4087-a566-271768b33bd6
+#=╠═╡
 begin
 	# vis. reduction in loss function
 	fnorms_gn = [h.fnorm for h in sol_gn.trace.history];
@@ -910,16 +715,10 @@ begin
 	p2_ = plot(fnorms_lm, label="L-M")
 	plot(p1_, p2_, layout=(2,1), size=(600, 300))
 end
-
-# ╔═╡ 5c03edd1-b980-4ed8-a94d-2541b5f2cfcd
-md"""
-> ##### Check nFLH retrieval
-"""
-
-# ╔═╡ f1fd5c02-0751-4689-856b-a9f2cbad29c8
-baseline_wv = [649.599976, 650.900024, 652.099976, 653.299988, 654.599976, 655.799988, 657.099976, 658.299988, 659.599976, 710.500000, 711.799988, 713.000000, 714.299988, 716.799988, 719.200012]
+  ╠═╡ =#
 
 # ╔═╡ Cell order:
+# ╟─857eaa38-cc95-42d7-82f6-853ffa39dfe6
 # ╠═99ff878a-6e71-11f0-17ed-b7ac188e90b8
 # ╠═04c805e7-45b5-4878-b288-0cf1d02d31fc
 # ╠═0b112f15-6cc7-4f02-849e-e0ef8a71b639
@@ -928,22 +727,29 @@ baseline_wv = [649.599976, 650.900024, 652.099976, 653.299988, 654.599976, 655.7
 # ╠═0ec3629f-0278-42b1-8ab8-f399d4d4f216
 # ╟─05837924-482b-4564-a770-3544f736889b
 # ╠═379babe3-7d99-431b-b5db-499ee9b5b406
+# ╠═3ac1d3eb-a22b-441c-8343-062f1d733779
 # ╠═6f24e4fe-94b5-45bd-bf46-a98a0fdbaf48
-# ╟─acacde64-9957-409d-ae67-428d13428e9d
 # ╠═401b62ff-9966-40b7-ac5d-ed5d704ddda3
 # ╟─0ccf2db1-9080-4d29-bfc7-11dffa706f62
 # ╠═a42bd26f-46d5-44a4-81d8-7788899b95bc
-# ╠═41465a2f-f3ff-4792-8ac1-9dabce29e09b
+# ╠═cc1acba5-d114-4579-a64f-8546c2df40b1
+# ╠═672286a7-5b44-49f3-8098-9371f5928826
+# ╟─f80f7a81-000a-4784-9d10-713406303102
+# ╟─acacde64-9957-409d-ae67-428d13428e9d
 # ╠═0d68673e-5d07-4703-96f6-d1a4ef919f0e
 # ╟─063343a5-5879-4cb7-91ad-5068fe0b33d2
 # ╠═466c6800-dd8d-4b11-b33b-bff17dfcf387
-# ╠═f80f7a81-000a-4784-9d10-713406303102
+# ╟─3c5964a2-c1e5-4dff-9932-5db894771191
 # ╟─434ee765-087e-456a-9696-2ba87fa3c5f3
-# ╠═810f2417-3f25-4fab-a88f-a99642a1e2c6
+# ╟─40253fb3-981f-4c2d-9f43-ce1c802fc6ef
+# ╠═9dcc1616-91d6-45d8-9873-2c449b6e321e
+# ╠═b2dbaa15-ac40-40cd-b022-d49193febaa9
+# ╠═ab74fe0c-cfa8-45fc-b4fd-8fea3f93c51b
 # ╠═e59a4998-c578-42c3-b4e8-61585544f69b
+# ╠═3948942d-e754-445a-aa4f-e7dc79537822
 # ╠═c4d3782c-f85d-492e-a805-61d6f98fb657
+# ╠═407cf364-32c6-4d9f-9596-6a04bbd5a588
 # ╠═d5cfaed6-0063-4649-83da-a64727487741
-# ╠═3cb579f3-c9c4-48b3-997d-967f4e1df546
 # ╟─d0cbf663-ac73-413a-951c-f99bf8d2cd8d
 # ╠═dd2cd8cb-ed9e-4b6b-af99-59fe26809d39
 # ╠═7dcb675f-fd35-46ed-ba58-82df3d68627b
@@ -952,48 +758,22 @@ baseline_wv = [649.599976, 650.900024, 652.099976, 653.299988, 654.599976, 655.7
 # ╟─93c48028-a4bb-4d6d-9bc4-85749a675793
 # ╠═bdcc5bf7-7ab0-43a2-8710-09b4b4366b1a
 # ╠═b621fa58-9f13-48a2-9144-b3a3cb5292ac
+# ╟─e9bc8ce0-14a1-4cbe-9df0-c5b5098ecede
 # ╟─7b0a281d-daaa-4aaa-a001-12be469225f9
-# ╟─c17a958d-fec3-445a-ba1f-59f65ad63af6
+# ╠═c17a958d-fec3-445a-ba1f-59f65ad63af6
 # ╟─97672495-e0b1-4952-9f84-a26e926c7235
 # ╟─3d80255b-7409-4d8b-9fb7-b05ed286b18a
+# ╠═0d03bf4e-64d7-4f52-b52c-8ad17a93157c
+# ╠═aed98d25-2b7a-4755-bb5a-3acbd1bae0a4
+# ╠═f8320953-b1b2-4954-8215-2fa6f27cb87e
 # ╟─556e3e8b-aae5-4462-9aab-1f5c3f90c5a4
+# ╠═d8810003-05c7-495f-b4d1-77a057698d2e
+# ╠═c9d962f6-8722-4faa-b34f-092de7a76bcf
 # ╠═abb9b4e8-9c9c-4d82-8190-06ededcbfd52
 # ╠═2a4b61f9-328a-4e92-ae84-58bdda55dc74
-# ╟─33a4a5b0-ae07-4536-9c45-a2043d136f9f
+# ╠═33a4a5b0-ae07-4536-9c45-a2043d136f9f
 # ╠═93b65f52-c5a5-4580-a64b-5a50a44208af
-# ╟─4872795f-8afd-41fa-abbf-ebf2cba48bb0
-# ╠═d88a1ffb-04ac-41ab-bcb4-a039e9516f03
-# ╠═79a5ff51-b649-4d56-80e4-95ec9470fced
-# ╟─5587f936-e9c0-4b50-b2cb-f1dc6ca93eba
-# ╟─42cd6dc2-4c8a-4862-b45d-242f51ae9bfb
-# ╠═eaacce7b-c6ad-4e8f-9768-74c7c88fec1a
-# ╠═0474ac88-6908-4337-9039-277751c6bd75
-# ╟─b64fdb6c-e4d3-4ca8-aea9-02618bcecd02
-# ╟─e8040280-82ea-4af2-b8dd-1653deb069a5
-# ╟─22a31224-df90-4484-807b-a3f2d36a178d
-# ╠═5aee9d76-54b1-4143-b0df-b6005b1d14e7
-# ╠═5ad3d348-3997-4e11-8221-602f6c6d3b3e
-# ╠═31f80fa5-8229-4c4b-bb26-b27bdce65c2f
-# ╠═261af164-b584-4aca-b064-714a226b79a8
-# ╟─9f6bc382-7e26-4832-a57e-7d664aa8c322
-# ╟─32c99105-fa5f-422a-bf85-6696d983b0c3
-# ╠═fadd7cf1-7a27-4202-94c0-60f09c9657e7
-# ╟─2068e446-0265-4b91-b2f0-9e5a2d7e5dec
-# ╠═369724ff-0c8a-4ce6-9943-fae894146392
-# ╟─05caf90e-0895-4664-ae2e-d8ac88cf2b40
-# ╟─9d99d5a9-be2c-4a6f-bdba-189f35591a78
-# ╠═1e1881c5-4bea-4159-b750-87e941abec5a
-# ╠═c2bcb483-fa85-416b-a0fb-15870d62084e
-# ╟─fd12c14c-fd48-411e-bdae-00109afcce8b
-# ╠═61653ce7-35fe-4ee4-93db-46b0918446c2
-# ╠═581fd278-129c-4fae-841c-16458a656f52
-# ╟─ea37b0a0-36c4-4e00-894f-b37cf4b51b8a
-# ╟─20c699ed-4455-4a70-ae91-9e04a8e9f365
-# ╠═cce6b779-bb3a-4307-86be-2fd6bd9f716f
-# ╟─e0195a93-c1a8-47c2-b699-63eb9911f87d
-# ╟─4e4054fd-d88f-43aa-a043-3ffd503e2278
 # ╟─0ff68f72-cc18-415b-a7b9-b94d49ee74dd
-# ╠═152d1672-0eca-472a-adae-d73604521b98
 # ╟─0bf97b73-04c9-4eb5-906a-23827a2c5f3a
 # ╠═98bbf74e-6d47-4f25-b060-3f3c6d289a1a
 # ╠═e648c84e-2ecb-4fe2-997b-7c96cc4a1940
@@ -1006,9 +786,7 @@ baseline_wv = [649.599976, 650.900024, 652.099976, 653.299988, 654.599976, 655.7
 # ╠═825c5181-e807-43e7-a086-ce7abda4999d
 # ╠═755931f2-2c51-4cf9-ae12-cba4add9c7be
 # ╟─ce85ad78-1c64-4822-84cc-e9f748105145
-# ╟─12f0d3f8-a95e-46e4-adfa-46e41746a284
+# ╠═12f0d3f8-a95e-46e4-adfa-46e41746a284
 # ╟─96f6e86b-acd2-4e13-b5f6-de049dd6b43d
 # ╟─648b4340-c819-44dd-b666-714db5e5c62a
 # ╠═2c3a3310-7355-4087-a566-271768b33bd6
-# ╟─5c03edd1-b980-4ed8-a94d-2541b5f2cfcd
-# ╠═f1fd5c02-0751-4689-856b-a9f2cbad29c8
