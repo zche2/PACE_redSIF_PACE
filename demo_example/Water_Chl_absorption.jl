@@ -4,411 +4,129 @@
 using Markdown
 using InteractiveUtils
 
-# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
-macro bind(def, element)
-    #! format: off
-    quote
-        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
-        local el = $(esc(element))
-        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
-        el
-    end
-    #! format: on
-end
+# ╔═╡ a307a612-0541-4eb1-9de1-bd43f771a507
+using DelimitedFiles, Plots, Distributions
 
-# ╔═╡ 8faca87b-24cf-4fda-bf98-404c8d5fa8c6
-using Markdown, InteractiveUtils, Plots, PlutoUI
-
-# ╔═╡ edb0179b-7e0f-480c-8460-0104c6f3342e
-using NCDatasets
-
-# ╔═╡ 6a92804a-4d15-402c-9bc4-20701c2b16a0
-using LinearAlgebra
-
-# ╔═╡ b35cf81a-5395-4992-84c3-2d6a91ab8f5b
-using Statistics
-
-# ╔═╡ ed6f0dfc-56d6-4691-885d-769b9c808ecf
+# ╔═╡ 596063f4-8c47-11f0-0c76-7f85f4a18593
 md"""
-### read in NetCDF data
+> ##### Visualize the absorption spectra of water and chlorophyll => penetration depth of sunlight
 """
 
-# ╔═╡ 212f45c9-c805-4ce8-a46c-312e9e155804
+# ╔═╡ b7a90231-6393-45aa-b14e-1a4696387372
+cd("/home/zhe2/FraLab/PACE_redSIF_PACE/PACE_proposal_materials/")
+
+# ╔═╡ 0e927426-0248-479d-998a-4fc38b0a2f36
 begin
-	summer = Dataset("/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc");
-	winter = Dataset("/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_winter_FineWvResModel_FullRange_Aug01.nc");
-	println("Opened datasets.")
+	wc = readdlm("water_coef.txt", skipstart=30);
+	ii = findall(wc[:,1] .>= 400 .&& wc[:,1] .< 701 )[1:2:end];
+	wl = wc[ii,1];
+	wc_all = wc[ii,2];
 
-	
-	temp  = cat(summer["temperature"][:,:], winter["temperature"][:,:], dims=1);
-	psurf = cat(summer["pressure"][:], winter["pressure"][:], dims=1);
-	q     = cat(summer["q"][:,:], winter["q"][:,:], dims=1);
-	AMF   = cat(summer["AMF"][:], winter["AMF"][:], dims=1);
-	trans = cat(summer["transmittance"][:,:], winter["transmittance"][:,:], dims=1);
-	println("\nConcatenated!")
-
-	bands  = summer["band"][:];
+	# chlor a
+	pig = readdlm("chl_pigments.txt", skipstart=1); pig[pig.==999.0].=0.0;
+	pig_wl  = pig[:,1];
+	pig_all = pig[:,2]
 end
 
-# ╔═╡ 6aea3586-cbca-474b-b6ad-6958f7c8a2fc
-md"""
-### Select
-"""
-
-# ╔═╡ 3fa2cc53-33e4-45b4-b6e0-ced89d56d19c
+# ╔═╡ 622412e7-4428-4173-a7c0-76306b1650c2
 begin
-	# surface pressure
-	ind₁ = findall(psurf .>= 0.);
-	# band
-	λ_min = 620.;
-	λ_max = 860.;
-	ind₂ = findall( λ_min .< bands .< λ_max);
-end
-
-# ╔═╡ 79601782-a348-45bc-a09b-3fda7b8f90f9
-md"""
-### SVD Decomposition!
-"""
-
-# ╔═╡ 2b2c2d81-678a-4037-8374-163dc1cf284a
-begin
-	# a is either the original or log-transformed matrix
-	if_log = false;
-	a      = if_log ? log.(trans[ind₁, ind₂]') : trans[ind₁, ind₂]';
-
-	# ---- to do the svd, the matrix should be reshaped accordingly: 
-	# ---- (bands, # observations)
-	F = svd(a)
-
-	# Accessing the components:
-	U = F.U       # Left singular vectors (m x m)
-	S = F.S       # Singular values (1D vector)
-	V = F.V       # Right singular vectors (n x n)
-	Vt = F.Vt     # Conjugate transpose of V (V')
-	
-	println("--- SVD Components ---")
-	println("  U (Left Singular Vectors):\t", size(U))
-	println("  V (Right Singular Vectors):\t", size(V))
-	println("  Vt (Transpose of V):\t", size(Vt))
-
-	# normalize S
-	S_norm = S ./ sum(S) * 100
-	println("  S (%, Normalized Singular Values):\t", round.(S_norm[1:20], digits=3))
-end
-
-# ╔═╡ 65f46cdf-4c5e-4060-8d93-717dd00c61ee
-begin
-	nPC = 10;
-	gr()
-	MyLayout = (div(nPC, 2), 2);
-	
-	edit_title = if_log ? "log SVD" : "SVD"
-	edit_title *= " sampled from $(size(a)[2]) transmittance spectra"
-
-	p = plot(bands[ind₂], -U[:,1],
-			 title = "PC1 ($(round.(S_norm[1], digits=3))%)",
-			 subplot = 1,
-			 legend=:topleft,
-			 layout = MyLayout,
-			 linewidth=2,
-			 link = :x,
-		     titlefontsize=18,
-			 size=(1500, 1000),
-			 left_margin=15Plots.mm,
-			 xticks=:none,
-			 dpi=600
-	)
-	
-	for i in 2:nPC
-		if i==5
-			plot!(p, bands[ind₂], -U[:, i],
-					 title = "PC$i ($(round.(S_norm[i], digits=3))%)",
-					 subplot = i,
-					 legend=:topleft,
-					 linewidth=2,
-					 titlefontsize=18,
-					 layout = MyLayout,
-					 ylabel="loading",
-				     xticks=:none
+	x_limits = (400, 750);
+	p_water = plot(wl, wc_all,
+			label="Water absorption coefficients (m⁻¹)",
+			xlims = x_limits,
 			)
-		elseif ( i==9 ) | ( i==10 )
-			plot!(p, bands[ind₂], -U[:, i],
-					 title = "PC$i ($(round.(S_norm[i], digits=3))%)",
-					 subplot = i,
-					 legend=:topleft,
-					 linewidth=2,
-					 titlefontsize=18,
-					 layout = MyLayout,
-					 xlabel="wavelength [nm]",
-				     bottom_margin=10Plots.mm    
+	p_chl   = plot(pig_wl, pig_all,
+			label="chlorophyll weight specific absorption. (m²/ mg)",
+			xlims = x_limits,
+			legend=:top,
+			xlabel="nm"
 			)
-		else
-			plot!(p, bands[ind₂], -U[:, i],
-					 title = "PC$i ($(round.(S_norm[i], digits=3))%)",
-					 subplot = i,
-					 legend=:topleft,
-					 linewidth=2,
-					 titlefontsize=18,
-					 layout = MyLayout,
-				     xticks=:none
-			)
-		end
-	end
-	plot!(plot_title=edit_title, 
-		  plot_titlefontsize=20, 
-		  legend=false,
-		  xtickfontsize=15,
-		  ytickfontsize=12,
-		  xlabelfontsize=15,
-		  ylabelfontsize=15,
-		  plot_xlabel="Wavelength [nm]",
-		  plot_ylabel="Wavelength [nm]",
-    )
-	current(p)
+	plot(p_water, p_chl, size=(600, 350), layout=(2,1), )
 end
 
-# ╔═╡ 33689476-0762-44e6-be37-0dc7db904eba
-# ╠═╡ disabled = true
-#=╠═╡
-savefig(p, "../demo_example/SVD_FineWv_TransmittanceSpec_Aug01.png")
-  ╠═╡ =#
-
-# ╔═╡ 56faa791-c220-420b-867b-c82dda49c145
-@bind num_of_PC  Slider(1:10, default=1)
-
-# ╔═╡ 3977349a-a4a0-4074-9ac6-83ea17bf8efb
-begin
-	num_of_profile = size(trans)[1];
-	m = U[:,1:num_of_PC] * diagm(S[1:num_of_PC]) * Vt[1:num_of_PC,:];
-	println("constructed!")
-end
-
-# ╔═╡ 7298be8b-a94a-4e88-a246-7fb516835d57
-begin
-	k = 6878;
-	@show AMF[k]
-	plot(bands[ind₂], a[:,k], label="original data", linewidth=2)
-	plot!(bands[ind₂], m[:,k], label="reconstructed spectrum", linewidth=2, color=:gold)
-	title!("number of PC used: $num_of_PC")
-	ylims!(0.7, 1.05)
-end
-
-# ╔═╡ ba9d823b-3b7e-4e79-aff0-27cd2da07c14
+# ╔═╡ e6c595b0-1ec1-4287-ba4d-6e6766eda3da
 md"""
-### Interpret loadings (V$^T$)
+> Here an embedded assumption is the diffuse attenuation function Kd(λ) equals to absorption coeff., a(λ)
 """
 
-# ╔═╡ 4c8408fe-b7cc-4529-8314-3b1735288742
+# ╔═╡ d83dc44e-2f57-4b6e-bb6b-871b768d7368
 begin
-	# vertically integrated column density
-	vcd_sm = sum(summer["vcd_h2o"][:,:], dims=2);
-	vcd_wt = sum(winter["vcd_h2o"][:,:], dims=2);
-	vcd = vcat(vcd_sm, vcd_wt);
-
-	vcd_dry_sm = sum(summer["vcd_dry"][:,:], dims=2);
-	vcd_dry_wt = sum(winter["vcd_dry"][:,:], dims=2);
-	vcd_dry    = vcat(vcd_dry_sm, vcd_dry_wt);
-
-	println("Calculated vertically integrated column density")
+	# Ocean depth profile:
+	dz_   = .5
+	z_    = 0.00:dz_:100
+	# remaining downwelling after absorption of water
+	frac = exp.(-z_ * wc_all')
+		# 1st dimension: depth
+		# 2nd dimension: wavelength
+	# depth at which only 1% can be reached
+	z_100 = log(10.) ./ wc_all;
 end
 
-# ╔═╡ fbc5458a-4870-4b87-ad4b-60dbd01fe9a0
-begin
-	scatter(vcd[ind₁], Vt[1, :], marker_z=AMF[ind₁],
-		    color=:viridis, alpha=.8,
-			clims=(1.0, 1.6),
-	)
-	title!("PC1\ncolored by 1/cosd(VZA)")
-	ylabel!("loading")
-	xlabel!("column integrated VCD of H2O (molec/cm^2)")
-end
-
-# ╔═╡ 018f277b-60a4-4d69-b5d9-c6fb935be599
-begin
-	scatter(vcd[ind₁], Vt[2, :], marker_z=AMF[ind₁],
-		    color=:viridis, alpha=.8,
-			clims=(1.0, 1.6),
-	)
-	title!("PC2\ncolored by 1/cosd(VZA)")
-	ylabel!("loading")
-	xlabel!("column integrated VCD of H2O (molec/cm^2)")
-end
-
-# ╔═╡ f1693242-261e-4f3e-961a-990e717d226b
-begin
-	# surface temperature
-	Tsurf = temp[:, end];
-	# median teperature
-	Tmed  = median(temp, dims=2);
-	println("surface / median temperture calculated")
-end
-
-# ╔═╡ 23771c4a-5d20-45db-8836-df40f3dee07c
-begin
-	scatter(vcd_dry[ind₁] * .21, Vt[3, :], marker_z=AMF[ind₁],
-		    color=:viridis, alpha=.2,
-			clims=(1.0, 1.6),
-	)
-	title!("PC3\ncolored by 1/cosd(VZA)")
-	xlabel!("O2 VCD")
-	ylabel!("loading")
-end
-
-# ╔═╡ 2a97c39e-5569-4789-96ce-837e830b4700
-begin
-	scatter(AMF[ind₁], Vt[3, :], alpha=.2)
-	title!("PC3\ncolored by 1/cosd(VZA)")
-	xlabel!("AMF = 1/cos(VZA)")
-	ylabel!("loading")
-end
-
-# ╔═╡ 60ff827d-bffa-4210-aeda-fd21691dd8c8
-begin
-	scatter(Tsurf[ind₁], Vt[4, :], marker_z=AMF[ind₁],
-		    color=:viridis, alpha=.2,
-			clims=(1.0, 1.6),
-	)
-	title!("PC4\ncolored by 1/cosd(VZA)")
-	xlabel!("surface temperature (K)")
-	ylabel!("loading")
-end
-
-# ╔═╡ 33ccc904-a3e0-488e-b6c0-dacfeaa68e4a
-# ╠═╡ disabled = true
-# ╠═╡ skip_as_script = true
-#=╠═╡
-begin
-	file = "../sample_data/H2O_transmission.nc";
-	ds   = Dataset(file, "r");
-	println(ds)
-	O2_trans = ds["H2O_trans"][:];
-	temp = ds["temperature"][:];
-	pres = ds["pressure"][:];
-	band = ds["band"][:];
-
-	λ_min = 620.;
-	λ_max = 850.;
-	ind = findall( λ_min .< band .< λ_max);
-	
-	mat_reshape = reshape(O2_trans, size(O2_trans, 1), :);
-	
-end
-  ╠═╡ =#
-
-# ╔═╡ 1107134a-bed4-4721-bc46-90400eb50a1f
-# ╠═╡ disabled = true
-# ╠═╡ skip_as_script = true
-#=╠═╡
-# log transform
-a = log.(mat_reshape[ind, :]); # mat_reshape[ind, :]；
-  ╠═╡ =#
-
-# ╔═╡ d13c371a-d91b-4f24-884c-c7f58cbb0235
-# ╠═╡ disabled = true
-# ╠═╡ skip_as_script = true
-#=╠═╡
-begin
-	F = svd(a)
-
-	# Accessing the components:
-	U = F.U       # Left singular vectors (m x m)
-	S = F.S       # Singular values (1D vector)
-	V = F.V       # Right singular vectors (n x n)
-	Vt = F.Vt     # Conjugate transpose of V (V')
-	
-	println("\n--- SVD Components ---")
-	println("U (Left Singular Vectors):\n", size(U))
-	println("V (Right Singular Vectors):\n", size(V))
-	println("Vt (Transpose of V):\n", size(Vt))
-
-	# normalize S
-	S_norm = S ./ sum(S)
-	println("S (Normalized Singular Values):\n", S_norm[1:20])
-end
-  ╠═╡ =#
-
-# ╔═╡ 099ec820-188b-48b7-9d1f-27d132b36070
-# ╠═╡ disabled = true
-# ╠═╡ skip_as_script = true
-#=╠═╡
-begin 
-	m   = 4;
-	PC1 = U[:, 1];
-	PC2 = U[:, 2];
-	PC3 = U[:, 3];
-	loading1 = Vt[1, :];
-	loading2 = Vt[2, :];
-	loading3 = Vt[3, :];
-
-	p = plot(
-		band[ind], PC1, 
-		linewidth=2.,
-		label="PC1, $(S_norm[1]*100)%", legend=:outerbottom
-	)
-	for i=2:m
-		plot!(p, band[ind], U[:, i],
-			linewidth=2.,
-			label="PC$i, $(S_norm[i]*100)%",
-			alpha=.8)
-	end
-	title!("principle components in log space\n λ [$(λ_min), $(λ_max)] nm")
-	# xlims!(650, 695)
-	p
-end
-  ╠═╡ =#
-
-# ╔═╡ c3ab4b27-6f9c-4b95-b7d6-96fb6eb368a9
+# ╔═╡ 5563c3b1-3f45-4f0f-9aeb-e7e0110dc36a
 md"""
-Is it possible to relate loading with T/p?
+> Define penetration depth z(λ) as exp(-a(λ)z) = 0.1, i.e., only 1% of light get through this depth.
 """
 
-# ╔═╡ 77596640-8708-42f3-9d21-06c472493529
-# ╠═╡ disabled = true
-# ╠═╡ skip_as_script = true
-#=╠═╡
-begin
-	# broadcast
-	p_mesh = [p for p in pres, t in temp];
-	T_mesh = [t for p in pres, t in temp];
-	# reshape
-	p_1d = reshape(p_mesh, :);
-	T_1d = reshape(T_mesh, :);
-end
-  ╠═╡ =#
+# ╔═╡ 7d71c404-1675-4f3d-9af8-8e58501bf901
+plot(wl, z_100, yaxis=:log,
+	size=(600, 200),
+	xlims=(600, 750),
+	label="pure water",
+	# xlabel="wavelength (nm)",
+	ylabel="penetration depth (m)",
+	labelfontsize=8
+)
 
-# ╔═╡ ffb9408c-9e70-4e0b-93f8-4de3cf4b2f0d
-# ╠═╡ disabled = true
-# ╠═╡ skip_as_script = true
-#=╠═╡
+
+# ╔═╡ 2b9e4c9b-f2fc-432f-a2ed-079e734f3814
+md"""
+> Shape of SIF
+"""
+
+# ╔═╡ 7fbe0356-e02d-434d-8b52-d74b12fe4556
 begin
-	k = 3;
-	heatmap(
-	    pres, temp, reshape(Vt[k, :], length(pres), :)',
-	    colorbar=true,       # Display the colorbar
-	    title="loading of PC$k ",
-	    xlabel="Pressure (hPa)",
-	    ylabel="Temperature (K)",
-	    c=:viridis,          # Colormap (e.g., :viridis, :plasma, :jet, :coolwarm)
-	)
+	scope = readdlm("SCOPE.dat")
+
+	x   = scope[:,1]
+	Phi = 10scope[:,2]   # SIF distribution, scaled by 10 (if make a summation, it is roughly 10)
+	up  = 10(scope[:,3]/0.026)
+	down = 10(scope[:,4]/0.026)
+	
+	plot(x, 0*x, fillrange = down, fillalpha = 0.35, c = 1, label = "Downwelling SIF", legend = :topright, size=(600, 300))
+	plot!(x, down, fillrange = up+down, fillalpha = 0.35, c = 2, label = "Upwelling SIF")
+	plot!(x, up+down, fillrange = Phi, fillalpha = 0.35, c = 3, label = "Total SIF")
+	plot!(x, Phi, c = :black, label = nothing, xlabel = "Wavelength (nm)", ylabel = "Leaf SIF (AU)")
+	xlims!(645, 800)
+	ylims!(0, 0.3)
 end
-  ╠═╡ =#
+
+# ╔═╡ 32ded14b-1331-4144-a1ee-9b9b9f776e87
+begin
+	# plot(x, up+down, fillrange = Phi, fillalpha = 0.35, c = 3, label = "Total SIF")
+	plot(x, Phi, c=3, 
+		 label = nothing, 
+		 xlabel = "Wavelength (nm)",
+		 ylabel = "Emitted SIF (a.u.)",
+		 linewidth=2.,
+		 size=(600, 200),
+		 bottom_margin = 5Plots.mm,
+		 left_margin = 5Plots.mm,
+		 xlims = (640, 850)
+	)
+	
+end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
-InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
-LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
-NCDatasets = "85f8d34a-cbdd-5861-8df4-14fed0d494ab"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
-PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
-NCDatasets = "~0.14.6"
+DelimitedFiles = "~1.9.1"
+Distributions = "~0.25.120"
 Plots = "~1.40.13"
-PlutoUI = "~0.7.65"
-Statistics = "~1.11.1"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -417,13 +135,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.2"
 manifest_format = "2.0"
-project_hash = "19901d2faa3dec125e260f1ed842eb01b41aa9bd"
-
-[[deps.AbstractPlutoDingetjes]]
-deps = ["Pkg"]
-git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
-uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.3.2"
+project_hash = "9a8f19aeac3fd5fa3862f185f1843ac12a938fc3"
 
 [[deps.AliasTables]]
 deps = ["PtrArrays", "Random"]
@@ -448,23 +160,11 @@ git-tree-sha1 = "0691e34b3bb8be9307330f88d1a3c3f25466c24d"
 uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
 version = "0.1.9"
 
-[[deps.Blosc_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Lz4_jll", "Zlib_jll", "Zstd_jll"]
-git-tree-sha1 = "ef12cdd1c7fb7e1dfd6fa8fd60d4db6bc61d2f23"
-uuid = "0b7ba130-8d10-5ba8-a3d6-c5182647fed9"
-version = "1.21.6+2"
-
 [[deps.Bzip2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "1b96ea4a01afe0ea4090c5c8039690672dd13f2e"
 uuid = "6e34b625-4abd-537c-b88f-471c36dfa7a0"
 version = "1.0.9+0"
-
-[[deps.CFTime]]
-deps = ["Dates", "Printf"]
-git-tree-sha1 = "937628bf8b377208ac359f57314fd85d3e0165d9"
-uuid = "179af706-886a-5703-950a-314cd64e0468"
-version = "0.1.4"
 
 [[deps.Cairo_jll]]
 deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "LZO_jll", "Libdl", "Pixman_jll", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
@@ -495,24 +195,16 @@ deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "Requires", "Statist
 git-tree-sha1 = "a1f44953f2382ebb937d60dafbe2deea4bd23249"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
 version = "0.10.0"
+weakdeps = ["SpecialFunctions"]
 
     [deps.ColorVectorSpace.extensions]
     SpecialFunctionsExt = "SpecialFunctions"
-
-    [deps.ColorVectorSpace.weakdeps]
-    SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [[deps.Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
 git-tree-sha1 = "37ea44092930b1811e666c3bc38065d7d87fcc74"
 uuid = "5ae59095-9a9b-59fe-a467-6f913c188581"
 version = "0.13.1"
-
-[[deps.CommonDataModel]]
-deps = ["CFTime", "DataStructures", "Dates", "Preferences", "Printf", "Statistics"]
-git-tree-sha1 = "98d64d5b9e5263884276656a43c45424b3a645c2"
-uuid = "1fbeeb36-5f17-413c-809b-666fb144f157"
-version = "0.3.7"
 
 [[deps.Compat]]
 deps = ["TOML", "UUIDs"]
@@ -568,11 +260,21 @@ git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
 uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 version = "1.9.1"
 
-[[deps.DiskArrays]]
-deps = ["LRUCache", "OffsetArrays"]
-git-tree-sha1 = "e0e89a60637a62d13aa2107f0acd169b9b9b77e7"
-uuid = "3c3547ce-8d99-4f5e-a174-61eb10b00ae3"
-version = "0.4.6"
+[[deps.Distributions]]
+deps = ["AliasTables", "FillArrays", "LinearAlgebra", "PDMats", "Printf", "QuadGK", "Random", "SpecialFunctions", "Statistics", "StatsAPI", "StatsBase", "StatsFuns"]
+git-tree-sha1 = "3e6d038b77f22791b8e3472b7c633acea1ecac06"
+uuid = "31c24e10-a181-5473-b8eb-7969acd0382f"
+version = "0.25.120"
+
+    [deps.Distributions.extensions]
+    DistributionsChainRulesCoreExt = "ChainRulesCore"
+    DistributionsDensityInterfaceExt = "DensityInterface"
+    DistributionsTestExt = "Test"
+
+    [deps.Distributions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    DensityInterface = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
+    Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [[deps.DocStringExtensions]]
 git-tree-sha1 = "7442a5dfe1ebb773c29cc2962a8980f47221d76c"
@@ -617,6 +319,18 @@ version = "4.4.4+1"
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
+
+[[deps.FillArrays]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "6a70198746448456524cb442b8af316927ff3e1a"
+uuid = "1a297f60-69ca-5386-bcde-b61e274b549b"
+version = "1.13.0"
+weakdeps = ["PDMats", "SparseArrays", "Statistics"]
+
+    [deps.FillArrays.extensions]
+    FillArraysPDMatsExt = "PDMats"
+    FillArraysSparseArraysExt = "SparseArrays"
+    FillArraysStatisticsExt = "Statistics"
 
 [[deps.FixedPointNumbers]]
 deps = ["Statistics"]
@@ -688,12 +402,6 @@ git-tree-sha1 = "53bb909d1151e57e2484c3d1b53e19552b887fb2"
 uuid = "42e2da0e-8278-4e71-bc24-59509adca0fe"
 version = "1.0.2"
 
-[[deps.HDF5_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "LazyArtifacts", "LibCURL_jll", "Libdl", "MPICH_jll", "MPIPreferences", "MPItrampoline_jll", "MicrosoftMPI_jll", "OpenMPI_jll", "OpenSSL_jll", "TOML", "Zlib_jll", "libaec_jll"]
-git-tree-sha1 = "82a471768b513dc39e471540fdadc84ff80ff997"
-uuid = "0234f1f7-429e-5d53-9886-15a909be8d59"
-version = "1.14.3+3"
-
 [[deps.HTTP]]
 deps = ["Base64", "CodecZlib", "ConcurrentUtilities", "Dates", "ExceptionUnwrapping", "Logging", "LoggingExtras", "MbedTLS", "NetworkOptions", "OpenSSL", "PrecompileTools", "Random", "SimpleBufferStream", "Sockets", "URIs", "UUIDs"]
 git-tree-sha1 = "f93655dc73d7a0b4a368e3c0bce296ae035ad76e"
@@ -706,29 +414,11 @@ git-tree-sha1 = "f923f9a774fcf3f5cb761bfa43aeadd689714813"
 uuid = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
 version = "8.5.1+0"
 
-[[deps.Hwloc_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "92f65c4d78ce8cdbb6b68daf88889950b0a99d11"
-uuid = "e33a78d0-f292-5ffc-b300-72abe9b543c8"
-version = "2.12.1+0"
-
-[[deps.Hyperscript]]
-deps = ["Test"]
-git-tree-sha1 = "179267cfa5e712760cd43dcae385d7ea90cc25a4"
-uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
-version = "0.0.5"
-
-[[deps.HypertextLiteral]]
-deps = ["Tricks"]
-git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
-uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
-version = "0.9.5"
-
-[[deps.IOCapture]]
-deps = ["Logging", "Random"]
-git-tree-sha1 = "b6d6bfdd7ce25b0f9b2f6b3dd56b2673a66c8770"
-uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
-version = "0.2.5"
+[[deps.HypergeometricFunctions]]
+deps = ["LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
+git-tree-sha1 = "68c173f4f449de5b438ee67ed0c9c748dc31a2ec"
+uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
+version = "0.3.28"
 
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
@@ -782,15 +472,6 @@ git-tree-sha1 = "eb62a3deb62fc6d8822c0c4bef73e4412419c5d8"
 uuid = "1d63c593-3942-5779-bab2-d838dc0a180e"
 version = "18.1.8+0"
 
-[[deps.LRUCache]]
-git-tree-sha1 = "5519b95a490ff5fe629c4a7aa3b3dfc9160498b3"
-uuid = "8ac3fa9e-de4c-5943-b1dc-09c6b5f20637"
-version = "1.6.2"
-weakdeps = ["Serialization"]
-
-    [deps.LRUCache.extensions]
-    SerializationExt = ["Serialization"]
-
 [[deps.LZO_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "1c602b1127f4751facb671441ca72715cc95938a"
@@ -819,11 +500,6 @@ version = "0.16.8"
     SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
     SymEngine = "123dc426-2d89-5057-bbad-38513e3affd8"
     tectonic_jll = "d7dd28d6-a5e6-559c-9131-7eb760cdacc5"
-
-[[deps.LazyArtifacts]]
-deps = ["Artifacts", "Pkg"]
-uuid = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
-version = "1.11.0"
 
 [[deps.LibCURL]]
 deps = ["LibCURL_jll", "MozillaCACerts_jll"]
@@ -921,35 +597,6 @@ git-tree-sha1 = "f02b56007b064fbfddb4c9cd60161b6dd0f40df3"
 uuid = "e6f89c97-d47a-5376-807f-9c37f3926c36"
 version = "1.1.0"
 
-[[deps.Lz4_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "abf88ff67f4fd89839efcae2f4c39cbc4ecd0846"
-uuid = "5ced341a-0733-55b8-9ab6-a4889d929147"
-version = "1.10.0+3"
-
-[[deps.MIMEs]]
-git-tree-sha1 = "c64d943587f7187e751162b3b84445bbbd79f691"
-uuid = "6c6e2e6c-3030-632d-7369-2d6c69616d65"
-version = "1.1.0"
-
-[[deps.MPICH_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "Hwloc_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "MPIPreferences", "TOML"]
-git-tree-sha1 = "3aa3210044138a1749dbd350a9ba8680869eb503"
-uuid = "7cb0a576-ebde-5e09-9194-50597f1243b4"
-version = "4.3.0+1"
-
-[[deps.MPIPreferences]]
-deps = ["Libdl", "Preferences"]
-git-tree-sha1 = "c105fe467859e7f6e9a852cb15cb4301126fac07"
-uuid = "3da0fdf6-3ccc-4f1b-acd9-58baa6c99267"
-version = "0.1.11"
-
-[[deps.MPItrampoline_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "MPIPreferences", "TOML"]
-git-tree-sha1 = "ff91ca13c7c472cef700f301c8d752bc2aaff1a8"
-uuid = "f1f71cc9-e9ae-5b93-9b94-4fe0e1ad3748"
-version = "5.5.3+0"
-
 [[deps.MacroTools]]
 git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
@@ -976,12 +623,6 @@ git-tree-sha1 = "c13304c81eec1ed3af7fc20e75fb6b26092a1102"
 uuid = "442fdcdd-2543-5da2-b0f3-8c86c306513e"
 version = "0.3.2"
 
-[[deps.MicrosoftMPI_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "bc95bf4149bf535c09602e3acdf950d9b4376227"
-uuid = "9237b28f-5490-5468-be7b-bb81f5f5e6cf"
-version = "10.1.4+3"
-
 [[deps.Missings]]
 deps = ["DataAPI"]
 git-tree-sha1 = "ec4f7fbeab05d7747bdf98eb74d130a2a2ed298d"
@@ -996,38 +637,15 @@ version = "1.11.0"
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2023.12.12"
 
-[[deps.NCDatasets]]
-deps = ["CFTime", "CommonDataModel", "DataStructures", "Dates", "DiskArrays", "NetCDF_jll", "NetworkOptions", "Printf"]
-git-tree-sha1 = "2c9dc92001ac06d432f363f37ff5552954d9947c"
-uuid = "85f8d34a-cbdd-5861-8df4-14fed0d494ab"
-version = "0.14.6"
-
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
 git-tree-sha1 = "9b8215b1ee9e78a293f99797cd31375471b2bcae"
 uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
 version = "1.1.3"
 
-[[deps.NetCDF_jll]]
-deps = ["Artifacts", "Blosc_jll", "Bzip2_jll", "HDF5_jll", "JLLWrappers", "LazyArtifacts", "LibCURL_jll", "Libdl", "MPICH_jll", "MPIPreferences", "MPItrampoline_jll", "MicrosoftMPI_jll", "OpenMPI_jll", "TOML", "XML2_jll", "Zlib_jll", "Zstd_jll", "libzip_jll"]
-git-tree-sha1 = "4686378c4ae1d1948cfbe46c002a11a4265dcb07"
-uuid = "7243133f-43d8-5620-bbf4-c2c921802cf3"
-version = "400.902.211+1"
-
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 version = "1.2.0"
-
-[[deps.OffsetArrays]]
-git-tree-sha1 = "117432e406b5c023f665fa73dc26e79ec3630151"
-uuid = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
-version = "1.17.0"
-
-    [deps.OffsetArrays.extensions]
-    OffsetArraysAdaptExt = "Adapt"
-
-    [deps.OffsetArrays.weakdeps]
-    Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 
 [[deps.Ogg_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -1045,12 +663,6 @@ deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
 version = "0.8.1+2"
 
-[[deps.OpenMPI_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "MPIPreferences", "TOML"]
-git-tree-sha1 = "e25c1778a98e34219a00455d6e4384e017ea9762"
-uuid = "fe0851c0-eecd-5654-98d4-656369965a5c"
-version = "4.1.6+0"
-
 [[deps.OpenSSL]]
 deps = ["BitFlags", "Dates", "MozillaCACerts_jll", "OpenSSL_jll", "Sockets"]
 git-tree-sha1 = "f1a7e086c677df53e064e0fdd2c9d0b0833e3f6e"
@@ -1062,6 +674,12 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "9216a80ff3682833ac4b733caa8c00390620ba5d"
 uuid = "458c3c95-2e84-50aa-8efc-19380b2a3a95"
 version = "3.5.0+0"
+
+[[deps.OpenSpecFun_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "1346c9208249809840c91b26703912dff463d335"
+uuid = "efe28fd5-8261-553b-a9e1-b2916fc3738e"
+version = "0.5.6+0"
 
 [[deps.Opus_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1078,6 +696,12 @@ version = "1.8.1"
 deps = ["Artifacts", "Libdl"]
 uuid = "efcefdf7-47ab-520b-bdef-62a2eaa19f15"
 version = "10.42.0+1"
+
+[[deps.PDMats]]
+deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse"]
+git-tree-sha1 = "f07c06228a1c670ae4c87d1276b92c7c597fdda0"
+uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
+version = "0.11.35"
 
 [[deps.Pango_jll]]
 deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "FriBidi_jll", "Glib_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl"]
@@ -1138,12 +762,6 @@ version = "1.40.13"
     ImageInTerminal = "d8c32880-2388-543b-8c61-d9f865259254"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[[deps.PlutoUI]]
-deps = ["AbstractPlutoDingetjes", "Base64", "ColorTypes", "Dates", "Downloads", "FixedPointNumbers", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "MIMEs", "Markdown", "Random", "Reexport", "URIs", "UUIDs"]
-git-tree-sha1 = "3151a0c8061cc3f887019beebf359e6c4b3daa08"
-uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.65"
-
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
 git-tree-sha1 = "5aa36f7049a63a1528fe8f7c3f2113413ffd4e1f"
@@ -1190,6 +808,18 @@ git-tree-sha1 = "2766344a35a1a5ec1147305c4b343055d7c22c90"
 uuid = "e99dba38-086e-5de3-a5b1-6e4c66e897c3"
 version = "6.8.2+0"
 
+[[deps.QuadGK]]
+deps = ["DataStructures", "LinearAlgebra"]
+git-tree-sha1 = "9da16da70037ba9d701192e27befedefb91ec284"
+uuid = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
+version = "2.11.2"
+
+    [deps.QuadGK.extensions]
+    QuadGKEnzymeExt = "Enzyme"
+
+    [deps.QuadGK.weakdeps]
+    Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+
 [[deps.REPL]]
 deps = ["InteractiveUtils", "Markdown", "Sockets", "StyledStrings", "Unicode"]
 uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
@@ -1228,6 +858,18 @@ deps = ["UUIDs"]
 git-tree-sha1 = "62389eeff14780bfe55195b7204c0d8738436d64"
 uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
+
+[[deps.Rmath]]
+deps = ["Random", "Rmath_jll"]
+git-tree-sha1 = "852bd0f55565a9e973fcfee83a84413270224dc4"
+uuid = "79098fc4-a85e-5d69-aa6a-4863f24498fa"
+version = "0.8.0"
+
+[[deps.Rmath_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "58cdd8fb2201a6267e1db87ff148dd6c1dbd8ad8"
+uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
+version = "0.5.1+0"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
@@ -1269,6 +911,18 @@ deps = ["Libdl", "LinearAlgebra", "Random", "Serialization", "SuiteSparse_jll"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 version = "1.11.0"
 
+[[deps.SpecialFunctions]]
+deps = ["IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
+git-tree-sha1 = "41852b8679f78c8d8961eeadc8f62cef861a52e3"
+uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
+version = "2.5.1"
+
+    [deps.SpecialFunctions.extensions]
+    SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
+
+    [deps.SpecialFunctions.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+
 [[deps.StableRNGs]]
 deps = ["Random"]
 git-tree-sha1 = "95af145932c2ed859b63329952ce8d633719f091"
@@ -1297,9 +951,27 @@ git-tree-sha1 = "b81c5035922cc89c2d9523afc6c54be512411466"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 version = "0.34.5"
 
+[[deps.StatsFuns]]
+deps = ["HypergeometricFunctions", "IrrationalConstants", "LogExpFunctions", "Reexport", "Rmath", "SpecialFunctions"]
+git-tree-sha1 = "8e45cecc66f3b42633b8ce14d431e8e57a3e242e"
+uuid = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
+version = "1.5.0"
+
+    [deps.StatsFuns.extensions]
+    StatsFunsChainRulesCoreExt = "ChainRulesCore"
+    StatsFunsInverseFunctionsExt = "InverseFunctions"
+
+    [deps.StatsFuns.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    InverseFunctions = "3587e190-3f89-42d0-90ee-14403ec27112"
+
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 version = "1.11.0"
+
+[[deps.SuiteSparse]]
+deps = ["Libdl", "LinearAlgebra", "Serialization", "SparseArrays"]
+uuid = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 
 [[deps.SuiteSparse_jll]]
 deps = ["Artifacts", "Libdl", "libblastrampoline_jll"]
@@ -1331,11 +1003,6 @@ version = "1.11.0"
 git-tree-sha1 = "0c45878dcfdcfa8480052b6ab162cdd138781742"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 version = "0.11.3"
-
-[[deps.Tricks]]
-git-tree-sha1 = "6cae795a5a9313bbb4f60683f7263318fc7d1505"
-uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
-version = "0.1.10"
 
 [[deps.URIs]]
 git-tree-sha1 = "cbbebadbcc76c5ca1cc4b4f3b0614b3e603b5000"
@@ -1577,12 +1244,6 @@ git-tree-sha1 = "b6a34e0e0960190ac2a4363a1bd003504772d631"
 uuid = "214eeab7-80f7-51ab-84ad-2988db7cef09"
 version = "0.61.1+0"
 
-[[deps.libaec_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl"]
-git-tree-sha1 = "f5733a5a9047722470b95a81e1b172383971105c"
-uuid = "477f73a3-ac25-53e9-8cc3-50b2fa2566f0"
-version = "1.1.3+0"
-
 [[deps.libaom_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "522c1df09d05a71785765d19c9524661234738e9"
@@ -1636,12 +1297,6 @@ git-tree-sha1 = "490376214c4721cdaca654041f635213c6165cb3"
 uuid = "f27f6e37-5d2b-51aa-960f-b287f2bc3b7a"
 version = "1.3.7+2"
 
-[[deps.libzip_jll]]
-deps = ["Artifacts", "Bzip2_jll", "JLLWrappers", "Libdl", "OpenSSL_jll", "XZ_jll", "Zlib_jll", "Zstd_jll"]
-git-tree-sha1 = "e797fa066eba69f4c0585ffbd81bc780b5118ce2"
-uuid = "337d8026-41b4-5cde-a456-74a10e5b31d1"
-version = "1.11.2+2"
-
 [[deps.mtdev_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "b4d631fd51f2e9cdd93724ae25b2efc198b059b1"
@@ -1678,35 +1333,17 @@ version = "1.8.1+0"
 """
 
 # ╔═╡ Cell order:
-# ╠═8faca87b-24cf-4fda-bf98-404c8d5fa8c6
-# ╠═edb0179b-7e0f-480c-8460-0104c6f3342e
-# ╠═6a92804a-4d15-402c-9bc4-20701c2b16a0
-# ╠═b35cf81a-5395-4992-84c3-2d6a91ab8f5b
-# ╟─ed6f0dfc-56d6-4691-885d-769b9c808ecf
-# ╠═212f45c9-c805-4ce8-a46c-312e9e155804
-# ╟─6aea3586-cbca-474b-b6ad-6958f7c8a2fc
-# ╠═3fa2cc53-33e4-45b4-b6e0-ced89d56d19c
-# ╟─79601782-a348-45bc-a09b-3fda7b8f90f9
-# ╠═2b2c2d81-678a-4037-8374-163dc1cf284a
-# ╠═65f46cdf-4c5e-4060-8d93-717dd00c61ee
-# ╠═33689476-0762-44e6-be37-0dc7db904eba
-# ╠═56faa791-c220-420b-867b-c82dda49c145
-# ╠═3977349a-a4a0-4074-9ac6-83ea17bf8efb
-# ╠═7298be8b-a94a-4e88-a246-7fb516835d57
-# ╟─ba9d823b-3b7e-4e79-aff0-27cd2da07c14
-# ╟─4c8408fe-b7cc-4529-8314-3b1735288742
-# ╟─fbc5458a-4870-4b87-ad4b-60dbd01fe9a0
-# ╟─018f277b-60a4-4d69-b5d9-c6fb935be599
-# ╠═f1693242-261e-4f3e-961a-990e717d226b
-# ╟─23771c4a-5d20-45db-8836-df40f3dee07c
-# ╟─2a97c39e-5569-4789-96ce-837e830b4700
-# ╠═60ff827d-bffa-4210-aeda-fd21691dd8c8
-# ╠═33ccc904-a3e0-488e-b6c0-dacfeaa68e4a
-# ╠═1107134a-bed4-4721-bc46-90400eb50a1f
-# ╠═d13c371a-d91b-4f24-884c-c7f58cbb0235
-# ╠═099ec820-188b-48b7-9d1f-27d132b36070
-# ╟─c3ab4b27-6f9c-4b95-b7d6-96fb6eb368a9
-# ╠═77596640-8708-42f3-9d21-06c472493529
-# ╠═ffb9408c-9e70-4e0b-93f8-4de3cf4b2f0d
+# ╟─596063f4-8c47-11f0-0c76-7f85f4a18593
+# ╠═b7a90231-6393-45aa-b14e-1a4696387372
+# ╠═a307a612-0541-4eb1-9de1-bd43f771a507
+# ╠═0e927426-0248-479d-998a-4fc38b0a2f36
+# ╠═622412e7-4428-4173-a7c0-76306b1650c2
+# ╟─e6c595b0-1ec1-4287-ba4d-6e6766eda3da
+# ╠═d83dc44e-2f57-4b6e-bb6b-871b768d7368
+# ╟─5563c3b1-3f45-4f0f-9aeb-e7e0110dc36a
+# ╟─7d71c404-1675-4f3d-9af8-8e58501bf901
+# ╟─2b9e4c9b-f2fc-432f-a2ed-079e734f3814
+# ╠═7fbe0356-e02d-434d-8b52-d74b12fe4556
+# ╠═32ded14b-1331-4144-a1ee-9b9b9f776e87
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

@@ -6,4 +6,5 @@
     - v2.1:
         Add Gaussian-shaped SIF (bug detected: Wrong Legendre Polynomials)
     - v2.2:
-        Try "baseline fitting": retrieval outside of SIF range (similar idea as nFLH)
+        2025-Aug-26: Try "baseline fitting": retrieval outside of SIF range (similar idea as nFLH)
+        2025-Aug-28: Correction to the scaling of transmittance spectrum (Now use baseline band and force it to 1)

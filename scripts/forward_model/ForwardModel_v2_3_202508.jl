@@ -4,35 +4,33 @@
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ 99ff878a-6e71-11f0-17ed-b7ac188e90b8
+# ╔═╡ 882b69f8-b302-4149-9161-91eadc453794
 import Pkg; Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE");
 
-# ╔═╡ 04c805e7-45b5-4878-b288-0cf1d02d31fc
+# ╔═╡ 8e511790-d862-497a-83c4-63daed596bba
 using Polynomials, ForwardDiff, DiffResults, Plots, LinearAlgebra, DelimitedFiles, NCDatasets, Statistics
 
-# ╔═╡ 0b112f15-6cc7-4f02-849e-e0ef8a71b639
+# ╔═╡ 6cbac1ab-f709-4f7c-8c38-d5eed2ae8bdc
 using LegendrePolynomials
 
-# ╔═╡ 922ddadd-a129-406d-9de6-892899786e73
+# ╔═╡ 9d6fdf32-a70e-41cb-b66e-c44b7954467f
 using Parameters
 
-# ╔═╡ 3a475f5d-b7f2-4dad-9335-82b6bf6e368b
-using NonlinearSolve, BenchmarkTools
+# ╔═╡ 8daf61c0-1ae8-4a53-af13-231c18ffb86f
+include("../../PACE_SIF.jl")
 
-# ╔═╡ 0ec3629f-0278-42b1-8ab8-f399d4d4f216
-include("/home/zhe2/FraLab/PACE_redSIF_PACE/PACE_SIF.jl")
-
-# ╔═╡ 857eaa38-cc95-42d7-82f6-853ffa39dfe6
+# ╔═╡ 783f3b03-4a15-4169-bf1b-1bc01338a853
 md"""
-> ## "Baseline fit: bypass O2 B-band and SIF"
+> #### Add a Gaussian-shaped Chl absorption (actually transmittance considering backscattering)
+![Chl absorption spectra](https://www.oceanopticsbook.info/packages/iws_l2h/conversion/files/a_phyt_species.png)
 """
 
-# ╔═╡ 05837924-482b-4564-a770-3544f736889b
+# ╔═╡ fcfca6d1-715d-4a68-a132-4a6a6dbeb091
 md"""
 > #### Load transmittance spectra and do SVD
 """
 
-# ╔═╡ 379babe3-7d99-431b-b5db-499ee9b5b406
+# ╔═╡ 49a138de-74de-4795-b94a-3a0167ebbb33
 begin
 	summer = Dataset("/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc");
 	winter = Dataset("/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_winter_FineWvResModel_FullRange_Aug01.nc");
@@ -52,39 +50,40 @@ begin
 	close(winter);
 end
 
-# ╔═╡ 3ac1d3eb-a22b-441c-8343-062f1d733779
-bands
+# ╔═╡ 70299897-5cbf-401d-b960-196cbbaeef83
+a = mean(trans, dims=1)
 
-# ╔═╡ 6f24e4fe-94b5-45bd-bf46-a98a0fdbaf48
+# ╔═╡ dad78a91-8378-4ec2-91bf-b36bb9ad1f66
+bands[a[:] .> 0.999]
+
+# ╔═╡ bafee797-8ac2-4132-ad6b-b429bf0ffd41
 begin
-	λ_min = 610.;
+	λ_min = 620.;
 	λ_max = 860.;
 	# get principal components, variance explained by each component (normalized to 100%), and spatial loading
 	HighResSVD = PACE_SIF.Spectral_SVD(trans, bands, λ_min=λ_min, λ_max=λ_max);
 end
 
-# ╔═╡ 401b62ff-9966-40b7-ac5d-ed5d704ddda3
+# ╔═╡ 597be477-0c29-409a-abee-e119a40f8a51
 mean(HighResSVD.PrinComp[:,1:4], dims=1)
 
-# ╔═╡ 0ccf2db1-9080-4d29-bfc7-11dffa706f62
+# ╔═╡ 72e10087-daa4-4d15-b40d-7a149feeefb3
 md"""
 > ##### sample data from PACE-OCI
 """
 
-# ╔═╡ a42bd26f-46d5-44a4-81d8-7788899b95bc
+# ╔═╡ 94ae14de-c80b-4181-b12b-808ef37e574a
 begin
 	oci = Dataset(
 		"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample_granule_20250501T183011_new.nc");
-	pixel  = 471;  # cross-track
-	scan   = 899;
+	pixel  = 244;  # cross-track
+	scan   = 16;
 	red_band = oci["red_wavelength"][:];
 	# red_band = oci["red_bands"][:];
 	# cloud    = oci["cloud_flag_dilated"][:, :];
 	nflh     = oci["nflh"][:, :];
-end
+	println("Read in Dataset")
 
-# ╔═╡ cc1acba5-d114-4579-a64f-8546c2df40b1
-begin
 	# select band (continuum spectrum)
 	ind      = findall( λ_min .< red_band .< λ_max );
 	E        = oci["red_solar_irradiance"][ind];
@@ -101,44 +100,47 @@ begin
 	close(oci)
 end
 
-# ╔═╡ 672286a7-5b44-49f3-8098-9371f5928826
-begin
-	# select fitting band
-	λ_left  = 670.;
-	λ_right = 710.;
-	ind_fit = findall( ( oci_band .< λ_left) .| (λ_right .< oci_band) );
-	oci_band_fit = oci_band[ind_fit];
-	R_TOA_fit    = R_TOA[ind_fit];
-end
-
-# ╔═╡ f80f7a81-000a-4784-9d10-713406303102
+# ╔═╡ edeeeb48-d711-493f-b720-529456d6e40c
 begin
 	p1 = plot(oci_band, R_TOA, size=(500, 300), label="obs");
-	scatter!(p1, oci_band_fit, R_TOA_fit, label="fitting band (TBD)", markersize=1.5);
+	# scatter!(p1, oci_band, R_TOA_fit, label="fitting band (TBD)", markersize=1.5);
 
 	p2 = plot(oci_band, E, size=(500, 300), label="obs");
-	scatter!(p2, oci_band_fit, E[ind_fit], label="solar irr.", markersize=1.5)
+	# scatter!(p2, oci_band_fit, E[ind_fit], label="solar irr.", markersize=1.5)
 
 	plot(p1, p2, layout=(2, 1))
 	ylabel!("W/m2/µm/sr")
 end
 
-# ╔═╡ acacde64-9957-409d-ae67-428d13428e9d
+# ╔═╡ 3f6749aa-bbc2-4437-bc1c-e9f2db087677
 begin
 	# the PCs look like:
-	plot(oci_band, HighResSVD.PrinComp[:,1:4], size=(500, 200))
+	plot(oci_band, HighResSVD.PrinComp[:,1:3], size=(500, 200))
 	title!("eigen vectors")
 end
 
-# ╔═╡ 0d68673e-5d07-4703-96f6-d1a4ef919f0e
-findall(coalesce.(nflh .> 1., false))
+# ╔═╡ 19b01b03-2245-4b97-9319-fba76795c927
+HighResSVD.VarExp
 
-# ╔═╡ 063343a5-5879-4cb7-91ad-5068fe0b33d2
+# ╔═╡ 0431db0e-81b8-4e03-90ab-d3a0c65ebc59
+findall(coalesce.((nflh .> .3) .& (nflh .< .4), false))
+
+# ╔═╡ cf4b298d-d68b-4e5e-810e-f74ad37d02c1
 md"""
-> ##### SNR -> measurement covariance matrix $S_{\epsilon}$
+> ##### Forward model: Start with polynomial fit +Transmittance
+$$\rho_{s}=\sum{a_jP_j},\ T(\lambda)=\sum{\beta_i P_i}$$
+
+$$R_{TOA}=\frac{E(\lambda)cos(SZA)\rho_s(\lambda)T(\lambda)}{\pi}$$
+ $T(\lambda)$ is set to have a maximum of 1.
+
 """
 
-# ╔═╡ 466c6800-dd8d-4b11-b33b-bff17dfcf387
+# ╔═╡ 577d4731-9120-491a-ba11-75f504fd0c6b
+md"""
+🟢 $S_{\epsilon}$ and Sa
+"""
+
+# ╔═╡ 4a9c1228-5ef9-4a6e-a1a4-922cdb2d9f45
 begin
 	filename = raw"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt";
 	lines = readlines(filename);
@@ -150,38 +152,27 @@ begin
 	c1    = parse.(Float64, data[:, 4]);  # 4th column: c1
 	c2    = parse.(Float64, data[:, 5]);  # 5th column: c2
 
-	wv_val  = (λ_min .< wvlen .< λ_left) .| (λ_right .< wvlen .< λ_max);
+	wv_val  = (λ_min .< wvlen .< λ_max);
 	snr_ind = findall((FPA .== "Red") .& wv_val);
 
 	# to make sure I use the right wvlen
-	@show wvlen[snr_ind]
+	# @show wvlen[snr_ind]
 	
 	# see instruction in .txt file
-	noise   = sqrt.( c1[snr_ind] .+ c2[snr_ind] .* R_TOA_fit);
+	noise   = sqrt.( c1[snr_ind] .+ c2[snr_ind] .* R_TOA);
 	Se      = Diagonal(noise.^2);
+	println("Get measurement error from PACE SNR file.")
 end
 
-# ╔═╡ 3c5964a2-c1e5-4dff-9932-5db894771191
-begin
-	# compare to make sure wavelengths are consistent
-	scatter(oci_band_fit, wvlen[snr_ind], label="fit wv", size=(300, 300))
-	plot!([610, 850], [610, 850], label="1:1")
-end
-
-# ╔═╡ 434ee765-087e-456a-9696-2ba87fa3c5f3
+# ╔═╡ 24018a70-e6ba-406d-b4db-e848e00aed4a
 md"""
-> ##### Start with polynomial fit +Transmittance
-$$\rho_{s}=\sum{a_jP_j}$$
-$$R_{TOA}=\frac{E(\lambda)cos(SZA)\rho_s(\lambda)T(\lambda)}{\pi}$$
- $T(\lambda)$ is set to have a maximum of 1.
+🟢 Surface reflectance
+
+
+For polynomial term, the argument needs to satisfy -1 <= x <= 1.
 """
 
-# ╔═╡ 40253fb3-981f-4c2d-9f43-ce1c802fc6ef
-md"""
-🟢 For polynomial term, the argument needs to satisfy -1 <= x <= 1.
-"""
-
-# ╔═╡ 9dcc1616-91d6-45d8-9873-2c449b6e321e
+# ╔═╡ 5aaf56d2-194e-4752-a620-007deafeaa01
 function center_wavelength(λ)
 	# get the range and medium of λ and center it to [0,1]
 	λ_max = ceil(maximum(λ));
@@ -193,75 +184,74 @@ function center_wavelength(λ)
 	return λc
 end
 
-# ╔═╡ ab74fe0c-cfa8-45fc-b4fd-8fea3f93c51b
+# ╔═╡ 49b1186d-7fb4-4fa8-843f-57e7c5f1d2c6
+λc = center_wavelength(oci_band)
 
+# ╔═╡ 8d980f1d-a327-4bb4-be18-f8830202a4ce
+md"""
+🟢 Transmittance
+"""
 
-# ╔═╡ e59a4998-c578-42c3-b4e8-61585544f69b
+# ╔═╡ 56e0071f-196f-4931-9d49-962d901a67e7
+function scale_transmittance(T, λ_bl_ind)
+	# find max
+	T_abs = abs.(T)
+	bl_max = maximum(T_abs[λ_bl_ind]);
+	# force the mean val to be 1
+	T_norm = T_abs ./ bl_max
+	return T_norm
+end
+
+# ╔═╡ 95e76e2f-9653-40d8-a23b-66b700b02db9
+md"""
+🟠 to scale the transmittance, I calculated the average of all trans. spectra, choosing bands where the mean trans. consistently > 0.999.
+
+previously, I got from oci_band[sortperm(abs.(m1.K[:,6]))]. 
+
+This was used to rescale the transmittance spectra
+"""
+
+# ╔═╡ 19ec88d2-648f-4603-9540-89b2c4a706e4
 begin
-	# number of polynormial terms and PCs used
-	n = 5; nPC = 15;
-	# inital guess 
-	λc    = center_wavelength(oci_band_fit)
-	K     = E[ind_fit] .* cosd(sza) ./ pi .* hcat(collectPl.(λc, lmax=n)...)';
-	G     = inv( K'inv(Se)K )K'inv(Se);
-	x̂     = G * R_TOA_fit;
-	ŷ     = K * x̂;
+	bl_wvlen = [668.265, 669.518, 670.755, 671.99, 673.245, 674.505, 675.73, 676.962, 678.205, 679.445, 680.68, 751.79, 753.04, 754.295, 776.832, 779.335, 867.115, 869.615, 872.13];
+	# [610.36, 612.732, 615.145, 617.605, 620.06, 622.53, 668.265, 669.518, 670.755, 671.99, 673.245, 674.505, 675.73, 676.962, 678.205, 679.445, 680.68, 751.79, 753.04, 754.295, 776.832, 779.335, 867.115, 869.615, 872.13];
+	# this is the least sensitive band
+	# [801.883, 734.272, 668.246, 667.007, 736.77, 804.388, 669.486, 731.768, 665.766, 799.374, 847.038]
+
+	# this is baseline band for Rrs
+	# bl_wvlen = [649.599976, 650.900024, 652.099976, 653.299988, 654.599976, 655.799988, 657.099976, 658.299988, 659.599976, 710.500000, 711.799988, 713.000000, 714.299988, 716.799988, 719.200012]
+	λ_bl_ind = map(bl_wvlen -> argmin(abs.(oci_band .- bl_wvlen)), bl_wvlen);
+	oci_band[λ_bl_ind]
 end
 
-# ╔═╡ c4d3782c-f85d-492e-a805-61d6f98fb657
-function forward_model1(
-			x; 
-			λ = oci_band,     # wavelength range
-			nPoly::Int = n,   # degree of polynomials
-			nPC::Int   = nPC,   # number of eigen vectors used
-			trans_mat  = HighResSVD.PrinComp[:, 1:nPC],
-			sza        = sza,
-			vza        = vza,
-			E          = E,
-		)
-	
-	# adjust to [-1,1]
-	λc    = center_wavelength(λ)
-	v     = collectPl.(λc, lmax=nPoly);
-	# reflectance
-	rho   = hcat(v...)' * x[1 : nPoly+1];
-	# transmittance
-	T     = trans_mat * x[(nPoly+2):(nPoly+nPC+1)];
-	T_min = minimum(T);
-	T_max = maximum(T);
-	factor = maximum(abs.([T_min, T_max]))
-	T_norm = abs.(T) / factor
-	# TOA radiance
-	rad    = E .* cosd(sza) ./ pi .* T_norm .* rho
-	return rad
+# ╔═╡ d0816873-8573-4d19-bbc9-ba26ecabf147
+md"""
+🟢 Jacobian
+"""
+
+# ╔═╡ 8799c188-7aa7-4e35-b770-0e89fce160d1
+function Jacobian(x, model; len=length(oci_band))
+	res = DiffResults.JacobianResult(zeros(len), x);
+	ForwardDiff.jacobian!(res, model, x);
+	K   = DiffResults.jacobian(res);
+	val = DiffResults.value(res);
+	return K, val
 end
 
+# ╔═╡ 9c791f97-782d-4dd2-8978-ae29398aac51
+md"""
+🟢 Gain Matrix
+"""
 
-# ╔═╡ 407cf364-32c6-4d9f-9596-6a04bbd5a588
-begin
-	# wrap the func
-	forward_model1_wrap = x -> forward_model1(x,
-		λ = oci_band_fit, 
-		nPoly = n, 
-		trans_mat = HighResSVD.PrinComp[ind_fit, 1:nPC],
-		E = E[ind_fit],
-	)
-end
+# ╔═╡ 4756d0d2-0855-4267-af76-9eec3935602a
+md"""
+🟢 Forward model
+"""
 
-# ╔═╡ d5cfaed6-0063-4649-83da-a64727487741
-begin
-	tmp  = zeros(nPC-2) .+ .001;
-	xa   = [x̂... -6. .05 tmp...]';
-	rad  = forward_model1_wrap(xa);
-	plot(oci_band, R_TOA, size=(500, 200), label="obs.")
-	scatter!(oci_band_fit, rad, 
-			 label="initial guess, n=$n, nPC=$nPC",
-		     markersize=1.5
-	)
-	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
-end
+# ╔═╡ b93b300e-bbd5-4374-aacf-2e015a3d32d6
+n = 5; nPC = 15;
 
-# ╔═╡ 3cb579f3-c9c4-48b3-997d-967f4e1df546
+# ╔═╡ adc4d73e-8b36-48c6-be65-9822e71c9baa
 begin
 	# define priori error matrix
 	# priori cov
@@ -275,29 +265,46 @@ begin
 	for i=(n+2):(n+nPC+1)
 	    Sa[i,i] = rel_error .* HighResSVD.VarExp[i - (n+1)];
 	end
-	Sa
+	println("Get prior error covariance")
 end
 
-# ╔═╡ d0cbf663-ac73-413a-951c-f99bf8d2cd8d
-md"""
-🟢 defining functions to calculate Jacobian, gain matrix and do the iteration
-"""
-
-# ╔═╡ dd2cd8cb-ed9e-4b6b-af99-59fe26809d39
-function Jacobian(x, model; len=length(oci_band))
-	res = DiffResults.JacobianResult(zeros(len), x);
-	ForwardDiff.jacobian!(res, model, x);
-	K   = DiffResults.jacobian(res);
-	val = DiffResults.value(res);
-	return K, val
-end
-
-# ╔═╡ 7dcb675f-fd35-46ed-ba58-82df3d68627b
+# ╔═╡ 2df8cd2d-a9e6-41cc-9499-24f506c2ed03
 function GainMatrix(K; Se=Se, Sa=Sa)
 	return inv( K'inv(Se)K + inv(Sa) )K'inv(Se)
 end
 
-# ╔═╡ 3923d033-4639-43a3-a693-8d77c04dd186
+# ╔═╡ 2b1ce2d9-d232-4d29-a87e-596c30d332bb
+function forward_model1(
+			x; 
+			λ = oci_band,     # wavelength range
+			nPoly::Int = n,   # degree of polynomials
+			nPC::Int   = nPC,   # number of eigen vectors used
+			trans_mat  = HighResSVD.PrinComp[:, 1:nPC],
+			sza        = sza,
+			vza        = vza,
+			E          = E,
+			λc         = λc,
+			λ_bl_ind   = λ_bl_ind
+		)
+	
+	# adjust to [-1,1]
+	v     = collectPl.(λc, lmax=nPoly);
+	# reflectance
+	rho   = hcat(v...)' * x[1 : nPoly+1];
+	# transmittance
+	T      = trans_mat * x[(nPoly+2):(nPoly+nPC+1)];
+	T_norm = scale_transmittance(T, λ_bl_ind);
+	# TOA radiance
+	rad    = E .* cosd(sza) ./ pi .* T_norm .* rho
+	return rad
+end
+
+# ╔═╡ f5a3084c-cc48-48f3-99e1-fb568a9aeab6
+md"""
+> ##### Retrieval: xa + iteration
+"""
+
+# ╔═╡ a2d146df-127b-414d-bb3c-2182da643b15
 @with_kw struct retrieval
     x    # state vector
 	y_x  # value evaluated at x
@@ -306,13 +313,18 @@ end
 	A = G*K                   # averaging kernel
 end;
 
-# ╔═╡ a512b192-5d5e-4688-8b84-f0bc27aa18e7
+# ╔═╡ dc55c80b-fcb8-46e4-a35a-dd1327ba922f
+md"""
+🟢 Iteration
+"""
+
+# ╔═╡ 020a0a6d-fdfa-4a21-852e-998d95e27300
 function iter(
 		m ::retrieval,   # retrieval of last iteration
 		xa,              # priori
-	    rad; 
+	    R_msr; 
 		Sa    = Sa,      # measurements
-		model = forward_model1_wrap
+		model = x -> forward_model1(x)
 	)
 	
 	# get results from last iteration x̂ₙ, note that K and y are evaluated at x̂ₙ
@@ -320,12 +332,12 @@ function iter(
 	Kn     = m.K
 	yn     = m.y_x
 	G      = m.G
-	x̂      = xa .+ G * (rad .- yn .+ Kn * (xn .- xa));
-	K_n1, y_n1 = Jacobian(x̂, model, len=length(rad));
+	x_n1   = xa .+ G * (R_msr .- yn .+ Kn * (xn .- xa));
+	K_n1, y_n1 = Jacobian(x_n1, model);
 
 	# update 
 	m_new  = retrieval(
-		x   = x̂,
+		x   = x_n1,
 		y_x = y_n1,
 		K   = K_n1,
 		G   = GainMatrix(K_n1, Sa=Sa)
@@ -333,218 +345,523 @@ function iter(
 	return m_new
 end
 
-# ╔═╡ 93c48028-a4bb-4d6d-9bc4-85749a675793
-md"""
-> ##### first iter.
-"""
+# ╔═╡ f9f0752c-d19d-4858-aba6-f315336093fa
+begin
+	K     = E .* cosd(sza) ./ pi .* hcat(collectPl.(λc, lmax=n)...)';
+	G     = inv( K'inv(Se)K )K'inv(Se);
+	x̂     = G * R_TOA;
+	ŷ     = K * x̂;
+	tmp   = zeros(nPC-2) .+ .001;
+	xa    = [x̂... -10. 0.1 tmp...]';
+	rad   = forward_model1(xa, nPoly=n);
+	plot(oci_band, R_TOA, size=(500, 200), label="obs.")
+	plot!(oci_band, rad, label="initial guess, n=$n, nPC=$nPC")
+	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
+end
 
-# ╔═╡ bdcc5bf7-7ab0-43a2-8710-09b4b4366b1a
+# ╔═╡ 123f5138-3d38-4764-8c9a-7f06cc2c8d10
 begin
 	# start from xa
-	Ka, ya = Jacobian(xa, forward_model1_wrap, len=length(oci_band_fit))
-	ma = retrieval(x=xa, y_x=ya, K=Ka)
+	Ka, ya = Jacobian(xa, x -> forward_model1(x))
+	ma = retrieval(x=xa, y_x=ya, K=Ka, G=GainMatrix(Ka, Sa=Sa))
 end
 
-# ╔═╡ b621fa58-9f13-48a2-9144-b3a3cb5292ac
+# ╔═╡ 2477de81-b60f-4157-817f-881aad0329b5
 begin
-	# 1st iteration
-	m1 = iter(ma, xa, R_TOA_fit, Sa=Sa);
-	plot(oci_band, R_TOA, size=(500, 200), label="obs.", linewidth=4, linestyle=:dash, color=:black)
-	scatter!(oci_band_fit, ma.y_x, label="initial guess, n=$n", markersize=1.5)
-	scatter!(oci_band_fit, m1.y_x, label="iter#1, n=$n", markersize=1.5)
-	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
+	T_try = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * ma.x[(n+2):(n+nPC+1)], λ_bl_ind);
+
+	plot(oci_band, T_try, size=(600, 200))
+	scatter!(oci_band[λ_bl_ind], T_try[λ_bl_ind], markersize=2.5, label="ref pts to scale the spectra")
 end
 
-# ╔═╡ e9bc8ce0-14a1-4cbe-9df0-c5b5098ecede
-md"""
-> ##### The trick here is to believe (close-to) linear fit out side of SIF/O$_2$ B-Band, and recover the O$_2$ absorption within the band
-"""
-
-# ╔═╡ 7b0a281d-daaa-4aaa-a001-12be469225f9
-md"""
-🟢 recover transmittance
-"""
-
-# ╔═╡ c17a958d-fec3-445a-ba1f-59f65ad63af6
+# ╔═╡ 39beb5af-e208-4adf-ab40-1e21fe474c86
 begin
-	T1     = HighResSVD.PrinComp[:, 1:nPC] * m1.x[(n+2):(n+nPC+1)];
-	T1_min = minimum(T1);
-	T1_max = maximum(T1);
-	factor1 = maximum(abs.([T1_min, T1_max]))
-	T1_norm = abs.(T1) / factor1
-	# @show T1_norm
+	results_history = []
+	push!(results_history, (iteration=0, result_val=ma))
+	for i = 1:15
+		m  = iter(results_history[i].result_val, xa, R_TOA,
+			      Sa=Sa, model=x->forward_model1(x));
+		println("Current iteration $(i)")
+		# push 
+		push!(results_history, (iteration=i, result_val=m))
+	end
+end
 
-	plot(oci_band, T1_norm, size=(500, 200), label="iter#1")
+# ╔═╡ f7226689-993f-47dc-afc8-9bd1768aee50
+begin
+	p11 = plot(oci_band, R_TOA,
+		size=(600, 250),
+		label="Observed",
+		linewidth=3,
+		linestyle=:dash,
+		color=:black,
+		# xlabel="Wavelength [nm]",
+		ylabel="W/m²/µm/sr",
+		title="Top of Atmosphere Radiance",
+		titlefontsize=10,
+		xlabelfontsize=10,
+		ylabelfontsize=10,
+		legend=:outerright,
+		# top_margin=5Plots.mm,
+		# bottom_margin=5Plots.mm,
+		left_margin=5Plots.mm,
+		# dpi=400,
+	)
+	plot!(p11, oci_band, ma.y_x, label="Initial guess", linewidth=2)
+	plot!(p11, oci_band, results_history[1].result_val.y_x,
+		  label="iter#1", linewidth=1.5, color=:peru)
+	plot!(p11, oci_band, results_history[14].result_val.y_x,
+		  label="iter#14", linewidth=1.5, color=:blue)
+	plot!(p11, oci_band, results_history[15].result_val.y_x,
+		  label="iter#15", linewidth=1.5, color=:green)
 	
+	# title!("Observed & Retrieved Radiance\n degree of polynomial=$n, number of PC=$nPC", titlefont=8)
+
+
+	# savefig(p, "../../demo_example/Figures/NullRetrieval.png")
 end
 
-# ╔═╡ 97672495-e0b1-4952-9f84-a26e926c7235
+# ╔═╡ 4a087376-12e9-47c8-8c17-6296a60510d9
+begin
+	v     = collectPl.(λc, lmax=n);
+	rho_a = hcat(v...)' * ma.x[1 : n+1];
+	rho_1 = hcat(v...)' * results_history[1].result_val.x[1 : n+1];
+	rho_14 = hcat(v...)' * results_history[14].result_val.x[1 : n+1];
+	rho_15 = hcat(v...)' * results_history[15].result_val.x[1 : n+1];
+
+	# plot(oci_band, R_TOA, size=(600, 200), label="obs.", linewidth=4, linestyle=:dash, color=:black)
+	plot(oci_band, rho_a, label="initial guess", linewidth=1, size=(600, 200))
+	plot!(oci_band, rho_1, label="iter#1", linewidth=1)
+	plot!(oci_band, rho_14, label="iter#14", linewidth=1)
+	plot!(oci_band, rho_15, label="iter#15", linewidth=1)
+	title!("Reconstructed Surface Reflectance (W/m2/µm/sr), n=$n, nPC=$nPC", titlefont=10)
+end
+
+# ╔═╡ 882e041e-2b15-4784-85be-790785fbfa16
+begin
+	T1 = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * results_history[1].result_val.x[(n+2):(n+nPC+1)], λ_bl_ind);
+	T2 = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * results_history[14].result_val.x[(n+2):(n+nPC+1)], λ_bl_ind);
+	T3 = scale_transmittance(HighResSVD.PrinComp[:, 1:nPC] * results_history[15].result_val.x[(n+2):(n+nPC+1)], λ_bl_ind);
+
+	plot(oci_band, T1, label="iter#1", size=(600, 200))
+	plot!(oci_band, T2, label="iter#14")
+	plot!(oci_band, T3, label="iter#15")
+
+	title!("Reconstructed Transmittance Spectra")
+end
+
+# ╔═╡ dd532004-54dc-45c0-a462-2a17c43d75fc
+begin
+	# plot(oci_band, R_TOA .- ma.y_x, size=(600, 200), label="initial guess", linewidth=2)
+	p12 = plot(oci_band, R_TOA .- results_history[1].result_val.y_x,
+		label="iter#1",
+		linewidth=1, size=(800, 250),
+		xlabel="[nm]",
+		ylabel="W/m²/µm/sr",
+		title="Residual",
+		titlefontsize=10,
+		xlabelfontsize=10,
+		ylabelfontsize=10,
+		# top_margin=5Plots.mm,
+		bottom_margin=5Plots.mm,
+		left_margin=5Plots.mm,
+		legend=:outerright,
+		color=:peru,
+		dpi=400,
+	)
+	plot!(p12, oci_band, R_TOA .- results_history[12].result_val.y_x, label="iter#12", linewidth=1.5, color=:coral)
+	plot!(p12, oci_band, R_TOA .- results_history[14].result_val.y_x, label="iter#14", linewidth=1.5, color=:blue)
+	plot!(p12, oci_band, R_TOA .- results_history[15].result_val.y_x, label="iter#15", linewidth=1.5, color=:green)
+	# plot!(oci_band, R_TOA .- m10.y_x, label="iter#10", linewidth=1)
+	# vline!([683.], label="683 nm")
+	# title!("Residual", titlefont=15)
+
+	# savefig("Residual_NullFit.png")
+end
+
+# ╔═╡ d91fdc59-af9a-4a49-946a-6a5060536e62
+begin
+	# plot(oci_band, R_TOA .- ma.y_x, size=(600, 200), label="initial guess", linewidth=2)
+	p13 = plot(oci_band, (R_TOA .- results_history[1].result_val.y_x) ./ R_TOA,
+		label="iter#1",
+		linewidth=1, size=(800, 250),
+		xlabel="[nm]",
+		ylabel="Rel.",
+		title="Residual",
+		titlefontsize=10,
+		xlabelfontsize=10,
+		ylabelfontsize=10,
+		# top_margin=5Plots.mm,
+		bottom_margin=5Plots.mm,
+		left_margin=5Plots.mm,
+		legend=:outerright,
+		color=:peru,
+		dpi=400,
+	)
+	plot!(p13, oci_band, (R_TOA .- results_history[12].result_val.y_x) ./ R_TOA, label="iter#12", linewidth=1.5, color=:coral)
+	plot!(p13, oci_band, (R_TOA .- results_history[14].result_val.y_x) ./ R_TOA, label="iter#14", linewidth=1.5, color=:blue)
+	plot!(p13, oci_band, (R_TOA .- results_history[15].result_val.y_x) ./ R_TOA, label="iter#15", linewidth=1.5, color=:green)
+	# plot!(oci_band, R_TOA .- m10.y_x, label="iter#10", linewidth=1)
+	# vline!([683.], label="683 nm")
+	title!(p13, "Rel. Residual", titlefont=15)
+
+	# savefig("Residual_NullFit.png")
+end
+
+# ╔═╡ 146a6efb-f8ba-4423-90da-0f37dcb6f6cf
+results_history[15].result_val.x
+
+# ╔═╡ 187093c8-fb6f-4afa-8497-13a1173a88db
 md"""
-🟣 reflectance
+> ##### Add SIF with designated shape and peak wavelength
+$$\rho_{s}=\sum{a_jP_j}$$
+$$R_{TOA}=\frac{E(\lambda)cos(SZA)\rho_s(\lambda)T_{\downarrow\uparrow}(\lambda)}{\pi} + SIF(\lambda)T_{\uparrow}(\lambda)$$
+ $T_{\uparrow}(\lambda)$ is set to have a maximum of 1, and relates with $T_{\downarrow\uparrow}(\lambda)$ by:
+
+$$T_{\downarrow\uparrow}(\lambda)=exp(SVF \times ln(T_{\uparrow}(\lambda)))$$
+Where SVF is some solar/viewing zenith angle correction factor:
+
+$$SVF=\frac{Sec(SZA)+Sec(VZA)}{Sec(VZA)}$$
+
+Assuming a Gaussian shape of SIF emisison:
+
+$$SIF(\lambda)=Aexp(-\frac{(\lambda-\lambda_0)^2}{2\sigma^2})$$
+Where $\lambda_0=683$ is the peak wavelength and $\sigma=5$ (to be tuned).
 """
 
-# ╔═╡ 3d80255b-7409-4d8b-9fb7-b05ed286b18a
-begin
-	v1   = collectPl.(center_wavelength(oci_band), lmax=n);
-	rho1 = hcat(v1...)' * m1.x[1 : n+1];
-	plot(oci_band, rho1, label="iter#1 ρₜ", size=(500, 200))
-	title!("Total reflectance", titlefont=10)
-end
+# ╔═╡ 75b831fb-5f82-4c7e-a7fb-daa8ed15d7aa
 
-# ╔═╡ 0d03bf4e-64d7-4f52-b52c-8ad17a93157c
-# fit the full spectral range and get the residual
-spectra1 = forward_model1(m1.x); residual1 = R_TOA .- spectra1;
 
-# ╔═╡ aed98d25-2b7a-4755-bb5a-3acbd1bae0a4
-begin
-	# fit the full spectral range and get the residual
-	plot(oci_band, R_TOA, size=(500, 200), label="obs.", linewidth=4,
-		linestyle=:dash, color=:black)
-	plot!(oci_band, spectra1, label="iter#1, n=$n")
-	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
-end
+# ╔═╡ 12c0128b-28e6-4a5e-8da3-da2b7211bba8
 
-# ╔═╡ f8320953-b1b2-4954-8215-2fa6f27cb87e
-begin
-	plot(oci_band, residual1, label="iter#1, n=$n", size=(500, 200))
-	title!("Residual (W/m2/µm/sr)", titlefont=10)
-end
 
-# ╔═╡ 556e3e8b-aae5-4462-9aab-1f5c3f90c5a4
-md"""
-> ##### 2nd iter.
-"""
+# ╔═╡ 39469984-ef88-4a70-bbb6-a665fd51e0d1
 
-# ╔═╡ abb9b4e8-9c9c-4d82-8190-06ededcbfd52
-begin
-	# 2nd iteration
-	m2 = iter(m1, xa, R_TOA_fit);
-	plot(oci_band, R_TOA, size=(500, 200), label="obs.", linewidth=4, linestyle=:dash, color=:black)
-	scatter!(oci_band_fit, ma.y_x, label="initial guess, n=$n", markersize=1.5)
-	scatter!(oci_band_fit, m1.y_x, label="iter#1, n=$n", markersize=1.5)
-	scatter!(oci_band_fit, m2.y_x, label="iter#2, n=$n", markersize=1.5)
-	title!("TOA radiance (W/m2/µm/sr)", titlefont=10)
-end
 
-# ╔═╡ 2a4b61f9-328a-4e92-ae84-58bdda55dc74
-begin
-	T2     = HighResSVD.PrinComp[:, 1:nPC] * m2.x[(n+2):(n+nPC+1)];
-	T2_min = minimum(T2);
-	T2_max = maximum(T2);
-	factor2 = maximum(abs.([T2_min, T2_max]))
-	T2_norm = abs.(T2) / factor2
-	# @show T1_norm
-	
-	plot(oci_band, T1_norm, size=(500, 200), label="iter#1")
-	plot!(oci_band, T2_norm, label="iter#2")
-	title!("transmittance")
-end
+# ╔═╡ 2657b89e-7646-47ed-a800-a41f245dfe76
 
-# ╔═╡ 33a4a5b0-ae07-4536-9c45-a2043d136f9f
-begin
-	v2   = collectPl.(center_wavelength(oci_band), lmax=n);
-	rho2 = hcat(v2...)' * m2.x[1 : n+1];
-	plot(oci_band, rho1, label="iter#1 ρₜ", lw=2, size=(500, 200))
-	plot!(oci_band, rho2, label="iter#2 ρₜ")
-	title!("Total reflectance", titlefont=10)
-end
 
-# ╔═╡ 93b65f52-c5a5-4580-a64b-5a50a44208af
-begin
-	spectra2  = forward_model1(m2.x);
-	residual2 = R_TOA .- spectra2;
-	# resildual
-	plot(oci_band, residual1, size=(500, 200), label="residual, iter#1")
-	plot!(oci_band, residual2, label="residual, iter#2")
-	title!("Residuals", titlefont=10)
-end
+# ╔═╡ 04831ff7-0489-4cd5-aef8-56b01dc41ae5
 
-# ╔═╡ 20c699ed-4455-4a70-ae91-9e04a8e9f365
-md"""
-> ##### Reconstruct each component 
-"""
 
-# ╔═╡ 0ff68f72-cc18-415b-a7b9-b94d49ee74dd
-#=╠═╡
-begin
-	plot(oci_band, ma_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=ma_new.x[end-nSIF+2], σ=ma_new.x[end-nSIF+3]), label="initial guess (nFLH)", size=(500, 150))
-	plot!(oci_band, m1_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=m1_new.x[end-nSIF+2], σ=m1_new.x[end-nSIF+3]), label="iter#1")
-	plot!(oci_band, m2_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=m2_new.x[end-nSIF+2], σ=m2_new.x[end-nSIF+3]), label="iter#2")
-	plot!(oci_band, m3_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=m3_new.x[end-nSIF+2], σ=m3_new.x[end-nSIF+3]), label="iter#3")
-	plot!(oci_band, m4_new.x[end-nSIF+1] .* SIF_shape(oci_band, λ₀=m4_new.x[end-nSIF+2], σ=m4_new.x[end-nSIF+3]), label="iter#4")
-	title!("retrieved SIF")
-end
-  ╠═╡ =#
+# ╔═╡ 5c369951-3863-432c-8c97-6bc2937e4cb5
+
+
+# ╔═╡ e5abf37e-2937-467d-97f9-0d7d55523322
+
+
+# ╔═╡ 1fb84295-7cac-4103-945f-43d3f1748cf7
+
+
+# ╔═╡ d34cffcc-24f7-47ab-bea8-cfe645699ad0
+
+
+# ╔═╡ 6b06645b-9340-423b-8736-83e8c16e9794
+
+
+# ╔═╡ 51909fd0-cf26-4e8c-929a-2490aeed850b
+
+
+# ╔═╡ 3311fd3d-4552-45f4-8b02-8fffffbba97d
+
+
+# ╔═╡ dde7cf1f-0856-4671-bfc0-d277f69f2bfe
+
+
+# ╔═╡ 5398e782-7046-4904-9186-6b06b9b9101c
+
+
+# ╔═╡ d578fb7a-7204-4cd7-aa5b-75cf9de635b0
+
+
+# ╔═╡ 938018dd-9923-4677-a904-b01002587596
+
+
+# ╔═╡ a2d3ef4e-dc6f-4506-87dd-01af2412b7a6
+
+
+# ╔═╡ 5644bced-9475-4e94-b287-5cc3b6af0f32
+
+
+# ╔═╡ 33354c81-129c-41f5-9cef-2bb88239484c
+
+
+# ╔═╡ 4ff0b225-a432-429c-9b5b-eb5e70120d46
+
+
+# ╔═╡ 03c43815-b1d0-4b46-bb16-13f89ded8570
+
+
+# ╔═╡ 53f86a2e-5cb9-4d89-bd1d-fcdf6b3ae671
+
+
+# ╔═╡ bffaed6b-239d-4789-b211-a2f04a39c922
+
+
+# ╔═╡ f360e5f9-1949-4d17-85dd-0f329bc89a85
+
+
+# ╔═╡ f28b764f-7631-41e3-9a14-a6f0af855432
+
+
+# ╔═╡ 00f7bef7-866d-4e43-97a1-a68539c8d65a
+
+
+# ╔═╡ ec242bb5-ad9c-47a4-9003-30c4cc66bc31
+
+
+# ╔═╡ b65a660e-697b-4172-bd5d-a5268a698588
+
+
+# ╔═╡ 4b2800e4-3a16-4dee-8445-9dd5af3889b6
+
+
+# ╔═╡ 22153864-ce3d-4e23-9c91-a3605216ecbc
+
+
+# ╔═╡ 505d93b0-de73-4477-a343-99f04b570d24
+
+
+# ╔═╡ c11884ce-86db-4dc9-8cf7-f5f6fc62e726
+
+
+# ╔═╡ 16410d72-27c8-4486-b63e-1672fbf08379
+
+
+# ╔═╡ 1e186f7e-6180-4d26-9443-b135821418b6
+
+
+# ╔═╡ f5927565-56bc-4a78-8aee-e8082d5e793f
+
+
+# ╔═╡ 439dc428-445f-4852-9599-d014db6b7a48
+
+
+# ╔═╡ 21bfe19b-0ac1-4eb5-bb52-afe13bdc25e1
+
+
+# ╔═╡ ec9aabfb-55f8-4445-89e2-33c61ad514ce
+
+
+# ╔═╡ 781270e6-b8fe-4e0e-8003-09dad8a64ffb
+
+
+# ╔═╡ 171bf4e3-a944-4fee-a309-971219cde2e6
+
+
+# ╔═╡ f1dd70e1-e973-407a-807a-5a0d4f8d9d31
+
+
+# ╔═╡ f1cf59d2-c75c-486f-b625-ddf2fa6b178d
+
+
+# ╔═╡ c6d9dd98-8987-4de8-b2f5-92cc3472e63e
+
+
+# ╔═╡ 82527c07-a8df-46e0-822b-e5b4b118d1d4
+
+
+# ╔═╡ b6b5ba2f-e2bb-4517-b229-d8afb94b664c
+
+
+# ╔═╡ fa52b56b-0ed1-4cce-88f5-e927a22a6740
+
+
+# ╔═╡ 044c2e94-2a7e-40b9-b165-008171d89d93
+
+
+# ╔═╡ 2ac3f305-7640-4d1a-a430-82ae20e8eb49
+
+
+# ╔═╡ c1bad7f3-694b-4935-a8af-f9d26583556a
+
+
+# ╔═╡ cf71c986-5980-4a2f-90db-acee742df2d4
+
+
+# ╔═╡ 82fe3334-b060-4c25-a1f2-c488191ed05e
+
+
+# ╔═╡ 560def2a-2346-46e5-85cc-25630f1d352f
+
+
+# ╔═╡ 2d1ea09d-82c4-4f5f-b684-a28e3084d6c7
+
+
+# ╔═╡ c0232ab7-2e13-490c-a534-117548f20003
+
+
+# ╔═╡ 688980f3-35f2-4dde-8765-3cde4b984e7d
+
+
+# ╔═╡ e52c9e88-a39d-47a0-8559-521e71dbf7c4
+
+
+# ╔═╡ 0fcafeb5-774c-4b47-8d12-9f1c1a4c4651
+
+
+# ╔═╡ 2de4992d-bf0e-4f8d-bbfb-c92b1002e833
+
+
+# ╔═╡ 58288f8a-de66-4d06-9905-3a86076b6159
+
+
+# ╔═╡ 6d52f464-b558-4722-934c-62f7dd42ad08
+
+
+# ╔═╡ 8eecad64-5e90-4a8b-afd4-40d321ea8208
+
+
+# ╔═╡ 34b5454a-f49c-4f3e-9df2-cbf5f06709c0
+
+
+# ╔═╡ e76ca676-4ec1-4c3a-9177-596666f269ed
+
+
+# ╔═╡ 17e16d1d-ca46-4529-9241-0a66fdc52661
+
+
+# ╔═╡ e15baf76-2be6-4cdc-b68f-ded591feb9b3
+
+
+# ╔═╡ bb11382f-4b01-4b35-a578-6bc6f105024c
+
+
+# ╔═╡ 7c144dc1-71e1-4e85-856d-d21395ed8b8e
+
+
+# ╔═╡ 7176567e-ca03-4ec8-9b81-b8b2449ddf80
+
+
+# ╔═╡ 68eea47d-9623-4b3a-9de0-bb35934e94d9
+
+
+# ╔═╡ 95ff596b-25b9-4aa4-aa61-23b72553ac8e
+
+
+# ╔═╡ 31ca31d7-14eb-4b01-9ebb-b9c135fd7302
 
 
 # ╔═╡ Cell order:
-# ╟─857eaa38-cc95-42d7-82f6-853ffa39dfe6
-# ╠═99ff878a-6e71-11f0-17ed-b7ac188e90b8
-# ╠═04c805e7-45b5-4878-b288-0cf1d02d31fc
-# ╠═0b112f15-6cc7-4f02-849e-e0ef8a71b639
-# ╠═922ddadd-a129-406d-9de6-892899786e73
-# ╠═3a475f5d-b7f2-4dad-9335-82b6bf6e368b
-# ╠═0ec3629f-0278-42b1-8ab8-f399d4d4f216
-# ╟─05837924-482b-4564-a770-3544f736889b
-# ╠═379babe3-7d99-431b-b5db-499ee9b5b406
-# ╠═3ac1d3eb-a22b-441c-8343-062f1d733779
-# ╠═6f24e4fe-94b5-45bd-bf46-a98a0fdbaf48
-# ╠═401b62ff-9966-40b7-ac5d-ed5d704ddda3
-# ╟─0ccf2db1-9080-4d29-bfc7-11dffa706f62
-# ╠═a42bd26f-46d5-44a4-81d8-7788899b95bc
-# ╠═cc1acba5-d114-4579-a64f-8546c2df40b1
-# ╠═672286a7-5b44-49f3-8098-9371f5928826
-# ╟─f80f7a81-000a-4784-9d10-713406303102
-# ╟─acacde64-9957-409d-ae67-428d13428e9d
-# ╠═0d68673e-5d07-4703-96f6-d1a4ef919f0e
-# ╟─063343a5-5879-4cb7-91ad-5068fe0b33d2
-# ╠═466c6800-dd8d-4b11-b33b-bff17dfcf387
-# ╟─3c5964a2-c1e5-4dff-9932-5db894771191
-# ╟─434ee765-087e-456a-9696-2ba87fa3c5f3
-# ╠═40253fb3-981f-4c2d-9f43-ce1c802fc6ef
-# ╠═9dcc1616-91d6-45d8-9873-2c449b6e321e
-# ╠═ab74fe0c-cfa8-45fc-b4fd-8fea3f93c51b
-# ╠═e59a4998-c578-42c3-b4e8-61585544f69b
-# ╠═c4d3782c-f85d-492e-a805-61d6f98fb657
-# ╠═407cf364-32c6-4d9f-9596-6a04bbd5a588
-# ╠═d5cfaed6-0063-4649-83da-a64727487741
-# ╟─3cb579f3-c9c4-48b3-997d-967f4e1df546
-# ╟─d0cbf663-ac73-413a-951c-f99bf8d2cd8d
-# ╠═dd2cd8cb-ed9e-4b6b-af99-59fe26809d39
-# ╠═7dcb675f-fd35-46ed-ba58-82df3d68627b
-# ╠═3923d033-4639-43a3-a693-8d77c04dd186
-# ╠═a512b192-5d5e-4688-8b84-f0bc27aa18e7
-# ╟─93c48028-a4bb-4d6d-9bc4-85749a675793
-# ╠═bdcc5bf7-7ab0-43a2-8710-09b4b4366b1a
-# ╟─b621fa58-9f13-48a2-9144-b3a3cb5292ac
-# ╟─e9bc8ce0-14a1-4cbe-9df0-c5b5098ecede
-# ╟─7b0a281d-daaa-4aaa-a001-12be469225f9
-# ╟─c17a958d-fec3-445a-ba1f-59f65ad63af6
-# ╟─97672495-e0b1-4952-9f84-a26e926c7235
-# ╟─3d80255b-7409-4d8b-9fb7-b05ed286b18a
-# ╠═0d03bf4e-64d7-4f52-b52c-8ad17a93157c
-# ╠═aed98d25-2b7a-4755-bb5a-3acbd1bae0a4
-# ╠═f8320953-b1b2-4954-8215-2fa6f27cb87e
-# ╟─556e3e8b-aae5-4462-9aab-1f5c3f90c5a4
-# ╠═abb9b4e8-9c9c-4d82-8190-06ededcbfd52
-# ╟─2a4b61f9-328a-4e92-ae84-58bdda55dc74
-# ╠═33a4a5b0-ae07-4536-9c45-a2043d136f9f
-# ╠═93b65f52-c5a5-4580-a64b-5a50a44208af
-# ╟─20c699ed-4455-4a70-ae91-9e04a8e9f365
-# ╟─0ff68f72-cc18-415b-a7b9-b94d49ee74dd
-# ╟─0bf97b73-04c9-4eb5-906a-23827a2c5f3a
-# ╠═98bbf74e-6d47-4f25-b060-3f3c6d289a1a
-# ╠═e648c84e-2ecb-4fe2-997b-7c96cc4a1940
-# ╠═0aad0a27-d51e-4da5-b11b-d0c04859af73
-# ╠═60a70269-81a9-4f93-9155-f2d769432ddc
-# ╠═9ecaf87a-22c0-45d6-b6d8-93a9bb74e15d
-# ╠═4ab52ce5-f5ea-4f76-a922-228c28a67005
-# ╠═1945df2f-7f87-4fb6-ad5e-349c3008e4ee
-# ╠═8740635d-4c4a-4fdf-a487-1ae2b158ff96
-# ╠═825c5181-e807-43e7-a086-ce7abda4999d
-# ╠═755931f2-2c51-4cf9-ae12-cba4add9c7be
-# ╟─ce85ad78-1c64-4822-84cc-e9f748105145
-# ╠═12f0d3f8-a95e-46e4-adfa-46e41746a284
-# ╟─96f6e86b-acd2-4e13-b5f6-de049dd6b43d
-# ╟─648b4340-c819-44dd-b666-714db5e5c62a
-# ╠═2c3a3310-7355-4087-a566-271768b33bd6
+# ╟─783f3b03-4a15-4169-bf1b-1bc01338a853
+# ╠═882b69f8-b302-4149-9161-91eadc453794
+# ╠═8e511790-d862-497a-83c4-63daed596bba
+# ╠═6cbac1ab-f709-4f7c-8c38-d5eed2ae8bdc
+# ╠═9d6fdf32-a70e-41cb-b66e-c44b7954467f
+# ╠═8daf61c0-1ae8-4a53-af13-231c18ffb86f
+# ╠═fcfca6d1-715d-4a68-a132-4a6a6dbeb091
+# ╠═49a138de-74de-4795-b94a-3a0167ebbb33
+# ╠═70299897-5cbf-401d-b960-196cbbaeef83
+# ╠═dad78a91-8378-4ec2-91bf-b36bb9ad1f66
+# ╠═bafee797-8ac2-4132-ad6b-b429bf0ffd41
+# ╠═597be477-0c29-409a-abee-e119a40f8a51
+# ╟─72e10087-daa4-4d15-b40d-7a149feeefb3
+# ╠═94ae14de-c80b-4181-b12b-808ef37e574a
+# ╟─edeeeb48-d711-493f-b720-529456d6e40c
+# ╠═3f6749aa-bbc2-4437-bc1c-e9f2db087677
+# ╠═19b01b03-2245-4b97-9319-fba76795c927
+# ╠═0431db0e-81b8-4e03-90ab-d3a0c65ebc59
+# ╠═cf4b298d-d68b-4e5e-810e-f74ad37d02c1
+# ╟─577d4731-9120-491a-ba11-75f504fd0c6b
+# ╠═4a9c1228-5ef9-4a6e-a1a4-922cdb2d9f45
+# ╟─24018a70-e6ba-406d-b4db-e848e00aed4a
+# ╠═5aaf56d2-194e-4752-a620-007deafeaa01
+# ╠═49b1186d-7fb4-4fa8-843f-57e7c5f1d2c6
+# ╟─8d980f1d-a327-4bb4-be18-f8830202a4ce
+# ╠═56e0071f-196f-4931-9d49-962d901a67e7
+# ╟─95e76e2f-9653-40d8-a23b-66b700b02db9
+# ╠═19ec88d2-648f-4603-9540-89b2c4a706e4
+# ╟─d0816873-8573-4d19-bbc9-ba26ecabf147
+# ╠═8799c188-7aa7-4e35-b770-0e89fce160d1
+# ╟─9c791f97-782d-4dd2-8978-ae29398aac51
+# ╟─4756d0d2-0855-4267-af76-9eec3935602a
+# ╠═b93b300e-bbd5-4374-aacf-2e015a3d32d6
+# ╠═adc4d73e-8b36-48c6-be65-9822e71c9baa
+# ╠═2df8cd2d-a9e6-41cc-9499-24f506c2ed03
+# ╠═2b1ce2d9-d232-4d29-a87e-596c30d332bb
+# ╟─f5a3084c-cc48-48f3-99e1-fb568a9aeab6
+# ╠═a2d146df-127b-414d-bb3c-2182da643b15
+# ╟─dc55c80b-fcb8-46e4-a35a-dd1327ba922f
+# ╠═020a0a6d-fdfa-4a21-852e-998d95e27300
+# ╠═f9f0752c-d19d-4858-aba6-f315336093fa
+# ╠═123f5138-3d38-4764-8c9a-7f06cc2c8d10
+# ╠═2477de81-b60f-4157-817f-881aad0329b5
+# ╠═39beb5af-e208-4adf-ab40-1e21fe474c86
+# ╟─f7226689-993f-47dc-afc8-9bd1768aee50
+# ╟─4a087376-12e9-47c8-8c17-6296a60510d9
+# ╟─882e041e-2b15-4784-85be-790785fbfa16
+# ╟─dd532004-54dc-45c0-a462-2a17c43d75fc
+# ╠═d91fdc59-af9a-4a49-946a-6a5060536e62
+# ╠═146a6efb-f8ba-4423-90da-0f37dcb6f6cf
+# ╠═187093c8-fb6f-4afa-8497-13a1173a88db
+# ╠═75b831fb-5f82-4c7e-a7fb-daa8ed15d7aa
+# ╠═12c0128b-28e6-4a5e-8da3-da2b7211bba8
+# ╠═39469984-ef88-4a70-bbb6-a665fd51e0d1
+# ╠═2657b89e-7646-47ed-a800-a41f245dfe76
+# ╠═04831ff7-0489-4cd5-aef8-56b01dc41ae5
+# ╠═5c369951-3863-432c-8c97-6bc2937e4cb5
+# ╠═e5abf37e-2937-467d-97f9-0d7d55523322
+# ╠═1fb84295-7cac-4103-945f-43d3f1748cf7
+# ╠═d34cffcc-24f7-47ab-bea8-cfe645699ad0
+# ╠═6b06645b-9340-423b-8736-83e8c16e9794
+# ╠═51909fd0-cf26-4e8c-929a-2490aeed850b
+# ╠═3311fd3d-4552-45f4-8b02-8fffffbba97d
+# ╠═dde7cf1f-0856-4671-bfc0-d277f69f2bfe
+# ╠═5398e782-7046-4904-9186-6b06b9b9101c
+# ╠═d578fb7a-7204-4cd7-aa5b-75cf9de635b0
+# ╠═938018dd-9923-4677-a904-b01002587596
+# ╠═a2d3ef4e-dc6f-4506-87dd-01af2412b7a6
+# ╠═5644bced-9475-4e94-b287-5cc3b6af0f32
+# ╠═33354c81-129c-41f5-9cef-2bb88239484c
+# ╠═4ff0b225-a432-429c-9b5b-eb5e70120d46
+# ╠═03c43815-b1d0-4b46-bb16-13f89ded8570
+# ╠═53f86a2e-5cb9-4d89-bd1d-fcdf6b3ae671
+# ╠═bffaed6b-239d-4789-b211-a2f04a39c922
+# ╠═f360e5f9-1949-4d17-85dd-0f329bc89a85
+# ╠═f28b764f-7631-41e3-9a14-a6f0af855432
+# ╠═00f7bef7-866d-4e43-97a1-a68539c8d65a
+# ╠═ec242bb5-ad9c-47a4-9003-30c4cc66bc31
+# ╠═b65a660e-697b-4172-bd5d-a5268a698588
+# ╠═4b2800e4-3a16-4dee-8445-9dd5af3889b6
+# ╠═22153864-ce3d-4e23-9c91-a3605216ecbc
+# ╠═505d93b0-de73-4477-a343-99f04b570d24
+# ╠═c11884ce-86db-4dc9-8cf7-f5f6fc62e726
+# ╠═16410d72-27c8-4486-b63e-1672fbf08379
+# ╠═1e186f7e-6180-4d26-9443-b135821418b6
+# ╠═f5927565-56bc-4a78-8aee-e8082d5e793f
+# ╠═439dc428-445f-4852-9599-d014db6b7a48
+# ╠═21bfe19b-0ac1-4eb5-bb52-afe13bdc25e1
+# ╠═ec9aabfb-55f8-4445-89e2-33c61ad514ce
+# ╠═781270e6-b8fe-4e0e-8003-09dad8a64ffb
+# ╠═171bf4e3-a944-4fee-a309-971219cde2e6
+# ╠═f1dd70e1-e973-407a-807a-5a0d4f8d9d31
+# ╠═f1cf59d2-c75c-486f-b625-ddf2fa6b178d
+# ╠═c6d9dd98-8987-4de8-b2f5-92cc3472e63e
+# ╠═82527c07-a8df-46e0-822b-e5b4b118d1d4
+# ╠═b6b5ba2f-e2bb-4517-b229-d8afb94b664c
+# ╠═fa52b56b-0ed1-4cce-88f5-e927a22a6740
+# ╠═044c2e94-2a7e-40b9-b165-008171d89d93
+# ╠═2ac3f305-7640-4d1a-a430-82ae20e8eb49
+# ╠═c1bad7f3-694b-4935-a8af-f9d26583556a
+# ╠═cf71c986-5980-4a2f-90db-acee742df2d4
+# ╠═82fe3334-b060-4c25-a1f2-c488191ed05e
+# ╠═560def2a-2346-46e5-85cc-25630f1d352f
+# ╠═2d1ea09d-82c4-4f5f-b684-a28e3084d6c7
+# ╠═c0232ab7-2e13-490c-a534-117548f20003
+# ╠═688980f3-35f2-4dde-8765-3cde4b984e7d
+# ╠═e52c9e88-a39d-47a0-8559-521e71dbf7c4
+# ╠═0fcafeb5-774c-4b47-8d12-9f1c1a4c4651
+# ╠═2de4992d-bf0e-4f8d-bbfb-c92b1002e833
+# ╠═58288f8a-de66-4d06-9905-3a86076b6159
+# ╠═6d52f464-b558-4722-934c-62f7dd42ad08
+# ╠═8eecad64-5e90-4a8b-afd4-40d321ea8208
+# ╠═34b5454a-f49c-4f3e-9df2-cbf5f06709c0
+# ╠═e76ca676-4ec1-4c3a-9177-596666f269ed
+# ╠═17e16d1d-ca46-4529-9241-0a66fdc52661
+# ╠═e15baf76-2be6-4cdc-b68f-ded591feb9b3
+# ╠═bb11382f-4b01-4b35-a578-6bc6f105024c
+# ╠═7c144dc1-71e1-4e85-856d-d21395ed8b8e
+# ╠═7176567e-ca03-4ec8-9b81-b8b2449ddf80
+# ╠═68eea47d-9623-4b3a-9de0-bb35934e94d9
+# ╠═95ff596b-25b9-4aa4-aa61-23b72553ac8e
+# ╠═31ca31d7-14eb-4b01-9ebb-b9c135fd7302

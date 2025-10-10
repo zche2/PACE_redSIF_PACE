@@ -1,2 +1,7 @@
+# particular file forms
 *.jld2
 *.log
+*.png
+
+# folder
+PACE_proposal_materials/
