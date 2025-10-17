@@ -42,3 +42,38 @@ function Spectral_SVD(
     )
     
 end
+
+function center_wavelength(
+        λ::Vector{Union{Missing, FT}}
+    ) where {FT <: AbstractFloat}
+	# get the range and medium of λ and center it to [0,1]
+	λ_max = ceil(maximum(λ));
+	λ_min = floor(minimum(λ));
+	range = (λ_max - λ_min) / 2;
+	λ_middle = (λ_max + λ_min) / 2;
+	λc       = (λ .- λ_middle) ./ range;
+	return λc
+end
+
+function root_mean_square(
+        y_obs, 
+        y_retrieve
+    )
+    n     = length(y_obs)
+	totSQ = sum( ( y_obs .- y_retrieve ) .^ 2 );
+	RMS   = sqrt( totSQ / n );
+	return RMS
+end
+
+function scale_transmittance(
+    T,   # ::Vector{FT},
+    ind::Vector{Int64},   # baseline indices
+) where {FT <: AbstractFloat}
+    # rescale transmittance term to keep the maximum value at 1
+    T_abs = abs.(T)
+    # find max
+    bl    = maximum(T_abs[ind]);
+    # force the mean val to be 1
+    T_norm = T_abs ./ bl
+    return T_norm
+end

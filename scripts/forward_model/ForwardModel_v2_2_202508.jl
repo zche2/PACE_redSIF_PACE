@@ -79,7 +79,7 @@ md"""
 # ╔═╡ a42bd26f-46d5-44a4-81d8-7788899b95bc
 begin
 	oci = Dataset(
-		"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample_granule_20250501T183011_new.nc");
+		"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample/sample_granule_20250501T183011_new.nc");
 	pixel  = 517;  # cross-track
 	scan   = 807;
 	red_band = oci["red_wavelength"][:];
@@ -228,6 +228,9 @@ begin
 	λ_bl_ind = map(bl_wvlen -> argmin(abs.(oci_band .- bl_wvlen)), bl_wvlen);
 	oci_band[λ_bl_ind]
 end
+
+# ╔═╡ ed4374bc-fb82-4768-9a7f-f06c807f18f8
+typeof(λ_bl_ind)
 
 # ╔═╡ 6f2670c9-0438-49ed-b75b-6c03b3a2e325
 md"""
@@ -875,6 +878,31 @@ sol_lm
 # sol_lm.u
 sol_gn.u
 
+# ╔═╡ 7a1d8cdc-6703-47c3-8846-e64f5f38f603
+# ╠═╡ disabled = true
+#=╠═╡
+begin
+	# define a problem
+	param = (
+		λ     = oci_band,
+		nPoly = n,
+		nPC   = nPC,
+		trans_mat = HighResSVD.PrinComp[:, 1:nPC],
+		E     = E,
+		xa    = ma.x,
+		ŷ     = R_TOA,
+		sza   = sza,
+		vza   = vza,
+		Se    = Se,
+		Sa    = Sa
+	)
+
+	x0 = m9.x;
+	# define non linear prob
+	prob = NonlinearLeastSquaresProblem(loss_function, x0, param);
+end
+  ╠═╡ =#
+
 # ╔═╡ ea2f7e0d-9bc0-4856-b34b-d1b4a73411d6
 #=╠═╡
 function loss_function(x, p)
@@ -933,31 +961,6 @@ function loss_function(x, p)
 end
   ╠═╡ =#
 
-# ╔═╡ 7a1d8cdc-6703-47c3-8846-e64f5f38f603
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-	# define a problem
-	param = (
-		λ     = oci_band,
-		nPoly = n,
-		nPC   = nPC,
-		trans_mat = HighResSVD.PrinComp[:, 1:nPC],
-		E     = E,
-		xa    = ma.x,
-		ŷ     = R_TOA,
-		sza   = sza,
-		vza   = vza,
-		Se    = Se,
-		Sa    = Sa
-	)
-
-	x0 = m9.x;
-	# define non linear prob
-	prob = NonlinearLeastSquaresProblem(loss_function, x0, param);
-end
-  ╠═╡ =#
-
 # ╔═╡ 4d829873-6484-4b1d-b8d5-752000c1c331
 #=╠═╡
 begin
@@ -1004,21 +1007,22 @@ end
 # ╟─acacde64-9957-409d-ae67-428d13428e9d
 # ╠═c92b4782-6eb8-42a0-83c2-7e7e1d9544fe
 # ╠═0d68673e-5d07-4703-96f6-d1a4ef919f0e
-# ╟─434ee765-087e-456a-9696-2ba87fa3c5f3
+# ╠═434ee765-087e-456a-9696-2ba87fa3c5f3
 # ╟─063343a5-5879-4cb7-91ad-5068fe0b33d2
-# ╟─466c6800-dd8d-4b11-b33b-bff17dfcf387
+# ╠═466c6800-dd8d-4b11-b33b-bff17dfcf387
 # ╟─37260f9b-de49-4420-b46b-16cc46f10ffc
 # ╟─40253fb3-981f-4c2d-9f43-ce1c802fc6ef
-# ╟─9dcc1616-91d6-45d8-9873-2c449b6e321e
-# ╟─2d8e7b04-4c7f-475a-95d1-bf60318fd3ed
+# ╠═9dcc1616-91d6-45d8-9873-2c449b6e321e
+# ╠═2d8e7b04-4c7f-475a-95d1-bf60318fd3ed
 # ╟─f8ae9017-49ad-48c8-b361-6161674a3175
 # ╠═ab74fe0c-cfa8-45fc-b4fd-8fea3f93c51b
 # ╟─3ccac42c-4a86-41c1-b7a8-5a2a21209d12
 # ╠═dfb8d9ec-b8e3-49e0-81aa-3b172b1a4fa0
+# ╠═ed4374bc-fb82-4768-9a7f-f06c807f18f8
 # ╟─6f2670c9-0438-49ed-b75b-6c03b3a2e325
-# ╟─17141496-cb08-48a5-ac95-237ff94a51ee
+# ╠═17141496-cb08-48a5-ac95-237ff94a51ee
 # ╟─7b675457-7113-4ad6-89fc-0a324b6cfe2b
-# ╟─62bc5487-1c31-4c22-917f-884b3d8dda61
+# ╠═62bc5487-1c31-4c22-917f-884b3d8dda61
 # ╟─00a1a14b-4853-496c-914a-53f5a8196753
 # ╠═f9412a2b-f201-4c9f-8fd0-0b10050d2284
 # ╠═f94e037d-fc09-4e26-9cb3-14a043dd057a

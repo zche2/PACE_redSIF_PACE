@@ -348,9 +348,63 @@ begin
 	GN_Interation!(MyPixel)
 end
 
+# ╔═╡ 7498f09a-37b1-4361-a87e-ca1b0c9021d5
+begin
+	@show chlor_a[pixel, scan]
+	TheTitle = "pixel=$pixel, scan=$scan, nFLH=$(round(nflh[pixel, scan], digits=2))\n nPoly=$(MyPixel.nPoly), nPC=$(MyPixel.nPC)"
+	
+	plot(
+		MyPixel.λ, MyPixel.R_toa,
+		label="Observations", linewidth=2,
+		color=:grey,
+		xlabel="Wavelength [nm]",
+		ylabel="TOA radiance \n [W/m²/µm/sr]",
+		xlabelfontsize=8,
+		ylabelfontsize=8,
+		left_margin=5Plots.mm,
+		bottom_margin=5Plots.mm,
+		title=TheTitle,
+		titlefontsize=10,
+		);
+	plot!(
+		MyPixel.λ, forward_model(MyPixel.xₐ, MyPixel), label="initial guess"); 
+	plot!(
+		MyPixel.λ, MyPixel.y, label="@ convergence", size=(600, 200), linewidth=1);
+	
+end
+
 # ╔═╡ cd64f729-1462-4044-ae65-7a73e4c3c206
 # reconstruct
 rho, T1, T2, SIF_px = reconstruct(MyPixel);
+
+# ╔═╡ cb511427-f5dc-4157-9b50-70d5fdd4ba45
+begin
+	rho_fig   = plot(MyPixel.λ, rho, label="surface reflectance",
+					title=TheTitle,
+					titlefontsize=10,
+					)
+	trans_fig = plot(MyPixel.λ, T1, label="T↑")
+	plot!(trans_fig,MyPixel.λ,  T2, label="T↓↑")
+	SIF_fig   = plot(MyPixel.λ, SIF_px,
+					label="SIF₆₈₃=$(round(MyPixel.x[end], digits=3))",
+					xlabel="Wavelength [nm]",
+					xlabelfontsize=10,
+					)
+	plot(rho_fig, trans_fig, SIF_fig,
+		 layout=(3,1),
+		 size=(600, 450)
+	)
+end
+
+# ╔═╡ e36b9dda-bf56-4af3-ba0f-b9e49730a959
+begin	
+	r1 = plot(
+		MyPixel.λ, MyPixel.R_toa .- MyPixel.y, label="Residual (W/m²/µm/sr)", linewidth=1.5, color=:grey);
+	title!(TheTitle, titlefontsize=10)
+	r2 = plot(MyPixel.λ, (MyPixel.R_toa .- MyPixel.y)./MyPixel.R_toa * 100, 		   label="Relative Residual (%)", linewidth=1.5,
+		color=:grey);
+	plot(r1, r2, layout=(2,1), size=(600, 400))
+end
 
 # ╔═╡ 24b2a34e-70df-448d-a9e8-19857e20ccf7
 begin
@@ -361,7 +415,7 @@ begin
 	Â    = Ĝ * K̂;
 	@show tr(Â)
 	heatmap(Â,
-		c=:greys, # <--- Change the colormap here
+		c=:greys,      # <--- Change the colormap here
 		clims=(0, 1),  # <--- vmin and vmax
 		# aspect_ratio=:equal
 		size=(450, 420),
@@ -492,61 +546,6 @@ rho_red  = mean(oci["rhot_red"][:, :, ind], dims=3);
 
 # ╔═╡ 3d3566e8-1b57-4f91-b5a3-f5a5f532ee87
 chlor_a  = coalesce.(log.(oci["chlor_a"]), -6);
-
-# ╔═╡ 7498f09a-37b1-4361-a87e-ca1b0c9021d5
-begin
-	@show chlor_a[pixel, scan]
-	TheTitle = "pixel=$pixel, scan=$scan, nFLH=$(round(nflh[pixel, scan], digits=2))\n nPoly=$(MyPixel.nPoly), nPC=$(MyPixel.nPC)"
-	
-	plot(
-		MyPixel.λ, MyPixel.R_toa,
-		label="Observations", linewidth=2,
-		color=:grey,
-		xlabel="Wavelength [nm]",
-		ylabel="TOA radiance \n [W/m²/µm/sr]",
-		xlabelfontsize=8,
-		ylabelfontsize=8,
-		left_margin=5Plots.mm,
-		bottom_margin=5Plots.mm,
-		title=TheTitle,
-		titlefontsize=10,
-		);
-	plot!(
-		MyPixel.λ, forward_model(MyPixel.xₐ, MyPixel), label="initial guess"); 
-	plot!(
-		MyPixel.λ, MyPixel.y, label="@ convergence", size=(600, 200), linewidth=1);
-	
-end
-
-# ╔═╡ cb511427-f5dc-4157-9b50-70d5fdd4ba45
-begin
-	rho_fig   = plot(MyPixel.λ, rho, label="surface reflectance",
-					title=TheTitle,
-					titlefontsize=10,
-					)
-	trans_fig = plot(MyPixel.λ, T1, label="T↑")
-	plot!(trans_fig,MyPixel.λ,  T2, label="T↓↑")
-	SIF_fig   = plot(MyPixel.λ, SIF_px,
-					label="SIF₆₈₃=$(round(MyPixel.x[end], digits=3))",
-					xlabel="Wavelength [nm]",
-					xlabelfontsize=10,
-					)
-	plot(rho_fig, trans_fig, SIF_fig,
-		 layout=(3,1),
-		 size=(600, 450)
-	)
-end
-
-# ╔═╡ e36b9dda-bf56-4af3-ba0f-b9e49730a959
-begin	
-	r1 = plot(
-		MyPixel.λ, MyPixel.R_toa .- MyPixel.y, label="Residual (W/m²/µm/sr)", linewidth=1.5, color=:grey);
-	title!(TheTitle, titlefontsize=10)
-	r2 = plot(MyPixel.λ, (MyPixel.R_toa .- MyPixel.y)./MyPixel.R_toa * 100, 		   label="Relative Residual (%)", linewidth=1.5,
-		color=:grey);
-	plot(r1, r2, layout=(2,1), size=(600, 400))
-
-end
 
 # ╔═╡ 9fdf7797-fcc2-4bf1-b209-df6921b15e55
 begin

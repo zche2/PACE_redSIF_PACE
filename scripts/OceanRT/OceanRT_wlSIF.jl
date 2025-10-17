@@ -10,6 +10,9 @@ using DelimitedFiles, Plots, Distributions, Interpolations
 # ╔═╡ 2eb89c6d-2d7f-4ede-956f-5f05b568a6fd
 using LinearAlgebra
 
+# ╔═╡ 248cf314-f335-4595-bc33-27828660bd6a
+using JLD2
+
 # ╔═╡ 1391e74a-92c0-11f0-326f-5fb7fe3a682f
 md"""
 > ##### Constructing a simple depth-resolved SIF emission model
@@ -245,7 +248,7 @@ begin
 	# ensemble of chlorophyll distribution
 	dep = [.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 	chl = collect(0.05:0.1:2)
-	shapes = zeros(length(x), length(dep)*length(chl))
+	SIF_shapes = zeros(length(x), length(dep)*length(chl))
 	labels = zeros(length(x), length(dep)*length(chl))
 	
 	index = 1;
@@ -254,7 +257,7 @@ begin
 			# @show dep[ii], chl[ic]
 		    SIF₀, totSIF, SIF⬆, totAPARᵢ = 
 				OceanRT(Normal(dep[ii],2), chl[ic], 30, 0.05); 
-		    shapes[:,index] =  SIF₀;
+		    SIF_shapes[:,index] =  SIF₀;
 		    index += 1;
 	    end
 	end
@@ -266,8 +269,8 @@ eachindex(chl)
 # ╔═╡ 0ba74094-a16a-4d1e-bd3b-553b8929d9b2
 begin
 	# normalize shape
-	itg = sum(shapes, dims=1)
-	shapes_norm = shapes ./ itg
+	itg = sum(SIF_shapes, dims=1)
+	SIF_shapes_norm = SIF_shapes ./ itg
 end
 
 # ╔═╡ 765027b1-83f1-4899-967a-6e596dc655dc
@@ -275,7 +278,7 @@ begin
 	plot()
 	for i=1:16:(length(dep)*length(chl))
 		plot!(
-			x, shapes[:, i],
+			x, SIF_shapes[:, i],
 			label="depth=$(dep[div(i, length(chl))+1]), Chl=$(chl[i%length(chl)])",
 			xlim=(640, 790)
 		)
@@ -287,16 +290,29 @@ end
 
 # ╔═╡ e167cfba-e0e4-4503-a99a-14174e3ccf6d
 begin
-	U,s,V  = svd(shapes);
+	SIF_U,s,V  = svd(SIF_shapes);
 	s_norm = s / sum(s);
 	
-	plot(x, U[:,1], label="SIF₁, $(round(s_norm[1]*100, digits=2))%", linewidth=3)
-	plot!(x, U[:,2], label="SIF₂, $(round(s_norm[2]*100, digits=2))%", linewidth=1.5)
-	plot!(x, U[:,3], label="SIF₃, $(round(s_norm[3]*100, digits=2))%", linewidth=1.5)
+	plot(
+		x, SIF_U[:,1], label="SIF₁, $(round(s_norm[1]*100, digits=2))%", linewidth=3)
+	plot!(
+		x, SIF_U[:,2], label="SIF₂, $(round(s_norm[2]*100, digits=2))%", linewidth=1.5)
+	plot!(
+		x, SIF_U[:,3], label="SIF₃, $(round(s_norm[3]*100, digits=2))%", linewidth=1.5)
 	xlims!(640, 790)
 	xlabel!("Wavelength (nm)")
 	ylabel!("A.U.")
 end
+
+# ╔═╡ fe6aaf31-d5f9-4bb2-ab81-046b505ea9bc
+println(x)
+
+# ╔═╡ 54ee00f7-c9f0-4bca-92ee-c90bfd0072cb
+SIF_wavelen = x;
+
+# ╔═╡ ca990601-77ad-4d59-9df7-1f58593a7632
+# save the spectral shapes and singular vectors U
+# @save "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/SIF_singular_vector.jld2" SIF_U SIF_shapes SIF_wavelen
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -304,6 +320,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 
@@ -311,6 +328,7 @@ Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 DelimitedFiles = "~1.9.1"
 Distributions = "~0.25.120"
 Interpolations = "~0.14.0"
+JLD2 = "~0.4.54"
 Plots = "~1.40.13"
 """
 
@@ -320,7 +338,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.2"
 manifest_format = "2.0"
-project_hash = "00c759fe32c0cf86c139c46d3fe137d9e527314a"
+project_hash = "e77856bf4bfd0a0c7c58e9e12ead1265259e6d41"
 
 [[deps.AliasTables]]
 deps = ["PtrArrays", "Random"]
@@ -522,6 +540,16 @@ git-tree-sha1 = "466d45dc38e15794ec7d5d63ec03d776a9aff36e"
 uuid = "b22a6f82-2f65-5046-a5b2-351ab43fb4e5"
 version = "4.4.4+1"
 
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "b66970a70db13f45b7e57fbda1736e1cf72174ea"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.17.0"
+weakdeps = ["HTTP"]
+
+    [deps.FileIO.extensions]
+    HTTPExt = "HTTP"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
@@ -641,6 +669,12 @@ version = "0.14.0"
 git-tree-sha1 = "e2222959fbc6c19554dc15174c81bf7bf3aa691c"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.4"
+
+[[deps.JLD2]]
+deps = ["FileIO", "MacroTools", "Mmap", "OrderedCollections", "PrecompileTools", "Requires", "TranscodingStreams"]
+git-tree-sha1 = "89e1e5c3d43078d42eed2306cab2a11b13e5c6ae"
+uuid = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+version = "0.4.54"
 
 [[deps.JLFzf]]
 deps = ["REPL", "Random", "fzf_jll"]
@@ -1611,5 +1645,9 @@ version = "1.8.1+0"
 # ╠═0ba74094-a16a-4d1e-bd3b-553b8929d9b2
 # ╠═765027b1-83f1-4899-967a-6e596dc655dc
 # ╠═e167cfba-e0e4-4503-a99a-14174e3ccf6d
+# ╠═fe6aaf31-d5f9-4bb2-ab81-046b505ea9bc
+# ╠═248cf314-f335-4595-bc33-27828660bd6a
+# ╠═54ee00f7-c9f0-4bca-92ee-c90bfd0072cb
+# ╠═ca990601-77ad-4d59-9df7-1f58593a7632
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

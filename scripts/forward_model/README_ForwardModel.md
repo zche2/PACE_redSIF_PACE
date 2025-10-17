@@ -8,3 +8,10 @@
     - v2.2:
         2025-Aug-26: Try "baseline fitting": retrieval outside of SIF range (similar idea as nFLH)
         2025-Aug-28: Correction to the scaling of transmittance spectrum (Now use baseline band and force it to 1)
+    - v2.3: 
+        2025-Aug-29: Add a gaussian-shaped chlorophyll absorption feature (wasn't manage to do that, and given a known SIF shape, it is no more necessary)
+- v3:
+    Allow fitting one-way and two-way transmittance separately
+    Adopt the full spectral shape of SIF (interpolated to OCI res.)
+    Update priori covariance terms for PCs
+    
