@@ -14,4 +14,3 @@
     Allow fitting one-way and two-way transmittance separately
     Adopt the full spectral shape of SIF (interpolated to OCI res.)
     Update priori covariance terms for PCs
-    

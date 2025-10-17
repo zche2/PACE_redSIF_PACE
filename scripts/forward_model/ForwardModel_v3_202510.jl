@@ -178,12 +178,12 @@ $$R_{TOA}=\frac{E(\lambda)cos(SZA)\rho_s(\lambda)T(\lambda)}{\pi}$$
 
 # ╔═╡ 5115015a-4479-48aa-80b4-509deb9d038e
 begin
-	pixel  = 916; scan = 38;
+	pixel  = 235; scan = 1;
 	R_px   = R_toa[pixel, scan, :];
 	sza_px = sza[pixel, scan];
 	vza_px = vza[pixel, scan];
 	n      = 3;
-	nPC    = 8;
+	nPC    = 15;
 	# Se
 	noise = sqrt.( c1[snr_ind] .+ c2[snr_ind] .* R_px);
 	Se    = Diagonal(noise.^2);
@@ -313,8 +313,8 @@ end
 
 # ╔═╡ e55eacaa-beb5-439f-bcf2-fc647f69058b
 function GN_Interation!(
-			px :: Pixel;
-			model = forward_model1,
+			px :: Pixel,
+			model;
 			nIter = 20,
 			thr_Converge = 1e-8,
 		)
@@ -413,7 +413,7 @@ begin
 	MyPixel.iter_label = 0;
 
 	# Step2: iteration
-	GN_Interation!(MyPixel)
+	GN_Interation!(MyPixel, forward_model1)
 end
 
 # ╔═╡ 38daa8c9-2bde-49a1-b446-5aae7a480e4c
@@ -539,7 +539,7 @@ function woSIF_Retrieval(
 	# Step2: iteration
 	GN_Interation!(
 		MyPixel, 
-	    model=forward_model,
+	    forward_model,
 	    nIter=nIter,
 	    thr_Converge=thr_Converge
 	)
@@ -574,7 +574,7 @@ end
 
 # ╔═╡ 18505102-dd32-4e5a-bc2e-80f77a0e30be
 begin
-	SIF_index    = findall(coalesce.((nflh .> 0.2) .& (nflh .< 0.4), false));
+	SIF_index    = findall(coalesce.((nflh .> 0.5) .& (nflh .< 0.7), false));
 	number_of_px = size(SIF_index)[1];
 	SIF_683 = woSIF_Retrieval.(
 	    eachslice(R_toa[SIF_index, :], dims=1),  # rather than dims=(1,2)
@@ -816,7 +816,7 @@ function redSIF_Retrieval(
 	# Step2: iteration
 	GN_Interation!(
 		MyPixel, 
-	    model=forward_model,
+	    forward_model,
 	    nIter=nIter,
 	    thr_Converge=thr_Converge
 	)
@@ -1057,7 +1057,7 @@ end
 md"""
 ### Forward model 3: Polyfit + transmittance + SIF shape fixed
 ----
-Joint fit of $T_{\downarrow\uparrow}$ and $T_{\uparrow}$ by tuning a factor (not neccesarily SVF as before):
+Joint fit of $T_{\downarrow\uparrow}$ and $T_{\uparrow}$ by tuning a factor: 
 
 $$\rho_{s}(\lambda)=\sum{a_jP_j}, \ T_{\uparrow}(\lambda)=\sum{\beta_i P_i}$$
 
@@ -1089,8 +1089,23 @@ begin
 
 	# add a priori estimation of \beta, \gamma, and SIF
 	tmp₃ = zeros(nPC-2) .+ .001;
-	tmp₃ = [-1.0 0. tmp₃... 1. 0.1]'
+	tmp₃ = [-1.0 0. tmp₃... .5 0.1]'
 	println(tmp₃)
+end
+
+# ╔═╡ a1c7526b-bf90-4c24-a92b-f9ffac473779
+begin
+	# The smooth approximation function
+	smooth_abs(x, ϵ) = sqrt(x^2 + ϵ);
+	
+	# Define a small smoothing parameter
+	ϵ = 1e-6;
+end
+
+# ╔═╡ 34d9593a-6c71-4a04-a1e0-433861f408ff
+begin
+	# sigmoid apporximation function, bounded (for now) by [1,2]
+	sigm(x) = 1. / (1 + exp(-x)) + 1.;
 end
 
 # ╔═╡ 798ad5dd-94e9-4f8d-a688-401a8b9e0d1a
@@ -1107,7 +1122,8 @@ function forward_model3(
 	T₁    = (px.trans_mat * x[(px.nPoly+2):(px.nPoly+px.nPC+1)]) .+ 1.0;
 
 	# T↓↑ transmittance for SIF
-	T₂    = @. exp( x[px.nPoly+px.nPC+2] * log(T₁) );
+	smooth_x = sigm(x[px.nPoly+px.nPC+2]);
+	T₂    = @. exp( smooth_x * log(T₁) );
 
 	# SIF magnitude
 	SIF   = px.SIF_shape * x[px.nPoly+px.nPC+px.nSIF+2];
@@ -1116,6 +1132,187 @@ function forward_model3(
 	rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ + SIF * T₁;
 	return rad
 end
+
+# ╔═╡ 25bc2ee4-038d-4987-b732-23f24050db2e
+function GN2!(
+			px :: Pixel,
+			model;
+			nIter = 20,
+			thr_Converge = 1e-8,
+		)
+	
+	# initial
+	xₐ = px.xₐ;   # priori estimation
+	xₙ = px.x;
+	Kₙ, _ = Jacobian(xₙ, x -> model(x, px));
+	# k     = px.iter_label;       # number of iterations
+	RMSE₀ = 1e20; 
+	RMSE₁ = PACE_SIF.root_mean_square(px.R_toa, px.y);
+	ΔRMSE = RMSE₁ - RMSE₀
+
+	# loop
+	while ( abs(ΔRMSE) > thr_Converge ) & ( px.iter_label < nIter )
+		# k += 1
+		# get Gain matrix
+		try
+			Gₙ = GainMatrix(Kₙ, Se=px.Se, Sa=px.Sa);
+			# retrieval
+			xₙ₊₁   = xₐ .+ Gₙ * (px.R_toa .- px.y .+ Kₙ * ( px.x .- xₐ ) );
+			# update x and y
+			px.x   = xₙ₊₁;
+			Kₙ₊₁, yₙ₊₁ = Jacobian(xₙ₊₁, x -> model(x, px));
+			px.y   = yₙ₊₁;
+			# @show findall(isnan.(Kₙ₊₁))
+			Kₙ     = Kₙ₊₁;
+			# iter ++
+			px.iter_label += 1;
+			# test convergence
+			RMSE₀  = RMSE₁;
+			RMSE₁  = PACE_SIF.root_mean_square(px.R_toa, px.y);
+			ΔRMSE  = RMSE₁ - RMSE₀;
+			px.ΔRMSE = ΔRMSE;
+			println(ΔRMSE)
+		catch
+			println(px.x)
+			break
+		end
+	end
+	
+	return nothing
+end
+
+# ╔═╡ 36acb63f-adfe-4da0-8098-c75033c711d7
+# understand why it fails?
+begin
+	ThisPixel   = Pixel();
+
+	# Step1: construct struct
+	ThisPixel.λ  = oci_band;
+	ThisPixel.λc = λc;
+	ThisPixel.λ_bl_ind = bl_ind;
+	ThisPixel.E     = E;
+	ThisPixel.nPoly = n;
+	ThisPixel.nPC   = nPC;
+	ThisPixel.nSIF  = 1;
+	ThisPixel.Sa    = Sₐ₃;
+	ThisPixel.trans_mat = HighResSVD.PrinComp[:, 1:ThisPixel.nPC];
+	ThisPixel.SIF_shape = SIF_new[:, 1:ThisPixel.nSIF]
+
+	k = 2;
+	ThisPixel.R_toa = R_toa[SIF_index[k],:];
+	ThisPixel.sza   = sza[SIF_index[k]];
+	ThisPixel.vza   = vza[SIF_index[k]];
+	noise2          = sqrt.( c1[snr_ind] .+ c2[snr_ind] .* ThisPixel.R_toa);
+	ThisPixel.Se    = Diagonal(noise2.^2);
+	ThisPixel.flag  = 1.;       # quite temporary..
+
+	# a priori estimation
+	K₃  = 
+		ThisPixel.E .* cosd(ThisPixel.sza) ./ pi .* hcat(collectPl.(ThisPixel.λc, lmax=ThisPixel.nPoly)...)';
+	G₃  = inv( K₃'K₃ )K₃';
+	x₃  = G₃ * ThisPixel.R_toa;
+
+	ThisPixel.xₐ = [x₃... tmp₃...]';
+
+	# set-up
+	ThisPixel.x  = ThisPixel.xₐ;
+	ThisPixel.y  = forward_model3(ThisPixel.x, ThisPixel);
+	ThisPixel.iter_label = 0;
+
+	# Step2: iteration
+	GN2!(ThisPixel, forward_model3)
+end
+
+# ╔═╡ 83399515-5cbf-4438-a957-5b27ac95dfee
+function reconstruct3(
+		px :: Pixel,       # Pixel struct
+	)
+
+	# reflectance
+	v     = collectPl.(px.λc, lmax=px.nPoly);
+	ρ     = hcat(v...)' * px.x[1 : px.nPoly+1];
+	
+	# T↑ transmittance for SIF
+	T₁    = (px.trans_mat * px.x[(px.nPoly+2):(px.nPoly+px.nPC+1)]) .+ 1.0;
+
+	# T↓↑ transmittance for SIF
+	T₂    = @. exp( sigm(px.x[px.nPoly+px.nPC+2]) * log(T₁) );
+
+	# SIF magnitude
+	SIF   = px.SIF_shape * px.x[px.nPoly+px.nPC+px.nSIF+2];
+	
+	return ρ, T₂, T₁, SIF
+end
+
+# ╔═╡ 76eafa16-4b56-472a-af26-74c2791f6350
+ThisPixel
+
+# ╔═╡ 92814f17-1912-46c2-bcd7-dd0cf5966f08
+# reconstruct
+ρ₃, T₂₃, T₁₃, SIF₃ = reconstruct3(ThisPixel); print(maximum(SIF₃))
+
+# ╔═╡ 60e91ae7-5020-44c4-bdfc-11f11aeafca8
+# where is nflh baseline
+nflh_bl_ind = argmin(abs.(oci_band .- 673.));
+
+# ╔═╡ 2ece8d46-f027-481a-8e8e-0dd562dfd79c
+begin
+	TheTitle₃ = "$(SIF_index[k]), nFLH = $(round(nflh[SIF_index[k]], digits=2))"
+	plot(
+		ThisPixel.λ, ThisPixel.R_toa,
+		label="Observations", linewidth=2,
+		color=:grey,
+		xlabel="Wavelength [nm]",
+		ylabel="TOA radiance \n [W/m²/µm/sr]",
+		xlabelfontsize=8,
+		ylabelfontsize=8,
+		left_margin=5Plots.mm,
+		bottom_margin=5Plots.mm,
+		title=TheTitle₃,
+		titlefontsize=10,
+		size=(600, 300)
+		);
+	plot!(
+		ThisPixel.λ, forward_model3(ThisPixel.xₐ, ThisPixel), 
+		label="initial guess"); 
+	plot!(
+		ThisPixel.λ, ThisPixel.y, label="@ convergence", linewidth=1);
+end
+
+# ╔═╡ 0aae5f2b-6b0c-404e-9dd7-7cda8c35e82d
+begin
+	rho_fig₃ = plot(ThisPixel.λ, ρ₃, label="surface reflectance",
+					title=TheTitle₃,
+					titlefontsize=10,
+					)
+	trans_fig₃ = plot(ThisPixel.λ, T₁₃, label="T↑")
+	plot!(trans_fig₃, ThisPixel.λ, T₂₃, label="T↑↓")
+	SIF_fig₃   = plot(ThisPixel.λ, SIF₃, label="SIF, nFLH₆₇₃=$(round(SIF₃[nflh_bl_ind], digits=2))")
+
+	plot(rho_fig₃, trans_fig₃, SIF_fig₃,
+		 layout=(3,1),
+		 size=(600, 450)
+	)
+end
+
+# ╔═╡ cd1b4f2e-1879-48d3-8cb5-eecbbb0f8842
+# residual
+begin	
+	r11 = plot(
+		ThisPixel.λ, ThisPixel.R_toa .- ThisPixel.y,
+		label="Residual (W/m²/µm/sr)",
+		linewidth=1.5, color=:grey);
+	title!(TheTitle₃, titlefontsize=10)
+	r21 = plot(
+		ThisPixel.λ, (ThisPixel.R_toa .- ThisPixel.y)./ThisPixel.R_toa * 100, 		 label="Relative Residual (%)", linewidth=1.5,
+		color=:grey);
+	plot(r11, r21, layout=(2,1), size=(600, 400))
+end
+
+# ╔═╡ d7b48c32-f773-42f0-9bf6-a964dee02c2b
+md"""
+##### A group of pixels
+"""
 
 # ╔═╡ 267ed111-0136-46af-af85-742f303b17bf
 begin
@@ -1131,7 +1328,7 @@ begin
 		nIter = 20, 
 		Sₐ    = Sₐ₃,
 	    xₐ    = tmp₃,
-		thr_Converge = 1e-8,
+		thr_Converge = 1e-5,
 		forward_model = forward_model3,
 	);
 end
@@ -1163,7 +1360,7 @@ function Retrieval(
 	MyPixel.nSIF  = params.nSIF;
 	MyPixel.Sa    = params.Sₐ;
 	MyPixel.trans_mat = HighResSVD.PrinComp[:, 1:MyPixel.nPC];
-	MyPixel.SIF_shape = SIF_new[:, 1:MyPixel.nSIF]
+	MyPixel.SIF_shape = SIF_new[:, 1:MyPixel.nSIF];
 
 	MyPixel.R_toa = R_toa;
 	MyPixel.sza   = sza;
@@ -1173,10 +1370,12 @@ function Retrieval(
 	MyPixel.flag  = flag; 
 
 	# a priori estimation
+	# K₀         = 
+	# 	MyPixel.E[MyPixel.λ_bl_ind] .* cosd(MyPixel.sza) ./ pi .* hcat(collectPl.(MyPixel.λc[MyPixel.λ_bl_ind], lmax=MyPixel.nPoly)...)';
 	K₀         = 
-		MyPixel.E[MyPixel.λ_bl_ind] .* cosd(MyPixel.sza) ./ pi .* hcat(collectPl.(MyPixel.λc[MyPixel.λ_bl_ind], lmax=MyPixel.nPoly)...)';
+		MyPixel.E .* cosd(MyPixel.sza) ./ pi .* hcat(collectPl.(MyPixel.λc, lmax=MyPixel.nPoly)...)';
 	G₀         = inv( K₀'K₀ )K₀';
-	x₀         = G₀ * MyPixel.R_toa[MyPixel.λ_bl_ind];
+	x₀         = G₀ * MyPixel.R_toa;  # MyPixel.λ_bl_ind
 	MyPixel.xₐ = [x₀... params.xₐ...]';
 	
 	# set-up
@@ -1188,15 +1387,14 @@ function Retrieval(
 	try
 		GN_Interation!(
 			MyPixel, 
-		    model=forward_model,
-		    nIter=nIter,
-		    thr_Converge=thr_Converge
+			forward_model,
+			nIter=nIter,
+			thr_Converge=thr_Converge
 		)
 	catch e
-		# println("Catch error: $e")
-		return missing	
+		println(e)
+		return missing
 	end
-		
 
 	# Step3: return
 	# return if converge
@@ -1220,27 +1418,6 @@ Retrieval3 = Retrieval.(
 # ╔═╡ 447c4c0e-d254-4af7-b330-d50833a0e00b
 sum(ismissing.(Retrieval3))
 
-# ╔═╡ 83399515-5cbf-4438-a957-5b27ac95dfee
-function reconstruct3(
-		px :: Pixel,       # Pixel struct
-	)
-
-	# reflectance
-	v     = collectPl.(px.λc, lmax=px.nPoly);
-	ρ     = hcat(v...)' * px.x[1 : px.nPoly+1];
-	
-	# T↑ transmittance for SIF
-	T₁    = (px.trans_mat * px.x[(px.nPoly+2):(px.nPoly+px.nPC+1)]) .+ 1.0;
-
-	# T↓↑ transmittance for SIF
-	T₂    = @. exp( px.x[px.nPoly+px.nPC+2] * log(T₁) );
-
-	# SIF magnitude
-	SIF   = px.SIF_shape * px.x[px.nPoly+px.nPC+px.nSIF+2];
-	
-	return ρ, T₂, T₁, SIF
-end
-
 # ╔═╡ 85c189c1-9a74-4a6f-85d7-4634fccbfa7e
 begin
 	# make transmittance
@@ -1248,7 +1425,7 @@ begin
 		size=(800, 400), 
 		legendcolumns=3,
 		xlabel="[nm]",
-		ylabel="two-way transmittance [-]",
+		ylabel="ρ [-]",
 		xlabelfontsize=10,
 		ylabelfontsize=10,
 		left_margin=5Plots.mm,
@@ -1293,7 +1470,8 @@ begin
 		title="ensemble of retrieval nFLH=[0.5, 0.7]"
 	)
 	
-	for i in 1:(Δn):number_of_px
+	for i in 1:5:number_of_px
+		# if abs(Retrieval3[i].ΔRMSE) >= params₃.thr_Converge  
 		if ismissing(Retrieval3[i])
 			continue
 		end
@@ -1307,14 +1485,14 @@ begin
 			label="$(round(Retrieval3[i].flag, digits=2))")
 		plot!(
 			p_trans₃₁, oci_band, T₃₁ⱼ,
-			label="$(round(Retrieval3[i].flag, digits=2))")
+			label="$(round(sigm(Retrieval3[i].x[Retrieval3[i].nPoly+Retrieval3[i].nPC+2]), digits=2))"*" $( round((secd(Retrieval3[i].sza) + secd(Retrieval3[i].vza)) / secd(Retrieval3[i].vza) , digits=2))")
 		plot!(
 			p_SIF₃, oci_band, SIFⱼ .* T₃₁ⱼ,
-			label="$(round(Retrieval3[i].flag, digits=2))",
+			label="",
 			linestyle=:dash,
 		)
 		plot!(
-			p_SIF₃, oci_band, SIFⱼ, label="ori. $(round(Retrieval3[i].flag, digits=2))")
+			p_SIF₃, oci_band, SIFⱼ, label="ori. $(round(Retrieval3[i].flag, digits=2)), nFLH₆₇₃=$(round(SIFⱼ[nflh_bl_ind], digits=2))")
 	end
 end
 
@@ -1328,8 +1506,74 @@ p_trans₃₁
 p_SIF₃
 
 # ╔═╡ 496c7daf-2fc2-48ef-a88a-e4b8dc0460dc
-# residual
+begin
+	# residual
+	p_resd₃ = plot(
+		size=(800, 400), 
+		legendcolumns=4,
+		xlabel="[nm]",
+		ylabel="Residual",
+		xlabelfontsize=10,
+		ylabelfontsize=10,
+		left_margin=5Plots.mm,
+		bottom_margin=5Plots.mm,
+		title="ensemble of retrieval nFLH=[0.2, 0.4]"
+	)
+	
+	for i in 1:20:number_of_px
+		if ismissing(Retrieval3[i])
+			continue
+		end
+		# get spectral-wise residual
+		resdᵢ = Retrieval3[i].y .- Retrieval3[i].R_toa
+		plot!(p_resd₃, oci_band, resdᵢ,
+			  label="",
+			  # label="$(round(Retrieval3[i].flag, digits=2))",
+		)
+	end
+	p_resd₃
+end
 
+# ╔═╡ bbd23700-84cd-46cc-b1c1-0de5d1c91168
+begin
+	# scatter of nFLH （sd product） vs。 nFLH （retrieval @ 673 nm）
+	p_scatter = plot(	
+		.2:.05:1.0, .2:.05:1.0,
+		color=:silver,
+		linestyle=:dash,
+		linewidth=2,
+		label="1:1 Line",
+		
+		xlabel="SIF₆₇₃ (W/m²/µm/sr)",
+	    ylabel="nFLH (W/m²/µm/sr)",
+		size  = (500, 400),
+		# aspect_ratio=:equal,
+		# xticks=-.4:1.:5.6,             
+	    # yticks=-.4:1.:5.6,
+		xlim=( 0.5, 1.2 ),
+		ylim=( 0.5, 0.9 ),
+		dpi=400,)
+	
+	for i in 1:number_of_px
+		if ismissing(Retrieval3[i])
+			continue
+		end
+		_, _, _, SIFⱼ = reconstruct3(Retrieval3[i]);
+		# get nFLH
+		nflhⱼ    = Retrieval3[i].flag;
+		nflh_diy = SIFⱼ[nflh_bl_ind];
+		scatter!(
+		  p_scatter, 
+		  [nflh_diy], [nflhⱼ],
+		  markerstrokewidth=0,  
+		  markersize=3,    
+		  markeralpha=.3,
+		  label="",
+		)
+	end
+	
+	p_scatter
+end
 
 # ╔═╡ ae8a34be-a19d-4780-86b7-546944e0f413
 md"""
@@ -1415,19 +1659,31 @@ plot(oci_band, MyPixel.E, size=(600, 200))
 # ╟─906167fc-9516-499a-8fb5-229b774dc549
 # ╟─ba6a2fc3-6ea6-41af-82f3-bddbfe3dd0ce
 # ╟─16a28e7f-f3f1-4496-ad11-efc6af48992e
-# ╟─cf673611-4324-464f-aec8-b56aaf97afa7
+# ╠═cf673611-4324-464f-aec8-b56aaf97afa7
 # ╠═3509ff7b-9a8d-413f-b5d3-96d83a936a32
-# ╠═267ed111-0136-46af-af85-742f303b17bf
+# ╠═a1c7526b-bf90-4c24-a92b-f9ffac473779
+# ╠═34d9593a-6c71-4a04-a1e0-433861f408ff
 # ╠═798ad5dd-94e9-4f8d-a688-401a8b9e0d1a
+# ╠═25bc2ee4-038d-4987-b732-23f24050db2e
+# ╠═36acb63f-adfe-4da0-8098-c75033c711d7
+# ╠═83399515-5cbf-4438-a957-5b27ac95dfee
+# ╠═76eafa16-4b56-472a-af26-74c2791f6350
+# ╠═92814f17-1912-46c2-bcd7-dd0cf5966f08
+# ╠═60e91ae7-5020-44c4-bdfc-11f11aeafca8
+# ╟─2ece8d46-f027-481a-8e8e-0dd562dfd79c
+# ╟─0aae5f2b-6b0c-404e-9dd7-7cda8c35e82d
+# ╟─cd1b4f2e-1879-48d3-8cb5-eecbbb0f8842
+# ╟─d7b48c32-f773-42f0-9bf6-a964dee02c2b
+# ╠═267ed111-0136-46af-af85-742f303b17bf
 # ╠═c8e554dc-3621-4a5d-9d75-394ee1c1a56b
 # ╠═9952e85a-62f0-4303-b239-49fbcb4db299
 # ╠═447c4c0e-d254-4af7-b330-d50833a0e00b
-# ╠═83399515-5cbf-4438-a957-5b27ac95dfee
 # ╠═85c189c1-9a74-4a6f-85d7-4634fccbfa7e
 # ╟─af488e29-a283-45f9-9938-c3e2b54db23d
 # ╟─f09a2337-cf8b-4f2f-9e58-06a1eb312749
 # ╟─3155513a-c84d-43c7-99a9-881174be68e2
-# ╠═496c7daf-2fc2-48ef-a88a-e4b8dc0460dc
+# ╟─496c7daf-2fc2-48ef-a88a-e4b8dc0460dc
+# ╠═bbd23700-84cd-46cc-b1c1-0de5d1c91168
 # ╟─ae8a34be-a19d-4780-86b7-546944e0f413
-# ╠═f91b3e1e-e4b0-4556-b8ca-a261c8376c51
+# ╟─f91b3e1e-e4b0-4556-b8ca-a261c8376c51
 # ╠═9eb3a674-f162-469f-901b-c306b0d9f831
