@@ -2,6 +2,7 @@
 *.jld2
 *.log
 *.png
+*.gif
 
 # folder
 PACE_proposal_materials/
