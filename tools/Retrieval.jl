@@ -1,5 +1,9 @@
+module Retrieval
+
 using Parameters
 using LinearAlgebra
+
+export Spectral_SVD, Spectral_NMF, SpectraOfPC, MatrixFactor
 
 @with_kw struct SpectraOfPC{FT <: AbstractFloat} 
     band::Vector{FT}                            # Wavelengths (1D array)
@@ -9,6 +13,12 @@ using LinearAlgebra
     Loading::Union{LinearAlgebra.Adjoint{Float64, Matrix{Float64}}, Matrix{FT}}    
                                                 # Rows for each principal components
     if_log::Bool = false                        # Default value for boolean marker
+end
+
+@with_kw struct MatrixFactor{FT <: AbstractFloat} 
+    band::Vector{FT}                            # Wavelengths (1D array)
+    PrinComp::Matrix{FT}                        # Spectral components (rank × wavelength)
+    Loading::Matrix{FT}                         # Loading coefficients (samples × rank)
 end
 
 function Spectral_SVD(
@@ -39,6 +49,36 @@ function Spectral_SVD(
         VarExp   = S_norm,
         Loading  = Vt,
         if_log   = if_log
+    )
+    
+end
+
+function Spectral_NMF(
+    profile::Matrix{FT},
+    band::Vector{FT};
+    λ_min::FT = 620.,
+    λ_max::FT = 860.,
+    rank::Int = 10,
+    ) where {FT <: AbstractFloat}
+
+    # --- select fitting window ---
+    ind    = findall( λ_min .< band .< λ_max );
+    subset = profile[:, ind];
+    println("the shape of profile matrix is $(size(subset)) - the second dimension should be wavelength!");
+
+    # --- NMF ---
+    # Initialize W and H matrices
+    W = rand(FT, size(subset, 1), rank)
+    H = rand(FT, rank, size(subset, 2))
+    
+    # Perform NMF using SPA algorithm
+    NMF.solve!(NMF.SPA{FT}(obj=:mse), subset, W, H)
+
+    # return as a struct
+    return MatrixFactor(
+        band     = band[ind],
+        PrinComp = H,        # Spectral components (rank × wavelength)
+        Loading  = W,        # Loading coefficients (samples × rank)
     )
     
 end
@@ -77,3 +117,5 @@ function scale_transmittance(
     T_norm = T_abs ./ bl
     return T_norm
 end
+
+end # module end

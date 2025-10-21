@@ -5,4 +5,8 @@ module PACE_SIF
     include("./tools/Atmosphere.jl")
     include("./tools/Retrieval.jl")
 
+    # Re-export everything from submodules
+    using .Retrieval
+    export Retrieval
+    
 end
