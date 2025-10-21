@@ -1,3 +1,18 @@
+module Atmosphere
+
+export layer_VCD
+    
+"""
+    layer_VCD(
+        p::Vector{Float64}, 
+        q::Vector{Float64}; 
+        n_layers::Int = 72, 
+        use_hPa::Bool = true, 
+        g₀::Float64 = 9.8196, 
+        Na::Float64 = 6.0221415e23
+    ) -> (vcd_dry::Vector{Float64}, vcd_h2o::Vector{Float64}, vmr_h2o::Vector{Float64})
+"""
+
 function layer_VCD(
                     p,                          # pressure: default-hPa
                     q;                          # specific humidity
@@ -28,4 +43,6 @@ function layer_VCD(
     end
 
 	return vcd_dry, vcd_h2o, vmr_h2o
+end
+
 end

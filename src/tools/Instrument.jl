@@ -1,5 +1,9 @@
+module Instrument
+
 using Interpolations
 using Parameters
+
+export KernelInstrument, conv_matx, interpolate_RSR
 
 function interpolate_RSR(band, wvlen, RSR, wvlen_out)
     # interpolate RSR to this resolution
@@ -41,3 +45,5 @@ function conv_matx(
     end;
 end;
 
+
+end

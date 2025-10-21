@@ -5,7 +5,11 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ ae9f792f-5175-4b47-babe-8ee7e50cebe0
-import Pkg; Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE");
+begin
+	import Pkg; 
+	Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE");
+	# Pkg.develop(path="/home/zhe2/FraLab/PACE_redSIF_PACE")
+end
 
 # ╔═╡ 669f0127-0cfa-42e1-9325-4c309fb225a4
 using Polynomials, ForwardDiff, DiffResults, Plots, LinearAlgebra, DelimitedFiles, NCDatasets, Statistics
@@ -16,8 +20,8 @@ using LegendrePolynomials, Parameters, NonlinearSolve, BenchmarkTools
 # ╔═╡ e19451d2-ec27-4b5e-a654-94abe2387e16
 using JLD2, Interpolations
 
-# ╔═╡ 7c1796ad-0654-4642-b615-035099743c27
-include("/home/zhe2/FraLab/PACE_redSIF_PACE/PACE_SIF.jl")
+# ╔═╡ 13169a06-42c5-4454-99f6-693b45ce7420
+using PACE_SIF
 
 # ╔═╡ bcf01e82-a621-11f0-24e9-db4a3bfd47b5
 md"""
@@ -62,7 +66,7 @@ begin
 
 	# PACE data
 	oci = Dataset(
-	"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample/sample_granule_20250501T183011_new_chl.nc");
+	"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample/sample_granule_20250808T204353_new_chl.nc");
 	red_band = oci["red_wavelength"][:];
 	nflh     = oci["nflh"][:, :];
 	vza      = oci["sensor_zenith"][:, :];
@@ -216,7 +220,7 @@ end
 
 # ╔═╡ 4cb8bb3e-2b0a-4cb9-a37f-332f8c9da26d
 # center wavelength `oci_band`
-λc = PACE_SIF.center_wavelength(oci_band);
+λc = center_wavelength(oci_band);
 
 # ╔═╡ f6762889-f05d-4ff2-b77e-1eb3ac2d3a91
 md"""
@@ -574,7 +578,10 @@ end
 
 # ╔═╡ 18505102-dd32-4e5a-bc2e-80f77a0e30be
 begin
-	SIF_index    = findall(coalesce.((nflh .> 0.5) .& (nflh .< 0.7), false));
+	
+	SIF_index_all = findall(coalesce.((nflh .> 0.02) .& (nflh .< 0.4), false));
+	SIF_index     = SIF_index_all[1:100:end];
+	println("# of pixels included: $(length(SIF_index))")
 	number_of_px = size(SIF_index)[1];
 	SIF_683 = woSIF_Retrieval.(
 	    eachslice(R_toa[SIF_index, :], dims=1),  # rather than dims=(1,2)
@@ -1253,7 +1260,7 @@ ThisPixel
 
 # ╔═╡ 60e91ae7-5020-44c4-bdfc-11f11aeafca8
 # where is nflh baseline
-nflh_bl_ind = argmin(abs.(oci_band .- 673.));
+nflh_bl_ind = argmin(abs.(oci_band .- 678.2));
 
 # ╔═╡ 2ece8d46-f027-481a-8e8e-0dd562dfd79c
 begin
@@ -1482,7 +1489,7 @@ begin
 			label="$(round(Retrieval3[i].flag, digits=2))")
 		plot!(
 			p_trans₃₂, oci_band, T₃₂ⱼ, 
-			label="$(round(Retrieval3[i].flag, digits=2))")
+			label="")
 		plot!(
 			p_trans₃₁, oci_band, T₃₁ⱼ,
 			label="$(round(sigm(Retrieval3[i].x[Retrieval3[i].nPoly+Retrieval3[i].nPC+2]), digits=2))"*" $( round((secd(Retrieval3[i].sza) + secd(Retrieval3[i].vza)) / secd(Retrieval3[i].vza) , digits=2))")
@@ -1538,21 +1545,23 @@ end
 begin
 	# scatter of nFLH （sd product） vs。 nFLH （retrieval @ 673 nm）
 	p_scatter = plot(	
-		.2:.05:1.0, .2:.05:1.0,
+		.0:.05:.3, .0:.05:.3,
 		color=:silver,
 		linestyle=:dash,
 		linewidth=2,
 		label="1:1 Line",
 		
-		xlabel="SIF₆₇₃ (W/m²/µm/sr)",
+		xlabel="SIF₆₈₃ (W/m²/µm/sr)",
 	    ylabel="nFLH (W/m²/µm/sr)",
 		size  = (500, 400),
-		# aspect_ratio=:equal,
+		aspect_ratio=:equal,
 		# xticks=-.4:1.:5.6,             
-	    # yticks=-.4:1.:5.6,
-		xlim=( 0.5, 1.2 ),
-		ylim=( 0.5, 0.9 ),
+    	# yticks=-.4:1.:5.6,
+		# xlim=( 0.5, 1.2 ),
+		# ylim=( 0.5, 0.9 ),
 		dpi=400,)
+	nflh_px = [];
+	SIF₆₈₃_px = [];
 	
 	for i in 1:number_of_px
 		if ismissing(Retrieval3[i])
@@ -1562,6 +1571,11 @@ begin
 		# get nFLH
 		nflhⱼ    = Retrieval3[i].flag;
 		nflh_diy = SIFⱼ[nflh_bl_ind];
+
+		# push
+		push!(nflh_px, nflhⱼ);
+		push!(SIF₆₈₃_px, nflh_diy);
+		
 		scatter!(
 		  p_scatter, 
 		  [nflh_diy], [nflhⱼ],
@@ -1573,6 +1587,84 @@ begin
 	end
 	
 	p_scatter
+end
+
+# ╔═╡ ba89b517-ab8b-482f-9809-374a5b079ceb
+begin
+	p_hist = histogram2d(
+		   SIF₆₈₃_px, nflh_px, bins=200,
+           xlabel="SIF₆₈₃ (W/m²/µm/sr) - alg3",
+	       ylabel="nFLH (W/m²/µm/sr)",
+           title="Density Scatter Plot",
+           colorbar_title="Count",
+		   # xlim=( 0.0, 0.25 ),
+		   # ylim=( 0.05, 0.25 ),
+           color=:viridis)
+	plot!(
+		p_hist,
+		.0:.05:.3, .0:.05:.3,
+		color=:silver,
+		linestyle=:dash,
+		linewidth=2,
+		label="1:1 Line",
+	)
+end
+
+# ╔═╡ f4a131db-48a1-40f5-b561-37a74dd3c81a
+md"""
+### The magnitude of residual against Chlorophyll concentration
+---
+"""
+
+# ╔═╡ 3e50547e-dd46-4b04-a022-864b0f93478e
+md"""
+### Retrieval 2 vs. 3
+---
+"""
+
+# ╔═╡ b9dc64c7-6ad9-4dbd-99d3-84e6b730cf1c
+begin
+	# scatter of nFLH （sd product） vs。 nFLH （retrieval @ 673 nm）
+	p_scatter2 = plot(	
+		# .2:.05:1.0, .2:.05:1.0,
+		color=:silver,
+		linestyle=:dash,
+		linewidth=2,
+		label="1:1 Line",
+		
+		xlabel="SIF₆₇₃ (W/m²/µm/sr) - alg2",
+	    ylabel="SIF₆₇₃ (W/m²/µm/sr) - alg3",
+		size  = (500, 400),
+		# aspect_ratio=:equal,
+		# xticks=-.4:1.:5.6,             
+	    # yticks=-.4:1.:5.6,
+		# xlim=( 0.5, 1.2 ),
+		# ylim=( 0.5, 0.9 ),
+		dpi=400,)
+	
+	for i in 1:number_of_px
+		if ismissing(Retrieval3[i])
+			continue
+		elseif ismissing(Retrieval2[i])
+			continue
+		end
+		_, _, _, SIF₂ⱼ = reconstruct2(Retrieval2[i]);
+		_, _, _, SIF₃ⱼ = reconstruct3(Retrieval3[i]);
+		# get nFLH
+		SIF₂ⱼ_nflh = SIF₂ⱼ[nflh_bl_ind];
+		SIF₃ⱼ_nflh = SIF₃ⱼ[nflh_bl_ind];
+		
+		scatter!(
+		  p_scatter2, 
+		  [SIF₂ⱼ_nflh], [SIF₃ⱼ_nflh],
+		  markerstrokewidth=0,  
+		  markersize=3,    
+		  markeralpha=.3,
+		  label="",
+		)
+	end
+	
+	p_scatter2
 end
 
 # ╔═╡ ae8a34be-a19d-4780-86b7-546944e0f413
@@ -1606,7 +1698,7 @@ plot(oci_band, MyPixel.E, size=(600, 200))
 # ╠═669f0127-0cfa-42e1-9325-4c309fb225a4
 # ╠═ca59d107-6c89-46c2-bca3-2d3d604c6d27
 # ╠═e19451d2-ec27-4b5e-a654-94abe2387e16
-# ╠═7c1796ad-0654-4642-b615-035099743c27
+# ╠═13169a06-42c5-4454-99f6-693b45ce7420
 # ╟─d3e33a05-871c-49a0-a91c-c5df2028d96f
 # ╠═a9817961-e3ab-42f0-8b7c-580d4a39bbdd
 # ╠═3060b59c-55b0-4e35-ac8c-5d7e2279fbd2
@@ -1659,7 +1751,7 @@ plot(oci_band, MyPixel.E, size=(600, 200))
 # ╟─906167fc-9516-499a-8fb5-229b774dc549
 # ╟─ba6a2fc3-6ea6-41af-82f3-bddbfe3dd0ce
 # ╟─16a28e7f-f3f1-4496-ad11-efc6af48992e
-# ╠═cf673611-4324-464f-aec8-b56aaf97afa7
+# ╟─cf673611-4324-464f-aec8-b56aaf97afa7
 # ╠═3509ff7b-9a8d-413f-b5d3-96d83a936a32
 # ╠═a1c7526b-bf90-4c24-a92b-f9ffac473779
 # ╠═34d9593a-6c71-4a04-a1e0-433861f408ff
@@ -1683,7 +1775,11 @@ plot(oci_band, MyPixel.E, size=(600, 200))
 # ╟─f09a2337-cf8b-4f2f-9e58-06a1eb312749
 # ╟─3155513a-c84d-43c7-99a9-881174be68e2
 # ╟─496c7daf-2fc2-48ef-a88a-e4b8dc0460dc
-# ╠═bbd23700-84cd-46cc-b1c1-0de5d1c91168
+# ╟─bbd23700-84cd-46cc-b1c1-0de5d1c91168
+# ╠═ba89b517-ab8b-482f-9809-374a5b079ceb
+# ╟─f4a131db-48a1-40f5-b561-37a74dd3c81a
+# ╟─3e50547e-dd46-4b04-a022-864b0f93478e
+# ╟─b9dc64c7-6ad9-4dbd-99d3-84e6b730cf1c
 # ╟─ae8a34be-a19d-4780-86b7-546944e0f413
 # ╟─f91b3e1e-e4b0-4556-b8ca-a261c8376c51
 # ╠═9eb3a674-f162-469f-901b-c306b0d9f831

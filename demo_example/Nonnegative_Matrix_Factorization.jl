@@ -47,9 +47,15 @@ begin
 	close(winter);
 end
 
+# ╔═╡ 817fd719-17d2-4aed-8128-4ed6652cbd2b
+md"""
+#### 1️⃣ NMF
+---
+"""
+
 # ╔═╡ 01350b23-2c99-42d2-ad4b-8f6002c3e9b0
 begin
-	k = 10
+	k = 20
 	
 	 # initialize
 	W, H = NMF.spa(spec, k)
@@ -79,9 +85,10 @@ end
 
 # ╔═╡ bf99b6d3-18bf-426b-bddb-f017508c6c8e
 begin
-	# variance explained by each single component
-	total_var = norm(spec, 2)^2
-    S_norm = [norm(W[:, i]) * norm(H[i, :]) / total_var * 100 for i in 1:k]
+	# variance explained by each single component?
+	# I don't think this variance make sense, as it is NOT comparable with SVD.
+	total_var = norm(spec, 2)^2;
+    S_norm = [norm(W[:, i:i] * H[i:i, :])^2 / total_var * 100 for i in 1:k]
 end
 
 # ╔═╡ 008f6eec-2647-41f6-a07a-3ff8e4ad5edc
@@ -121,6 +128,7 @@ end
 # ╠═0984787b-f797-41c4-bd97-69f3bdfccc3c
 # ╠═05277310-ee51-43ca-9ca8-6e5651054503
 # ╠═fe96c2dd-799e-497f-9355-94c9376f7953
+# ╟─817fd719-17d2-4aed-8128-4ed6652cbd2b
 # ╠═01350b23-2c99-42d2-ad4b-8f6002c3e9b0
 # ╠═25bbdfa6-054f-4ae4-8810-c2f3931de0df
 # ╠═bf99b6d3-18bf-426b-bddb-f017508c6c8e

@@ -2,8 +2,10 @@ module Retrieval
 
 using Parameters
 using LinearAlgebra
+using NMF
 
 export Spectral_SVD, Spectral_NMF, SpectraOfPC, MatrixFactor
+export center_wavelength, root_mean_square, scale_transmittance
 
 @with_kw struct SpectraOfPC{FT <: AbstractFloat} 
     band::Vector{FT}                            # Wavelengths (1D array)
