@@ -7,6 +7,9 @@ using InteractiveUtils
 # ╔═╡ a307a612-0541-4eb1-9de1-bd43f771a507
 using DelimitedFiles, Plots, Distributions
 
+# ╔═╡ 870ae71d-253c-45d6-8fe6-52b17d05fb01
+using JLD2
+
 # ╔═╡ 596063f4-8c47-11f0-0c76-7f85f4a18593
 md"""
 > ##### Visualize the absorption spectra of water and chlorophyll => penetration depth of sunlight
@@ -116,16 +119,41 @@ begin
 	
 end
 
+# ╔═╡ 6a5ce22d-8c4d-4095-93f1-5ef2513cd950
+md"""
+> Plot out spectra of chlorophyll pigments
+
+"""
+
+# ╔═╡ f2d20441-36c8-48fd-bcca-168594e64fd5
+begin
+	pigments = pig[:,2:end];
+	pig_sum  = (sum(pig[:,2:5],dims=2)+pig[:,14]+pig[:,15]);
+	plot(pig_wl, pigments)
+	plot!(pig_wl, pig_sum, label="sum")
+	xlims!(600, 700)
+end
+
+# ╔═╡ 29c1ec93-a751-46c6-9018-e116a0c5fe2e
+# save 3 vars: pig_wl, chlor_a, pig_sum
+CHL_wavelen = pig_wl; CHL_a = pig_all; CHL_sum = pig_sum;
+
+# ╔═╡ d4ade16d-2eea-46d0-82ed-528919fab2c0
+# save the spectral shapes and singular vectors U
+# @save "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/CHL_spectra.jld2" CHL_wavelen CHL_a CHL_sum
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 
 [compat]
 DelimitedFiles = "~1.9.1"
 Distributions = "~0.25.120"
+JLD2 = "~0.4.54"
 Plots = "~1.40.13"
 """
 
@@ -135,7 +163,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.2"
 manifest_format = "2.0"
-project_hash = "9a8f19aeac3fd5fa3862f185f1843ac12a938fc3"
+project_hash = "4e07768312e7fe86ef3b6d7d434ea06694c83e2d"
 
 [[deps.AliasTables]]
 deps = ["PtrArrays", "Random"]
@@ -316,6 +344,16 @@ git-tree-sha1 = "466d45dc38e15794ec7d5d63ec03d776a9aff36e"
 uuid = "b22a6f82-2f65-5046-a5b2-351ab43fb4e5"
 version = "4.4.4+1"
 
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "b66970a70db13f45b7e57fbda1736e1cf72174ea"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.17.0"
+weakdeps = ["HTTP"]
+
+    [deps.FileIO.extensions]
+    HTTPExt = "HTTP"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
@@ -429,6 +467,12 @@ version = "1.11.0"
 git-tree-sha1 = "e2222959fbc6c19554dc15174c81bf7bf3aa691c"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.4"
+
+[[deps.JLD2]]
+deps = ["FileIO", "MacroTools", "Mmap", "OrderedCollections", "PrecompileTools", "Requires", "TranscodingStreams"]
+git-tree-sha1 = "89e1e5c3d43078d42eed2306cab2a11b13e5c6ae"
+uuid = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+version = "0.4.54"
 
 [[deps.JLFzf]]
 deps = ["REPL", "Random", "fzf_jll"]
@@ -1345,5 +1389,10 @@ version = "1.8.1+0"
 # ╟─2b9e4c9b-f2fc-432f-a2ed-079e734f3814
 # ╠═7fbe0356-e02d-434d-8b52-d74b12fe4556
 # ╠═32ded14b-1331-4144-a1ee-9b9b9f776e87
+# ╟─6a5ce22d-8c4d-4095-93f1-5ef2513cd950
+# ╠═f2d20441-36c8-48fd-bcca-168594e64fd5
+# ╠═29c1ec93-a751-46c6-9018-e116a0c5fe2e
+# ╠═870ae71d-253c-45d6-8fe6-52b17d05fb01
+# ╠═d4ade16d-2eea-46d0-82ed-528919fab2c0
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

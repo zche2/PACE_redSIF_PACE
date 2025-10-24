@@ -1,7 +1,7 @@
 module Retrieval
 
 using Parameters
-using LinearAlgebra
+using LinearAlgebra, Interpolations
 using NMF
 
 export Spectral_SVD, Spectral_NMF, SpectraOfPC, MatrixFactor
@@ -57,29 +57,30 @@ end
 
 function Spectral_NMF(
     profile::Matrix{FT},
-    band::Vector{FT};
-    λ_min::FT = 620.,
-    λ_max::FT = 860.,
+    bandᵢₙ::Vector{FT},
+    bandₒᵤₜ::Vector{FT};
     rank::Int = 10,
     ) where {FT <: AbstractFloat}
 
-    # --- select fitting window ---
-    ind    = findall( λ_min .< band .< λ_max );
-    subset = profile[:, ind];
-    println("the shape of profile matrix is $(size(subset)) - the second dimension should be wavelength!");
+    # --- Interpolation to align with bandₒᵤₜ ---
+    profile_new = zeros(FT, size(profile, 1), length(bandₒᵤₜ))  # Specify type FT
+    
+    for i in 1:size(profile, 1)
+        itpᵢ = LinearInterpolation(bandᵢₙ, profile[i, :], extrapolation_bc=0)
+        profile_new[i, :] = itpᵢ.(bandₒᵤₜ)
+    end
+
+    println("the shape of profile matrix is $(size(profile_new)) - the second dimension should be wavelength!")
 
     # --- NMF ---
-    # Initialize W and H matrices
-    W, H = NMF.spa(subset, rank)
-    
-    # Perform NMF using SPA algorithm
-    NMF.solve!(NMF.SPA{FT}(obj=:mse), subset, W, H)
+    W, H = NMF.spa(profile_new, rank)
+    NMF.solve!(NMF.SPA{FT}(obj=:mse), profile_new, W, H)
 
     # return as a struct
-    return MatrixFactor(
-        band     = band[ind],
-        PrinComp = H,        # Spectral components (rank × wavelength)
-        Loading  = W,        # Loading coefficients (samples × rank)
+    return MatrixFactor{FT}(
+        band = bandₒᵤₜ,
+        PrinComp = H,
+        Loading = W
     )
     
 end

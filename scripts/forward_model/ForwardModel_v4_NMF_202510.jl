@@ -37,7 +37,12 @@ md"""
 """
 
 # ╔═╡ 5afd8471-0ec5-454a-aeb3-1921a60bd48f
-λ_min = 620.; λ_max = 755.;
+# wavelenth
+λ_min = 610.; λ_max = 820.;
+
+# ╔═╡ 8c4f5fa0-0929-4a55-8e52-bbcd4adfcbb1
+# wavenumber
+n₁ = 1e7 / λ_min; n₂ = 1e7 / λ_max; println("wavenumber is $n₂ to $n₁")
 
 # ╔═╡ 3e56380e-6ce7-4c34-a9c5-fa75a06a6b6a
 begin
@@ -115,6 +120,23 @@ begin
 	println("SIF shape interpolated")
 end
 
+# ╔═╡ b8ba6ff5-0d91-4201-b38e-8afd6c60fdfa
+begin
+    # transmittance spectra should also be aligned with SIF
+    
+    trans_new = zeros(size(trans, 1), length(oci_band))
+    
+    for i in 1:size(trans, 1)
+        # Create interpolator for this row
+        itp_row = LinearInterpolation(bands, trans[i, :], extrapolation_bc=0)
+        
+        # Evaluate at OCI bands
+        trans_new[i, :] = itp_row.(oci_band)
+    end
+    
+    println("Transmittance interpolated to OCI bands")
+end
+
 # ╔═╡ 7c4fcde6-0e72-4229-a60c-969eda6050b1
 md"""
 ### NMF
@@ -125,7 +147,12 @@ md"""
 begin
 	rank       = 10;
 	# NMF
-	HighResNMF = Spectral_NMF(trans, bands; λ_min=λ_min, λ_max=λ_max, rank=rank);
+	HighResNMF = Spectral_NMF(
+		trans, 
+		bands,
+		Float64.(collect(skipmissing(oci_band))); 
+		rank=rank
+	);
 end
 
 # ╔═╡ cf4159bd-23b1-4ffd-be6b-02ec2aa6e34f
@@ -170,7 +197,7 @@ Where γ is correction factor accounting for （1) light path (VZA and SZA) and 
 
 # ╔═╡ 08343917-236b-4bfb-be42-9b560139906c
 begin
-	n    = 3;
+	n    = 2;
 	nPC  = rank;
 	nSIF = 1;
 
@@ -439,12 +466,12 @@ md"""
 
 # ╔═╡ f6155dde-0a72-4750-a82f-b045b8ada62b
 begin
-	nFLH_min = 0.05;
-	nFLH_max = 0.5;
+	nFLH_min = 0.02;
+	nFLH_max = 0.8;
 	SIF_index_all = findall(
 		coalesce.((nflh .> nFLH_min) .& (nflh .< nFLH_max), false)
 	);
-	SIF_index     = SIF_index_all[1:50:end];
+	SIF_index     = SIF_index_all[1:20:end];
 	println("# of pixels included: $(length(SIF_index))")
 end
 
@@ -658,7 +685,7 @@ end
 # ╔═╡ d297a09a-5b97-43ef-ae01-367444ad87fe
 begin
 	p_hist = histogram2d(
-		   SIF₆₈₃_px₄, nflh_px, bins=150,
+		   SIF₆₈₃_px₄, nflh_px, bins=100,
            xlabel="SIF₆₈₃ (W/m²/µm/sr) - alg4 (NMF)",
 	       ylabel="nFLH (W/m²/µm/sr)",
            title="NMF Retrieval vs. nFLH",
@@ -670,13 +697,13 @@ end
 
 # ╔═╡ 643d1724-3d05-467b-8cf2-2ac0bd97dd13
 histogram2d(
-   resd₄, chl_px, bins=250,
+   resd₄, log.(chl_px), bins=100,
    xlabel="Residual (l₂-norm [620 nm, 650 nm])",
    ylabel="Chl-a concentration",
    title="chlor_a vs. Residual",
    colorbar_title="Count",
    # xlim=( 0.0, 0.25 ),
-   ylim=( 0., 5. ),
+   # ylim=( 0., 1. ),
    color=:viridis
 )
 
@@ -934,7 +961,7 @@ end
 # ╔═╡ a0005415-37d5-4533-8ac0-68ee21373997
 begin
 	p_hist₃ = histogram2d(
-		   SIF₆₈₃_px₃, nflh_px, bins=150,
+		   SIF₆₈₃_px₃, nflh_px, bins=90,
            xlabel="SIF₆₈₃ (W/m²/µm/sr) - alg3 (SVD)",
 	       ylabel="nFLH (W/m²/µm/sr)",
            title="SVD retrieval vs. nFLH",
@@ -991,7 +1018,7 @@ begin
         _, T₄₂ⱼ, T₄₁ⱼ, _ = reconstruct4(MyRetrieval[i]);
         _, T₃₂ⱼ, T₃₁ⱼ, _ = reconstruct3(SVDRetrieval[i]);
 
-        if (i%60 == 0) && (0.10 < MyRetrieval[i].nflh < 0.25)
+        if (i%50 == 0) # && (0.10 < MyRetrieval[i].nflh < 0.25)
             # plot with same color
             plot!(pᵥ, oci_band, T₄₁ⱼ, 
 				label="$(MyRetrieval[i].nflh)",
@@ -1009,6 +1036,27 @@ begin
 	pᵥ
 end
 
+# ╔═╡ 7d2a01d0-bbb5-4025-9151-f6fb99f709db
+md"""
+### Some random plot
+---
+"""
+
+# ╔═╡ 7a204dd7-85c6-419f-ae27-4b2d78558082
+plot(oci_band, E, size=(800, 400))
+
+# ╔═╡ 1e110787-844a-43d8-816f-bfeeeb182753
+plot(oci_band, MyRetrieval[10].y, size=(800, 400)); plot!(oci_band, MyRetrieval[10].R_toa, size=(800, 400))
+
+# ╔═╡ 45be8693-430b-470e-971c-4fef038bebf7
+begin
+	k     = 10;
+	y_obs = MyRetrieval[k].R_toa;
+	y_fit = MyRetrieval[k].y;
+	plot(oci_band, y_fit ./ y_obs, size=(800, 400));
+	# plot(oci_band, y_fit .- y_obs, size=(800, 400))
+end
+
 # ╔═╡ Cell order:
 # ╟─64ad88f8-af61-11f0-230d-a525e3af3a49
 # ╠═bb10dd17-e8be-4bf1-9caa-c2f645d07046
@@ -1018,15 +1066,17 @@ end
 # ╠═293e259b-af97-476b-a8be-103c731e6d1a
 # ╟─584e1386-e522-4774-adee-f0d54f55db78
 # ╠═5afd8471-0ec5-454a-aeb3-1921a60bd48f
+# ╠═8c4f5fa0-0929-4a55-8e52-bbcd4adfcbb1
 # ╠═3e56380e-6ce7-4c34-a9c5-fa75a06a6b6a
 # ╟─41ee0706-efe3-4c5a-859e-dd8f0390732b
 # ╟─5e3d0da7-1910-4879-b2e0-f4a1ea32f5e2
-# ╟─9cb2e8d3-2fdb-4a6d-8f81-1e7826e6cc8e
+# ╠═9cb2e8d3-2fdb-4a6d-8f81-1e7826e6cc8e
+# ╠═b8ba6ff5-0d91-4201-b38e-8afd6c60fdfa
 # ╟─7c4fcde6-0e72-4229-a60c-969eda6050b1
 # ╠═41cc9e03-be5d-49f9-8769-2e1187ee900c
 # ╠═cf4159bd-23b1-4ffd-be6b-02ec2aa6e34f
 # ╟─31069e84-bde9-4377-a75e-2cc4e9c9fc49
-# ╟─08343917-236b-4bfb-be42-9b560139906c
+# ╠═08343917-236b-4bfb-be42-9b560139906c
 # ╠═403f6061-e5ca-40ba-9a64-afc0fe018bba
 # ╠═c437a631-ab57-4b27-9550-8aa9c7e4b27e
 # ╟─4fc5d644-d346-42d8-88e0-37ac0cd46ecb
@@ -1049,7 +1099,7 @@ end
 # ╟─b678620c-4a20-43f9-b22e-7ffd199bde77
 # ╟─43ad9bd4-dafd-47a1-99c5-d078e3381c4f
 # ╟─d297a09a-5b97-43ef-ae01-367444ad87fe
-# ╠═643d1724-3d05-467b-8cf2-2ac0bd97dd13
+# ╟─643d1724-3d05-467b-8cf2-2ac0bd97dd13
 # ╟─38afdb15-c285-46c7-b40c-0d320fd500d5
 # ╟─d9af203c-fb1f-49f9-8a32-386689c21245
 # ╟─875b3251-edbc-4b38-be48-53017ac3df0f
@@ -1066,3 +1116,7 @@ end
 # ╟─1c7b4659-9d4f-41b8-8e66-1a8730a255dd
 # ╟─24db2139-9fbe-45e2-b835-302cdfc587b9
 # ╟─bbaabf07-5c02-4c26-9dfc-98671d8d181c
+# ╟─7d2a01d0-bbb5-4025-9151-f6fb99f709db
+# ╠═7a204dd7-85c6-419f-ae27-4b2d78558082
+# ╠═1e110787-844a-43d8-816f-bfeeeb182753
+# ╠═45be8693-430b-470e-971c-4fef038bebf7
