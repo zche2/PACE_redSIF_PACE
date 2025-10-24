@@ -55,7 +55,7 @@ md"""
 
 # ╔═╡ 01350b23-2c99-42d2-ad4b-8f6002c3e9b0
 begin
-	k = 20
+	k = 10
 	
 	 # initialize
 	W, H = NMF.spa(spec, k)

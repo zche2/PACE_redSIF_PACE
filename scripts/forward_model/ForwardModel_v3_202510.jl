@@ -81,6 +81,12 @@ begin
 	println("\nBand selected: $oci_band")
 end
 
+# ╔═╡ 7b8b7142-daf0-4964-943b-d5618635f812
+chl_a    = oci["chlor_a"][:, :];
+
+# ╔═╡ 05560cef-f36e-475c-81af-cf865c3fba38
+oci
+
 # ╔═╡ 22c13315-e686-4632-b24c-d6b35011f19d
 begin
 	filename = raw"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt";
@@ -1526,13 +1532,14 @@ begin
 		bottom_margin=5Plots.mm,
 		title="ensemble of retrieval nFLH=[0.2, 0.4]"
 	)
-	
+
 	for i in 1:20:number_of_px
 		if ismissing(Retrieval3[i])
 			continue
 		end
 		# get spectral-wise residual
-		resdᵢ = Retrieval3[i].y .- Retrieval3[i].R_toa
+		resdᵢ = Retrieval3[i].y .- Retrieval3[i].R_toa;
+		
 		plot!(p_resd₃, oci_band, resdᵢ,
 			  label="",
 			  # label="$(round(Retrieval3[i].flag, digits=2))",
@@ -1560,8 +1567,15 @@ begin
 		# xlim=( 0.5, 1.2 ),
 		# ylim=( 0.5, 0.9 ),
 		dpi=400,)
-	nflh_px = [];
+
+	# get the residual spectra
+	indₖ = findall(λ_min .< oci_band .< 650.);
+
+	# null array to store that
+	resd = [];
+	nflh_px   = [];
 	SIF₆₈₃_px = [];
+	chl_px    = [];
 	
 	for i in 1:number_of_px
 		if ismissing(Retrieval3[i])
@@ -1571,10 +1585,16 @@ begin
 		# get nFLH
 		nflhⱼ    = Retrieval3[i].flag;
 		nflh_diy = SIFⱼ[nflh_bl_ind];
+		
+		# get spectral-wise residual
+		resdᵢ = Retrieval3[i].y .- Retrieval3[i].R_toa;
+		ā = norm(resdᵢ[indₖ], 2);
+		push!(resd, ā);
 
-		# push
+		# push others
 		push!(nflh_px, nflhⱼ);
 		push!(SIF₆₈₃_px, nflh_diy);
+		push!(chl_px, chl_a[SIF_index[i]]);
 		
 		scatter!(
 		  p_scatter, 
@@ -1615,6 +1635,18 @@ md"""
 ### The magnitude of residual against Chlorophyll concentration
 ---
 """
+
+# ╔═╡ f38f11a6-b13d-4532-a96b-0fe38aa548ae
+histogram2d(
+   resd, chl_px, bins=150,
+   xlabel="Residual (l₂-norm [620 nm, 650 nm])",
+   ylabel="Chl-a concentration",
+   title="Density Scatter Plot",
+   colorbar_title="Count",
+   # xlim=( 0.0, 0.25 ),
+   # ylim=( 0.05, 0.25 ),
+   color=:viridis
+)
 
 # ╔═╡ 3e50547e-dd46-4b04-a022-864b0f93478e
 md"""
@@ -1702,6 +1734,8 @@ plot(oci_band, MyPixel.E, size=(600, 200))
 # ╟─d3e33a05-871c-49a0-a91c-c5df2028d96f
 # ╠═a9817961-e3ab-42f0-8b7c-580d4a39bbdd
 # ╠═3060b59c-55b0-4e35-ac8c-5d7e2279fbd2
+# ╠═7b8b7142-daf0-4964-943b-d5618635f812
+# ╠═05560cef-f36e-475c-81af-cf865c3fba38
 # ╟─22c13315-e686-4632-b24c-d6b35011f19d
 # ╟─deb62e05-2d00-4704-8288-be7e292e5a5b
 # ╠═e001c698-ddd3-4a61-9205-25c2e523e28d
@@ -1774,10 +1808,11 @@ plot(oci_band, MyPixel.E, size=(600, 200))
 # ╟─af488e29-a283-45f9-9938-c3e2b54db23d
 # ╟─f09a2337-cf8b-4f2f-9e58-06a1eb312749
 # ╟─3155513a-c84d-43c7-99a9-881174be68e2
-# ╟─496c7daf-2fc2-48ef-a88a-e4b8dc0460dc
-# ╟─bbd23700-84cd-46cc-b1c1-0de5d1c91168
+# ╠═496c7daf-2fc2-48ef-a88a-e4b8dc0460dc
+# ╠═bbd23700-84cd-46cc-b1c1-0de5d1c91168
 # ╠═ba89b517-ab8b-482f-9809-374a5b079ceb
 # ╟─f4a131db-48a1-40f5-b561-37a74dd3c81a
+# ╠═f38f11a6-b13d-4532-a96b-0fe38aa548ae
 # ╟─3e50547e-dd46-4b04-a022-864b0f93478e
 # ╟─b9dc64c7-6ad9-4dbd-99d3-84e6b730cf1c
 # ╟─ae8a34be-a19d-4780-86b7-546944e0f413

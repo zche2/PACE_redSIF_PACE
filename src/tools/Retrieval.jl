@@ -70,8 +70,7 @@ function Spectral_NMF(
 
     # --- NMF ---
     # Initialize W and H matrices
-    W = rand(FT, size(subset, 1), rank)
-    H = rand(FT, rank, size(subset, 2))
+    W, H = NMF.spa(subset, rank)
     
     # Perform NMF using SPA algorithm
     NMF.solve!(NMF.SPA{FT}(obj=:mse), subset, W, H)
