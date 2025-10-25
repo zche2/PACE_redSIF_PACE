@@ -137,6 +137,76 @@ begin
     println("Transmittance interpolated to OCI bands")
 end
 
+# ╔═╡ 011b84bd-ffdc-4176-ba6e-f02400941186
+begin
+	# load chlorophyll absorption
+	chl_shape_dict = JLD2.load("/home/zhe2/data/MyProjects/PACE_redSIF_PACE/CHL_spectra.jld2")
+	println("chlorophyll loaded")
+	chl_shape_dict
+end
+
+# ╔═╡ 5c05448c-951f-4ff0-b573-4059de453ccd
+begin
+    CHL_wavelen = chl_shape_dict["CHL_wavelen"]
+    CHL_a       = chl_shape_dict["CHL_a"]
+    CHL_sum     = vec(chl_shape_dict["CHL_sum"])
+    
+    oci_band_clean = Float64.(collect(skipmissing(oci_band)))
+    
+    # Parameters
+    pad_width = λ_max - 700.
+    taper_width = 10.0
+    
+    # Helper function for smooth extrapolation
+    function smooth_interp(wvlen, data, eval_points, taper_w)
+        # Pad data
+        wvlen_pad = vcat([wvlen[1] - pad_width], wvlen, [wvlen[end] + pad_width])
+        data_pad = vcat([0.0], data, [0.0])
+        itp = LinearInterpolation(wvlen_pad, data_pad)
+        
+        # Evaluate with taper
+        result = zeros(length(eval_points))
+        for (i, λᵢ) in enumerate(eval_points)
+            val = itp(λᵢ)
+            if λᵢ < wvlen[1]
+                taper = exp(-((wvlen[1] - λᵢ) / taper_w)^2)
+                result[i] = val * taper
+            elseif λᵢ > wvlen[end]
+                taper = exp(-((λᵢ - wvlen[end]) / taper_w)^2)
+                result[i] = val * taper
+            else
+                result[i] = val
+            end
+        end
+        return result
+    end
+    
+    # Apply to CHL_sum
+    CHL_sum_new = smooth_interp(CHL_wavelen, CHL_sum, oci_band_clean, taper_width)
+    
+    # Apply to CHL_a
+    CHL_a_new = hcat([smooth_interp(CHL_wavelen, CHL_a[:, i], oci_band_clean, taper_width) 
+                      for i in 1:size(CHL_a, 2)]...)
+    
+    println("CHL shape interpolated with smooth zero padding")
+end
+
+# ╔═╡ 9763a4a8-7ee8-428c-b308-ce6a6ab02549
+begin
+	plot(chl_shape_dict["CHL_wavelen"], chl_shape_dict["CHL_a"], 
+		label="chlor_a", lw=2, size=(800, 300));
+	plot!(chl_shape_dict["CHL_wavelen"], chl_shape_dict["CHL_sum"], 
+		label="chlor_sum", lw=2)
+	plot!(oci_band, CHL_sum_new, label="chlor_a interpolated", ls=:dash)
+	plot!(oci_band, CHL_a_new, label="chlor_sum interpolated", ls=:dash)
+	xlims!(λ_min, λ_max)
+	ylims!(0.0, 0.1)
+end
+
+# ╔═╡ 20184609-8ac0-46fa-909d-96a4ed23641f
+# conversion to transmittance
+T_chl = 1.0 .- CHL_a_new;
+
 # ╔═╡ 7c4fcde6-0e72-4229-a60c-969eda6050b1
 md"""
 ### NMF
@@ -1069,9 +1139,13 @@ end
 # ╠═8c4f5fa0-0929-4a55-8e52-bbcd4adfcbb1
 # ╠═3e56380e-6ce7-4c34-a9c5-fa75a06a6b6a
 # ╟─41ee0706-efe3-4c5a-859e-dd8f0390732b
-# ╟─5e3d0da7-1910-4879-b2e0-f4a1ea32f5e2
+# ╠═5e3d0da7-1910-4879-b2e0-f4a1ea32f5e2
 # ╠═9cb2e8d3-2fdb-4a6d-8f81-1e7826e6cc8e
-# ╠═b8ba6ff5-0d91-4201-b38e-8afd6c60fdfa
+# ╟─b8ba6ff5-0d91-4201-b38e-8afd6c60fdfa
+# ╠═011b84bd-ffdc-4176-ba6e-f02400941186
+# ╠═5c05448c-951f-4ff0-b573-4059de453ccd
+# ╠═9763a4a8-7ee8-428c-b308-ce6a6ab02549
+# ╠═20184609-8ac0-46fa-909d-96a4ed23641f
 # ╟─7c4fcde6-0e72-4229-a60c-969eda6050b1
 # ╠═41cc9e03-be5d-49f9-8769-2e1187ee900c
 # ╠═cf4159bd-23b1-4ffd-be6b-02ec2aa6e34f
