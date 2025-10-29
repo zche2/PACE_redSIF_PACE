@@ -33,7 +33,7 @@ end
 
 # ╔═╡ 622412e7-4428-4173-a7c0-76306b1650c2
 begin
-	x_limits = (400, 750);
+	x_limits = (610, 820);
 	p_water = plot(wl, wc_all,
 			label="Water absorption coefficients (m⁻¹)",
 			xlims = x_limits,
@@ -44,7 +44,7 @@ begin
 			legend=:top,
 			xlabel="nm"
 			)
-	plot(p_water, p_chl, size=(600, 350), layout=(2,1), )
+	plot(p_water, p_chl, size=(800, 450), layout=(2,1), )
 end
 
 # ╔═╡ e6c595b0-1ec1-4287-ba4d-6e6766eda3da
@@ -1381,7 +1381,7 @@ version = "1.8.1+0"
 # ╠═b7a90231-6393-45aa-b14e-1a4696387372
 # ╠═a307a612-0541-4eb1-9de1-bd43f771a507
 # ╠═0e927426-0248-479d-998a-4fc38b0a2f36
-# ╠═622412e7-4428-4173-a7c0-76306b1650c2
+# ╟─622412e7-4428-4173-a7c0-76306b1650c2
 # ╟─e6c595b0-1ec1-4287-ba4d-6e6766eda3da
 # ╠═d83dc44e-2f57-4b6e-bb6b-871b768d7368
 # ╟─5563c3b1-3f45-4f0f-9aeb-e7e0110dc36a

@@ -614,7 +614,7 @@ begin
 	
 	# make transmittance
 	p_rho₄ = plot(
-		size=(800, 400), 
+		size=(800, 300), 
 		legendcolumns=3,
 		xlabel="[nm]",
 		ylabel="ρ [-]",
@@ -626,7 +626,7 @@ begin
 	)
 	
 	p_trans₄₂ = plot(
-		size=(800, 400), 
+		size=(800, 300), 
 		legendcolumns=3,
 		xlabel="[nm]",
 		ylabel="two-way transmittance [-]",
@@ -638,7 +638,7 @@ begin
 	)
 
 	p_trans₄₁ = plot(
-		size=(800, 400), 
+		size=(800, 300), 
 		legendcolumns=3,
 		xlabel="[nm]",
 		ylabel="one-way transmittance [-]",
@@ -650,7 +650,7 @@ begin
 	)
 
 	p_SIF₄ = plot(
-		size=(800, 400), 
+		size=(800, 300), 
 		legendcolumns=4,
 		xlabel="[nm]",
 		ylabel="SIF",
@@ -664,9 +664,11 @@ begin
 
 	# null array to store that
 	resd₄      = [];
+	resd₄_rel  = [];
 	nflh_px    = [];
 	SIF₆₈₃_px₄ = [];
 	chl_px     = [];
+	rad_ave    = [];
 
 	# some wavelength range
 	nflh_bl_ind = argmin(abs.(oci_band .- 678.2));
@@ -675,6 +677,8 @@ begin
 	for i in 1:number_of_px
 		if ismissing(MyRetrieval[i])
 			push!(resd₄, missing);
+			push!(resd₄_rel, missing);
+			push!(rad_ave, missing);
 			push!(nflh_px, missing);
 			push!(SIF₆₈₃_px₄, missing);
 			push!(chl_px, missing);
@@ -687,7 +691,10 @@ begin
 		resdᵢ = MyRetrieval[i].y .- MyRetrieval[i].R_toa;
 		nflhᵢ = MyRetrieval[i].nflh;
 		ā     = norm(resdᵢ[resd_bl_ind], 2);
+		ā_rel = norm(resdᵢ[resd_bl_ind] ./ MyRetrieval[i].R_toa[resd_bl_ind], 2);
 		push!(resd₄, ā);
+		push!(resd₄_rel, ā_rel);
+		push!(rad_ave, mean(MyRetrieval[i].R_toa));
 		push!(nflh_px, nflhᵢ);
 		push!(SIF₆₈₃_px₄, SIF₄ⱼ[nflh_bl_ind]);
 		push!(chl_px, MyRetrieval[i].chlor_a);
@@ -727,7 +734,7 @@ p_SIF₄
 begin
 	# residual
 	p_resd₄ = plot(
-		size=(800, 400), 
+		size=(800, 300), 
 		legendcolumns=4,
 		xlabel="[nm]",
 		ylabel="Residual",
@@ -738,7 +745,7 @@ begin
 		title="ensemble of retrieval nFLH=[$nFLH_min, $nFLH_max]"
 	)
 
-	for i in 1:50:number_of_px
+	for i in 1:10:number_of_px
 		if ismissing(MyRetrieval[i])
 			continue
 		end
@@ -752,6 +759,35 @@ begin
 	p_resd₄
 end
 
+# ╔═╡ 51faae6e-ed14-472c-8ac5-73b1b1d8204f
+begin
+	# residual
+	p_resd₄ᵣ = plot(
+		size=(800, 300), 
+		legendcolumns=4,
+		xlabel="[nm]",
+		ylabel="Residual",
+		xlabelfontsize=10,
+		ylabelfontsize=10,
+		left_margin=5Plots.mm,
+		bottom_margin=5Plots.mm,
+		title="ensemble of retrieval nFLH=[$nFLH_min, $nFLH_max] - Relative residual (%)"
+	)
+
+	for i in 1:10:number_of_px
+		if ismissing(MyRetrieval[i])
+			continue
+		end
+		# get spectral-wise residual
+		resdᵢ = MyRetrieval[i].y .- MyRetrieval[i].R_toa;
+		
+		plot!(
+			p_resd₄ᵣ, oci_band, resdᵢ ./ MyRetrieval[i].R_toa, label="",
+		)
+	end
+	p_resd₄ᵣ
+end
+
 # ╔═╡ d297a09a-5b97-43ef-ae01-367444ad87fe
 begin
 	p_hist = histogram2d(
@@ -760,8 +796,8 @@ begin
 	       ylabel="nFLH (W/m²/µm/sr)",
            title="NMF Retrieval vs. nFLH",
            colorbar_title="Count",
-		   # xlim=( 0.0, 0.25 ),
-		   # ylim=( 0.05, 0.25 ),
+		   xlim=( 0.05, 0.8 ),
+		   ylim=( 0.05, 0.8 ),
            color=:viridis)
 end
 
@@ -772,10 +808,25 @@ histogram2d(
    ylabel="Chl-a concentration",
    title="chlor_a vs. Residual",
    colorbar_title="Count",
-   # xlim=( 0.0, 0.25 ),
-   # ylim=( 0., 1. ),
+   xlim=( 0.0, 4.0 ),
+   ylim=( -2.5, 2.5 ),
    color=:viridis
 )
+
+# ╔═╡ e4b2e454-bb62-4e8f-981a-cde4a9028726
+histogram2d(
+   resd₄_rel, rad_ave, bins=100,
+   xlabel="Residual (l₂-norm [620 nm, 650 nm])",
+   ylabel="mean TOA rad.",
+   title="chlor_a vs. Residual",
+   colorbar_title="Count",
+   # xlim=( 0.0, .1 ),
+   # ylim=( -2.5, 2.5 ),
+   color=:viridis
+)
+
+# ╔═╡ 54304543-713f-4dd6-af14-c64929d71676
+scatter(resd₄_rel, rad_ave, zcolor=chl_px)
 
 # ╔═╡ 38afdb15-c285-46c7-b40c-0d320fd500d5
 md"""
@@ -1172,8 +1223,11 @@ end
 # ╟─e6f7310a-0e11-4e67-933a-f32292f45047
 # ╟─b678620c-4a20-43f9-b22e-7ffd199bde77
 # ╟─43ad9bd4-dafd-47a1-99c5-d078e3381c4f
+# ╟─51faae6e-ed14-472c-8ac5-73b1b1d8204f
 # ╟─d297a09a-5b97-43ef-ae01-367444ad87fe
-# ╟─643d1724-3d05-467b-8cf2-2ac0bd97dd13
+# ╠═643d1724-3d05-467b-8cf2-2ac0bd97dd13
+# ╠═e4b2e454-bb62-4e8f-981a-cde4a9028726
+# ╠═54304543-713f-4dd6-af14-c64929d71676
 # ╟─38afdb15-c285-46c7-b40c-0d320fd500d5
 # ╟─d9af203c-fb1f-49f9-8a32-386689c21245
 # ╟─875b3251-edbc-4b38-be48-53017ac3df0f

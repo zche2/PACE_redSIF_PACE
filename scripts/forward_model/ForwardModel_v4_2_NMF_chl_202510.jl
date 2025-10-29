@@ -62,7 +62,7 @@ begin
 	
 	# PACE data
 	oci = Dataset(
-	"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample/sample_granule_20240830T131442_new_chl.nc");
+	"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample/sample_granule_20250501T183011_new_chl.nc");
 	red_band = oci["red_wavelength"][:];
 	nflh     = oci["nflh"][:, :];
 	vza      = oci["sensor_zenith"][:, :];
@@ -373,7 +373,7 @@ function GainMatrix(K; Se=Se, Sa=Sa)
 end
 
 # ╔═╡ e1ade8ed-21b6-467d-a291-02ae3fe84d5e
-function GN_Interation!(
+function GN_Iteration!(
 			px :: Pixel,
 			model;
 			nIter = 20,
@@ -414,6 +414,69 @@ function GN_Interation!(
 	return nothing
 end
 
+# ╔═╡ 132ed6e9-db6f-4c19-872d-7dd7e25cafd9
+function LM_Iteration!(
+            px :: Pixel,
+            model;
+            nIter = 20,
+            thr_Converge = 1e-8,
+            γ₀ = 10,            # Initial damping parameter
+            γ⁺ = 10.0,          # Factor to increase γ when step fails
+			γ⁻ = 2.0            # Factor to reduce γ when step accepted.
+        )
+    
+    # Initial
+    xₐ = px.xₐ ;         # A priori estimation
+    xₙ = px.x;
+    Kₙ, yₙ = Jacobian(xₙ, x -> model(x, px));
+    
+    RMSE₀ = 1e20;
+    RMSE₁ = root_mean_square(px.R_toa, px.y);
+    ΔRMSE = RMSE₁ - RMSE₀;
+
+	Se_inv = inv(px.Se);
+	Sa_inv = inv(px.Sa);
+    
+    γ = γ₀             # Damping parameter
+    
+    # Loop
+    while (abs(ΔRMSE) > thr_Converge) && (px.iter_label < nIter)
+        px.iter_label += 1
+
+		# update x
+		Δy     = Kₙ' * Se_inv * (px.R_toa .- px.y) - Sa_inv * ( px.x .- xₐ );
+		Gₙ     = (1+γ) * Sa_inv + Kₙ' * Se_inv * Kₙ;
+		Δx     = Gₙ * Δy;
+		
+		x_trial = px.x .+ Δx;
+
+		# evaluate at trial point
+		K_trial, y_trial  = Jacobian(x_trial, x -> model(x, px));
+		RMSE_trial        = root_mean_square(px.R_toa, y_trial);
+        
+        # Check if step improves the fit
+        if RMSE_trial < RMSE₁
+            # Accept step
+			px.x   = x_trial;
+			px.y   = y_trial;
+			Kₙ     = K_trial;
+		    # Update RMSE
+		    RMSE₀ = RMSE₁;
+		    RMSE₁ = RMSE_trial;
+		    ΔRMSE = RMSE₁ - RMSE₀;
+            # Decrease damping (success)
+            γ /= γ⁻;
+			
+		else
+			# Reject, increase damping
+			px.iter_label -= 1;
+			γ *= γ⁺;
+        end
+    end
+    
+    return px
+end
+
 # ╔═╡ f0b8aed0-1455-4cd6-b42c-697287943e59
 begin
 	# sigmoid apporximation function, bounded (for now) by [1,2]
@@ -425,6 +488,7 @@ function MakePriori!(
 		px :: Pixel,
 		β :: Vector{FT}
 	) where {FT <: AbstractFloat}
+	
 	# polynomial terms
 	K₀  = px.E .* cosd(px.sza) ./ pi .* hcat(collectPl.(px.λc, lmax=px.nPoly)...)';
 	G₀  = inv( K₀'K₀ )K₀';
@@ -459,13 +523,13 @@ function forward_model5(
 	T₂       = @. exp( smooth_x * log(T₁) );
 
 	# Chlorophyll absorption
-	T_chl    = (1 .- abs(x[px.nPoly+px.nPC+px.nSIF+3]) .* px.chl_shape);
+	Tᶜʰˡ     = (1 .- abs(x[px.nPoly+px.nPC+px.nSIF+3]) .* px.chl_shape);
 
 	# SIF magnitude
 	SIF   = px.SIF_shape * x[px.nPoly+px.nPC+px.nSIF+2];
 	
 	# TOA radiance
-	rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ * T_chl + SIF * T₁;
+	rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ * Tᶜʰˡ + SIF * T₁;
 	return rad
 end
 
@@ -517,7 +581,7 @@ function Retrieval5(
 	
 	# Step2: iteration
 	try
-		GN_Interation!(
+		LM_Iteration!(
 			MyPixel, 
 			forward_model,
 			nIter=nIter,
@@ -551,7 +615,7 @@ begin
 	SIF_index_all = findall(
 		coalesce.((nflh .> nFLH_min) .& (nflh .< nFLH_max), false)
 	);
-	SIF_index     = SIF_index_all[1:20:end];
+	SIF_index     = SIF_index_all[1：100:end];
 	println("# of pixels included: $(length(SIF_index))")
 end
 
@@ -612,12 +676,12 @@ function reconstruct4(
 	T₂       = @. exp( smooth_x * log(T₁) );
 
 	# Chlorophyll absorption
-	T_chl    = (1 .- abs(px.x[px.nPoly+px.nPC+px.nSIF+3]) .* px.chl_shape);
+	Tᶜʰˡ     = (1 .- abs(px.x[px.nPoly+px.nPC+px.nSIF+3]) .* px.chl_shape);
 
 	# SIF magnitude
 	SIF   = px.SIF_shape * px.x[px.nPoly+px.nPC+px.nSIF+2];
 	
-	return ρ, T₂ .* T_chl, T₁, SIF
+	return ρ, T₂, T₁, Tᶜʰˡ, SIF
 end
 
 # ╔═╡ 68ee1b3b-e624-431c-8908-142a6da86074
@@ -627,7 +691,7 @@ begin
 	
 	# make transmittance
 	p_rho₄ = plot(
-		size=(800, 400), 
+		size=(800, 300), 
 		legendcolumns=3,
 		xlabel="[nm]",
 		ylabel="ρ [-]",
@@ -639,7 +703,7 @@ begin
 	)
 	
 	p_trans₄₂ = plot(
-		size=(800, 400), 
+		size=(800, 300), 
 		legendcolumns=3,
 		xlabel="[nm]",
 		ylabel="two-way transmittance [-]",
@@ -651,7 +715,7 @@ begin
 	)
 
 	p_trans₄₁ = plot(
-		size=(800, 400), 
+		size=(800, 300), 
 		legendcolumns=3,
 		xlabel="[nm]",
 		ylabel="one-way transmittance [-]",
@@ -663,7 +727,7 @@ begin
 	)
 
 	p_SIF₄ = plot(
-		size=(800, 400), 
+		size=(800, 300), 
 		legendcolumns=4,
 		xlabel="[nm]",
 		ylabel="SIF",
@@ -694,7 +758,7 @@ begin
 			continue
 		end
 		# reconstruct
-		ρ₄ⱼ, T₄₂ⱼ, T₄₁ⱼ, SIF₄ⱼ = reconstruct4(MyRetrieval[i]);
+		ρ₄ⱼ, T₄₂ⱼ, T₄₁ⱼ, Tᶜʰˡⱼ,SIF₄ⱼ = reconstruct4(MyRetrieval[i]);
 
 		# push
 		resdᵢ = MyRetrieval[i].y .- MyRetrieval[i].R_toa;
@@ -711,7 +775,7 @@ begin
 				p_rho₄, oci_band, ρ₄ⱼ,
 				label="$(round(MyRetrieval[i].flag, digits=2))")
 			plot!(
-				p_trans₄₂, oci_band, T₄₂ⱼ, 
+				p_trans₄₂, oci_band, [T₄₂ⱼ Tᶜʰˡⱼ], 
 				label="")
 			plot!(
 				p_trans₄₁, oci_band, T₄₁ⱼ,
@@ -765,16 +829,45 @@ begin
 	p_resd₄
 end
 
+# ╔═╡ 44ad5bd6-dc25-4a29-9b47-791d0bdf3ae7
+begin
+	# residual
+	p_resd₄ᵣ = plot(
+		size=(800, 400), 
+		legendcolumns=4,
+		xlabel="[nm]",
+		ylabel="Residual",
+		xlabelfontsize=10,
+		ylabelfontsize=10,
+		left_margin=5Plots.mm,
+		bottom_margin=5Plots.mm,
+		title="ensemble of retrieval nFLH=[$nFLH_min, $nFLH_max] - Relative residual (%)"
+	)
+
+	for i in 1:50:number_of_px
+		if ismissing(MyRetrieval[i])
+			continue
+		end
+		# get spectral-wise residual
+		resdᵢ = MyRetrieval[i].y .- MyRetrieval[i].R_toa;
+		
+		plot!(
+			p_resd₄ᵣ, oci_band, resdᵢ ./ MyRetrieval[i].R_toa .* 100, label="",
+		)
+	end
+	p_resd₄ᵣ
+end
+
 # ╔═╡ d297a09a-5b97-43ef-ae01-367444ad87fe
 begin
 	p_hist = histogram2d(
-		   SIF₆₈₃_px₄, nflh_px, bins=100,
+		   SIF₆₈₃_px₄, nflh_px, bins=200,
            xlabel="SIF₆₈₃ (W/m²/µm/sr) - alg4 (NMF)",
 	       ylabel="nFLH (W/m²/µm/sr)",
            title="NMF Retrieval vs. nFLH",
            colorbar_title="Count",
-		   # xlim=( 0.0, 0.25 ),
-		   # ylim=( 0.05, 0.25 ),
+		   # xlim=( 0.05, 0.8 ),
+		   # ylim=( 0.05, 0.8 ),
            color=:viridis)
 end
 
@@ -785,19 +878,19 @@ histogram2d(
    ylabel="Chl-a concentration",
    title="chlor_a vs. Residual",
    colorbar_title="Count",
-   # xlim=( 0.0, 0.25 ),
-   # ylim=( 0., 1. ),
+   # xlim=( 0.0, 8.0 ),
+   # ylim=( -2.5, 2.5 ),
    color=:viridis
 )
 
 # ╔═╡ 38afdb15-c285-46c7-b40c-0d320fd500d5
 md"""
-### Compare with forward model 3
+### Compare with SVD
 ---
 """
 
 # ╔═╡ d9af203c-fb1f-49f9-8a32-386689c21245
-function forward_model3(
+function forward_model5_1(
 		x,
 		px :: Pixel,       # Pixel struct
 	)
@@ -811,13 +904,16 @@ function forward_model3(
 
 	# T↓↑ transmittance for SIF
 	smooth_x = sigm(x[px.nPoly+px.nPC+2]);
-	T₂    = @. exp( smooth_x * log(T₁) );
+	T₂       = @. exp( smooth_x * log(T₁) );
+
+	# Chlorophyll absorption
+	Tᶜʰˡ     = (1 .- abs(x[px.nPoly+px.nPC+px.nSIF+3]) .* px.chl_shape);
 
 	# SIF magnitude
 	SIF   = px.SIF_shape * x[px.nPoly+px.nPC+px.nSIF+2];
 	
 	# TOA radiance
-	rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ + SIF * T₁;
+	rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ * Tᶜʰˡ + SIF * T₁;
 	return rad
 end
 
@@ -864,7 +960,9 @@ begin
 	# \gamma
 	Sₐ₃[n+nPC+2, n+nPC+2] = 2;
 	# SIF magnitude
-	Sₐ₃[end, end] = 1;
+	Sₐ₃[n+nPC+nSIF+2, n+nPC+nSIF+2] = 1;
+	# Chlorophyll absorption
+	Sₐ₃[end, end] = 1e10;   # not really constrained
 	println("Diagonal terms are: $(diag(Sₐ₃))")
 end
 
@@ -883,11 +981,11 @@ begin
 		Sₐ    = Sₐ₃,
 		βₐ    = mean(HighResSVD.VarExp .* HighResSVD.Loading, dims=2)[1:nPC],
 		PrinComp      = HighResSVD.PrinComp[:, 1:nPC],
-		thr_Converge  = 1e-6,
-		forward_model = forward_model3,
+		thr_Converge  = 1e-5,
+		forward_model = forward_model5_1,
 	);
 	
-	SVDRetrieval = Retrieval4.(
+	SVDRetrieval = Retrieval5.(
 		eachslice(R_toa[SIF_index, :], dims=1),
 		sza[SIF_index],
 		vza[SIF_index],
@@ -895,7 +993,7 @@ begin
 		chlor_a[SIF_index],   # chlor_a
 		nflh[SIF_index],      # flag
 		Ref(params₃) 
-	)
+	)	
 end
 
 # ╔═╡ f3958efb-ca4a-4775-a5c3-aac8d939c331
@@ -1153,6 +1251,7 @@ md"""
 # ╟─4fc5d644-d346-42d8-88e0-37ac0cd46ecb
 # ╟─4ac45a58-1988-43e6-93af-8a27a3d80a72
 # ╠═e1ade8ed-21b6-467d-a291-02ae3fe84d5e
+# ╠═132ed6e9-db6f-4c19-872d-7dd7e25cafd9
 # ╠═f0b8aed0-1455-4cd6-b42c-697287943e59
 # ╠═cb604d64-a31f-4f97-bf48-a816d8abf83b
 # ╠═509c5b50-098e-4d66-878a-8cbc0de50ee9
@@ -1169,10 +1268,11 @@ md"""
 # ╟─e6f7310a-0e11-4e67-933a-f32292f45047
 # ╟─b678620c-4a20-43f9-b22e-7ffd199bde77
 # ╟─43ad9bd4-dafd-47a1-99c5-d078e3381c4f
-# ╟─d297a09a-5b97-43ef-ae01-367444ad87fe
-# ╟─643d1724-3d05-467b-8cf2-2ac0bd97dd13
+# ╟─44ad5bd6-dc25-4a29-9b47-791d0bdf3ae7
+# ╠═d297a09a-5b97-43ef-ae01-367444ad87fe
+# ╠═643d1724-3d05-467b-8cf2-2ac0bd97dd13
 # ╟─38afdb15-c285-46c7-b40c-0d320fd500d5
-# ╟─d9af203c-fb1f-49f9-8a32-386689c21245
+# ╠═d9af203c-fb1f-49f9-8a32-386689c21245
 # ╟─875b3251-edbc-4b38-be48-53017ac3df0f
 # ╠═32d96696-6758-4268-b1d6-c75da709aba9
 # ╠═b94a2d76-f930-45b6-b496-c39013f6ab18
