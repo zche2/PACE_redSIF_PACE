@@ -62,7 +62,7 @@ begin
 	
 	# PACE data
 	oci = Dataset(
-	"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample/sample_granule_20250501T183011_new_chl.nc");
+	"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample/sample_granule_20240830T131442_new_chl.nc");
 	red_band = oci["red_wavelength"][:];
 	nflh     = oci["nflh"][:, :];
 	vza      = oci["sensor_zenith"][:, :];
@@ -258,6 +258,10 @@ $$\rho_{s}(\lambda)=\sum{a_jP_j}, \ T_{\uparrow}(\lambda)=\sum{\beta_i P_i}$$
 
 $$R_{TOA}=\frac{E(\lambda)cos(SZA)\rho_s(\lambda)T_{\downarrow\uparrow}(\lambda)T_{chl}(\lambda)}{\pi} + SIF(\lambda)T_{\uparrow}(\lambda)$$
 
+$$T_{chl}(\lambda)=1-exp(-\alpha\times\sigma(\lambda))$$
+
+Where α is intergrated mass (in mg?), such that -α×σ is a cross section.
+
 $$T_{\downarrow\uparrow}(\lambda)=exp(\gamma \times ln(T_{\uparrow}(\lambda)))$$
 Where γ is correction factor accounting for （1) light path (VZA and SZA) and （2) upper atmosphere reflectance.
 """
@@ -446,7 +450,7 @@ function LM_Iteration!(
 		# update x
 		Δy     = Kₙ' * Se_inv * (px.R_toa .- px.y) - Sa_inv * ( px.x .- xₐ );
 		Gₙ     = (1+γ) * Sa_inv + Kₙ' * Se_inv * Kₙ;
-		Δx     = Gₙ * Δy;
+		Δx     = inv(Gₙ) * Δy;
 		
 		x_trial = px.x .+ Δx;
 
@@ -464,6 +468,7 @@ function LM_Iteration!(
 		    RMSE₀ = RMSE₁;
 		    RMSE₁ = RMSE_trial;
 		    ΔRMSE = RMSE₁ - RMSE₀;
+			px.ΔRMSE = ΔRMSE;
             # Decrease damping (success)
             γ /= γ⁻;
 			
@@ -523,7 +528,8 @@ function forward_model5(
 	T₂       = @. exp( smooth_x * log(T₁) );
 
 	# Chlorophyll absorption
-	Tᶜʰˡ     = (1 .- abs(x[px.nPoly+px.nPC+px.nSIF+3]) .* px.chl_shape);
+	σ        = abs.(x[px.nPoly+px.nPC+px.nSIF+3] .* px.chl_shape);
+	Tᶜʰˡ     = exp.(-σ);
 
 	# SIF magnitude
 	SIF   = px.SIF_shape * x[px.nPoly+px.nPC+px.nSIF+2];
@@ -615,7 +621,7 @@ begin
 	SIF_index_all = findall(
 		coalesce.((nflh .> nFLH_min) .& (nflh .< nFLH_max), false)
 	);
-	SIF_index     = SIF_index_all[1：100:end];
+	SIF_index     = SIF_index_all[1:20:end];
 	println("# of pixels included: $(length(SIF_index))")
 end
 
@@ -630,11 +636,11 @@ begin
 		nPoly = n,
 		nPC   = nPC, 
 		nSIF  = 1,
-		nIter = 20, 
+		nIter = 30, 
 		Sₐ    = Sₐ,
 		βₐ    = loading_ave,
 		PrinComp      = HighResNMF.PrinComp',
-		thr_Converge  = 1e-5,
+		thr_Converge  = 1e-8,
 		forward_model = forward_model5,
 	);
 end
@@ -676,7 +682,8 @@ function reconstruct4(
 	T₂       = @. exp( smooth_x * log(T₁) );
 
 	# Chlorophyll absorption
-	Tᶜʰˡ     = (1 .- abs(px.x[px.nPoly+px.nPC+px.nSIF+3]) .* px.chl_shape);
+	σ        = px.x[px.nPoly+px.nPC+px.nSIF+3] .* px.chl_shape;
+	Tᶜʰˡ     = exp.(-σ);
 
 	# SIF magnitude
 	SIF   = px.SIF_shape * px.x[px.nPoly+px.nPC+px.nSIF+2];
@@ -775,7 +782,7 @@ begin
 				p_rho₄, oci_band, ρ₄ⱼ,
 				label="$(round(MyRetrieval[i].flag, digits=2))")
 			plot!(
-				p_trans₄₂, oci_band, [T₄₂ⱼ Tᶜʰˡⱼ], 
+				p_trans₄₂, oci_band, Tᶜʰˡⱼ, # [T₄₂ⱼ Tᶜʰˡⱼ], 
 				label="")
 			plot!(
 				p_trans₄₁, oci_band, T₄₁ⱼ,
@@ -815,7 +822,7 @@ begin
 		title="ensemble of retrieval nFLH=[$nFLH_min, $nFLH_max]"
 	)
 
-	for i in 1:50:number_of_px
+	for i in 1:5:number_of_px
 		if ismissing(MyRetrieval[i])
 			continue
 		end
@@ -844,7 +851,7 @@ begin
 		title="ensemble of retrieval nFLH=[$nFLH_min, $nFLH_max] - Relative residual (%)"
 	)
 
-	for i in 1:50:number_of_px
+	for i in 1:10:number_of_px
 		if ismissing(MyRetrieval[i])
 			continue
 		end
@@ -977,11 +984,11 @@ begin
 		nPoly = n,
 		nPC   = nPC, 
 		nSIF  = 1,
-		nIter = 20, 
+		nIter = 30, 
 		Sₐ    = Sₐ₃,
 		βₐ    = mean(HighResSVD.VarExp .* HighResSVD.Loading, dims=2)[1:nPC],
 		PrinComp      = HighResSVD.PrinComp[:, 1:nPC],
-		thr_Converge  = 1e-5,
+		thr_Converge  = 1e-6,
 		forward_model = forward_model5_1,
 	);
 	
@@ -1244,7 +1251,7 @@ md"""
 # ╟─7c4fcde6-0e72-4229-a60c-969eda6050b1
 # ╠═41cc9e03-be5d-49f9-8769-2e1187ee900c
 # ╠═cf4159bd-23b1-4ffd-be6b-02ec2aa6e34f
-# ╟─31069e84-bde9-4377-a75e-2cc4e9c9fc49
+# ╠═31069e84-bde9-4377-a75e-2cc4e9c9fc49
 # ╠═08343917-236b-4bfb-be42-9b560139906c
 # ╠═403f6061-e5ca-40ba-9a64-afc0fe018bba
 # ╠═c437a631-ab57-4b27-9550-8aa9c7e4b27e

@@ -38,7 +38,7 @@ md"""
 
 # ╔═╡ 5afd8471-0ec5-454a-aeb3-1921a60bd48f
 # wavelenth
-λ_min = 610.; λ_max = 820.;
+λ_min = 650.; λ_max = 820.;
 
 # ╔═╡ 8c4f5fa0-0929-4a55-8e52-bbcd4adfcbb1
 # wavenumber
@@ -411,6 +411,70 @@ function GN_Interation!(
 	return nothing
 end
 
+# ╔═╡ fdd909a7-3e18-44dd-bd17-ff6a8a6fc6da
+function LM_Iteration!(
+            px :: Pixel,
+            model;
+            nIter = 20,
+            thr_Converge = 1e-8,
+            γ₀ = 10,            # Initial damping parameter
+            γ⁺ = 10.0,          # Factor to increase γ when step fails
+			γ⁻ = 2.0            # Factor to reduce γ when step accepted.
+        )
+    
+    # Initial
+    xₐ = px.xₐ ;         # A priori estimation
+    xₙ = px.x;
+    Kₙ, yₙ = Jacobian(xₙ, x -> model(x, px));
+    
+    RMSE₀ = 1e20;
+    RMSE₁ = root_mean_square(px.R_toa, px.y);
+    ΔRMSE = RMSE₁ - RMSE₀;
+
+	Se_inv = inv(px.Se);
+	Sa_inv = inv(px.Sa);
+    
+    γ = γ₀             # Damping parameter
+    
+    # Loop
+    while (abs(ΔRMSE) > thr_Converge) && (px.iter_label < nIter)
+        px.iter_label += 1
+
+		# update x
+		Δy     = Kₙ' * Se_inv * (px.R_toa .- px.y) - Sa_inv * ( px.x .- xₐ );
+		Gₙ     = (1+γ) * Sa_inv + Kₙ' * Se_inv * Kₙ;
+		Δx     = inv(Gₙ) * Δy;
+		
+		x_trial = px.x .+ Δx;
+
+		# evaluate at trial point
+		K_trial, y_trial  = Jacobian(x_trial, x -> model(x, px));
+		RMSE_trial        = root_mean_square(px.R_toa, y_trial);
+        
+        # Check if step improves the fit
+        if RMSE_trial < RMSE₁
+            # Accept step
+			px.x   = x_trial;
+			px.y   = y_trial;
+			Kₙ     = K_trial;
+		    # Update RMSE
+		    RMSE₀ = RMSE₁;
+		    RMSE₁ = RMSE_trial;
+		    ΔRMSE = RMSE₁ - RMSE₀;
+			px.ΔRMSE = ΔRMSE;
+            # Decrease damping (success)
+            γ /= γ⁻;
+			
+		else
+			# Reject, increase damping
+			px.iter_label -= 1;
+			γ *= γ⁺;
+        end
+    end
+    
+    return px
+end
+
 # ╔═╡ f0b8aed0-1455-4cd6-b42c-697287943e59
 begin
 	# sigmoid apporximation function, bounded (for now) by [1,2]
@@ -507,7 +571,7 @@ function Retrieval4(
 	
 	# Step2: iteration
 	try
-		GN_Interation!(
+		LM_Iteration!(
 			MyPixel, 
 			forward_model,
 			nIter=nIter,
@@ -782,7 +846,7 @@ begin
 		resdᵢ = MyRetrieval[i].y .- MyRetrieval[i].R_toa;
 		
 		plot!(
-			p_resd₄ᵣ, oci_band, resdᵢ ./ MyRetrieval[i].R_toa, label="",
+			p_resd₄ᵣ, oci_band, resdᵢ ./ MyRetrieval[i].R_toa .* 100, label="",
 		)
 	end
 	p_resd₄ᵣ
@@ -791,13 +855,13 @@ end
 # ╔═╡ d297a09a-5b97-43ef-ae01-367444ad87fe
 begin
 	p_hist = histogram2d(
-		   SIF₆₈₃_px₄, nflh_px, bins=100,
+		   SIF₆₈₃_px₄, nflh_px, bins=200,
            xlabel="SIF₆₈₃ (W/m²/µm/sr) - alg4 (NMF)",
 	       ylabel="nFLH (W/m²/µm/sr)",
            title="NMF Retrieval vs. nFLH",
            colorbar_title="Count",
-		   xlim=( 0.05, 0.8 ),
-		   ylim=( 0.05, 0.8 ),
+		   # xlim=( 0.05, 0.8 ),
+		   # ylim=( 0.05, 0.8 ),
            color=:viridis)
 end
 
@@ -808,19 +872,19 @@ histogram2d(
    ylabel="Chl-a concentration",
    title="chlor_a vs. Residual",
    colorbar_title="Count",
-   xlim=( 0.0, 4.0 ),
-   ylim=( -2.5, 2.5 ),
+   # xlim=( 0.0, 4.0 ),
+   # ylim=( -2.5, 2.5 ),
    color=:viridis
 )
 
 # ╔═╡ e4b2e454-bb62-4e8f-981a-cde4a9028726
 histogram2d(
-   resd₄_rel, rad_ave, bins=100,
+   resd₄_rel, rad_ave, bins=200,
    xlabel="Residual (l₂-norm [620 nm, 650 nm])",
    ylabel="mean TOA rad.",
    title="chlor_a vs. Residual",
    colorbar_title="Count",
-   # xlim=( 0.0, .1 ),
+   xlim=( 0.0, .1 ),
    # ylim=( -2.5, 2.5 ),
    color=:viridis
 )
@@ -1207,6 +1271,7 @@ end
 # ╟─4fc5d644-d346-42d8-88e0-37ac0cd46ecb
 # ╟─4ac45a58-1988-43e6-93af-8a27a3d80a72
 # ╠═e1ade8ed-21b6-467d-a291-02ae3fe84d5e
+# ╠═fdd909a7-3e18-44dd-bd17-ff6a8a6fc6da
 # ╠═f0b8aed0-1455-4cd6-b42c-697287943e59
 # ╠═cb604d64-a31f-4f97-bf48-a816d8abf83b
 # ╠═509c5b50-098e-4d66-878a-8cbc0de50ee9
@@ -1225,7 +1290,7 @@ end
 # ╟─43ad9bd4-dafd-47a1-99c5-d078e3381c4f
 # ╟─51faae6e-ed14-472c-8ac5-73b1b1d8204f
 # ╟─d297a09a-5b97-43ef-ae01-367444ad87fe
-# ╠═643d1724-3d05-467b-8cf2-2ac0bd97dd13
+# ╟─643d1724-3d05-467b-8cf2-2ac0bd97dd13
 # ╠═e4b2e454-bb62-4e8f-981a-cde4a9028726
 # ╠═54304543-713f-4dd6-af14-c64929d71676
 # ╟─38afdb15-c285-46c7-b40c-0d320fd500d5
