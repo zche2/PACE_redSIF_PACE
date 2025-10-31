@@ -57,10 +57,12 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
     # Model Params 🌟
     MyModel = ModelParameters{Float64}(
-        simulation_id       = "Finer_Wavenumber_grid_FullRange_Aug01",
+        simulation_id       = "Finer_Wavenumber_grid_FullRange_NOx_Oct30",
         res                 = 0.01,
         ν_min               = 11111,
         ν_max               = 16600,
+        gas_species         = ["NO2", "NO"],
+        gas_id              = [-1, -1],
         # deltaTemp_K         = 1.,
         # UnevenGrid_Pressure = true,
         # PressureGrid_dir    = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Pressure_UpperAtm.jld2",

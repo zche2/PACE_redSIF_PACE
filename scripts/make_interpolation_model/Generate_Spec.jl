@@ -17,15 +17,14 @@ function main()
     p_grid = p_min:dp:p_max;
     p_grid /= 100; # convert to hPa
 
-    SaveDir = "/home/zhe2/FraLab/PACE_redSIF_PACE"    # try if saving to local folder will be faster
-    # "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/"
+    SaveDir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/"
 
     println("T, p, ν grid created!\n")
 
 
     # hitran model 
-    AllMolec  = ["H2O"];
-    AllNum    = [1];
+    AllMolec  = ["O3"];
+    AllNum    = [3];
     
     for (molec, num) in zip(AllMolec, AllNum)
     
