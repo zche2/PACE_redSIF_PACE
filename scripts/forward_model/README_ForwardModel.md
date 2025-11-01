@@ -1,4 +1,6 @@
 ### Descriptions of files
+
+##### <b>Forward models</b> 
 - v1: Some preliminary try-out. Have some evaluation of **numerical efficiency**
 - v2: 
     Start from simple linear model with reflectance only, add transmittance (scaled to maximum value=1)
@@ -14,3 +16,9 @@
     Allow fitting one-way and two-way transmittance separately
     Adopt the full spectral shape of SIF (interpolated to OCI res.)
     Update priori covariance terms for PCs
+- v4:
+    - v4.1: Non-negative matrix factorization fit 
+    - v4.2: Add chlorophyll absorption (bad)
+
+##### <b>Retrieval</b>
+Apply the up-to-date forward model
