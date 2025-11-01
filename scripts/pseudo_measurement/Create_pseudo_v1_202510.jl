@@ -307,6 +307,134 @@ begin
 
 end
 
+# ╔═╡ c90eda45-e488-4320-9e17-296da1197e93
+md"""
+## Try one-pixel retrieval
+Go bruins! 🦫
+"""
+
+# ╔═╡ 0a000d90-d661-4ebe-bc08-2c8b2a3abc0f
+begin
+	rank       = 10;
+	# NMF
+	HighResNMF = Spectral_NMF(
+		trans, 
+		bands,
+		Float64.(collect(skipmissing(oci_band))); 
+		rank=rank
+	);
+	# W and H
+	λ₀ = HighResNMF.band;
+	W₀ = HighResNMF.Loading;
+	H₀ = HighResNMF.PrinComp;
+	
+	# matrics
+    mean_val  = [round(mean(W₀[:, i]), digits=2) for i in 1:rank];
+    max_val   = [round(maximum(W₀[:, i]), digits=2) for i in 1:rank];
+    min_val   = [round(minimum(W₀[:, i]), digits=2) for i in 1:rank];
+
+	# s.d. for the loading term
+	loading_ave = [mean(W₀[:, i]) for i in 1:rank];
+	@show loading_sd  = [var(W₀[:, i]) for i in 1:rank];
+end
+
+# ╔═╡ 09d8afad-d4f4-4625-9940-f1c82ac957aa
+begin
+	# set up retrieval scheme
+	n     = 2;
+	nPC   = rank;
+	nSIF  = 1;
+
+	Sₐ   = I(n+nPC+nSIF+2) .+ 0.;
+	# update diagonal term
+	for i=1:(n+1)
+	    Sₐ[i,i] = 1e10;
+		# large variance applies no constrain to these polynomial term
+	end
+	
+	# \beta
+	for i=(n+2):(n+nPC+1)
+		Sₐ[i,i]  = loading_sd[i - (n+1)];
+	end
+	
+	# \gamma
+	Sₐ[n+nPC+2, n+nPC+2] = 2;
+	# SIF magnitude
+	Sₐ[end, end] = 1;
+	println("Diagonal terms are: $(diag(Sₐ))")
+	
+end
+
+# ╔═╡ a3dfbedc-7c7a-4559-bbf3-0252857465b4
+begin
+	# SIF U
+	# interpolation in the first dimension and no interp. in the second
+	itp₂    = interpolate(SIF_shape_dict["SIF_U"], (BSpline(Linear()), NoInterp()));
+	
+	# scale
+	r₁ = SIF_shape_dict["SIF_wavelen"][1]:SIF_shape_dict["SIF_wavelen"][end];
+	r₂ = 1:size(itp₂, 2);
+	sitp₂   = scale(itp₂, r₁, r₂);
+
+	# set extrapolation filling value = 0
+	setp0₂  = extrapolate(sitp₂, 0)
+
+	# interpolation
+	SIF_PC  = reduce(hcat, [setp0₂.(λ, i) for i in range₂]); 
+	
+	println("SIF shape interpolated")
+end
+
+# ╔═╡ 339dea16-d9b2-4f9f-b784-ce0e3849ef3b
+# Create the retrieval parameters
+params = RetrievalParams(
+    # Measurement specific
+    λ  = oci_band,                   # Wavelength array
+    λc = λc, 						 # Centered wavelength
+    λ_bl_ind = bl_ind,               # Baseline band indices
+    E        = E,                    # Solar irradiance
+	c₁       = c1, 					 # PACE SNR 
+	c₂       = c2, 			       	 # PACE SNR
+    
+    # Forward model settings
+    forward_model = forward_model,
+    nPoly = n,                       # Degree of Legendre polynomial
+    nPC   = nPC,                     # Number of transmittance PCs
+    nSIF  = nSIF,                    # Number of SIF PCs
+    Sₐ = Sₐ,   					     # Prior covariance
+    βₐ = loading_ave,                # Prior state
+    PrinComp = HighResNMF.PrinComp', # Principal components
+    SIFComp  = SIF_PC,       # SIF components
+    
+    # Iteration settings (optional, have defaults)
+    iteration_method = LM_Iteration!,
+    nIter = 25,
+    thr_Converge = 1e-6
+)
+
+# ╔═╡ 838bd7b3-7a74-411c-b7d9-f003353d4a1f
+begin
+	# Single pixel ref.
+	Retrieval_for_Pixel(
+		pseudo_obs_all[:,1],
+		sza_noSIF[indₐ[1]],
+		30.0,
+		maximum(SIF_new[:, indₛ[1]]),
+		1.0,
+		1.0,
+		params
+	)
+# 	Retrieval4.(
+# 	eachslice(R_toa[SIF_index, :], dims=1),
+# 	sza[SIF_index],
+# 	vza[SIF_index],
+# 	nflh[SIF_index],      # nflh
+# 	chlor_a[SIF_index],   # chlor_a
+# 	nflh[SIF_index],      # flag
+# 	Ref(params₄) 
+# )
+end
+
 # ╔═╡ Cell order:
 # ╟─02bfa302-b66d-11f0-2f66-5d3686c10c23
 # ╠═cc5c4ce8-8805-45ff-8203-00b18c49875b
@@ -329,3 +457,9 @@ end
 # ╠═91f48071-853a-4701-a422-896a350482d0
 # ╠═b42dc5f2-a93f-4254-8601-ea829697d180
 # ╟─b1cc4469-ce38-4dbb-908e-7cc1f0f6a630
+# ╟─c90eda45-e488-4320-9e17-296da1197e93
+# ╠═0a000d90-d661-4ebe-bc08-2c8b2a3abc0f
+# ╠═09d8afad-d4f4-4625-9940-f1c82ac957aa
+# ╠═a3dfbedc-7c7a-4559-bbf3-0252857465b4
+# ╠═339dea16-d9b2-4f9f-b784-ce0e3849ef3b
+# ╠═838bd7b3-7a74-411c-b7d9-f003353d4a1f

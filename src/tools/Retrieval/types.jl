@@ -1,3 +1,4 @@
+using LinearAlgebra
 
 Base.@kwdef struct SpectraOfPC{FT <: AbstractFloat} 
     band::Vector{FT}                            # Wavelengths (1D array)
@@ -13,6 +14,31 @@ Base.@kwdef struct MatrixFactor{FT <: AbstractFloat}
     band::Vector{FT}                            # Wavelengths (1D array)
     PrinComp::Matrix{FT}                        # Spectral components (rank × wavelength)
     Loading::Matrix{FT}                         # Loading coefficients (samples × rank)
+end
+
+Base.@kwdef struct RetrievalParams
+	# specific to measurement
+	λ
+	λc
+	λ_bl_ind
+	E
+	c₁
+	c₂
+
+	# Forward model settings
+	forward_model
+	nPoly::Int
+	nPC::Int
+	nSIF::Int
+	Sₐ
+	βₐ
+	PrinComp
+	SIFComp
+
+	# Iteration settings
+	iteration_method = LM_Iteration!
+	nIter::Int = 25
+	thr_Converge::Float64 = 1e-6
 end
 
 mutable struct Pixel

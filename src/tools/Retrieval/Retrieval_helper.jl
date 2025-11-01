@@ -1,5 +1,4 @@
-
-using LinearAlgebra
+using ForwardDiff, DiffResults, LinearAlgebra, Statistics
 
 """
     center_wavelength(λ)
@@ -9,8 +8,8 @@ Normalize wavelength array to [-1, 1] range centered at midpoint.
 Returns: λc (normalized wavelengths)
 """
 function center_wavelength(
-    λ::Vector{Union{Missing, FT}}
-) where {FT <: AbstractFloat}
+        λ::Vector{Union{Missing, FT}}
+    ) where {FT <: AbstractFloat}
     
     λ_max = ceil(maximum(λ))
     λ_min = floor(minimum(λ))
@@ -51,9 +50,9 @@ Normalize transmittance spectrum so maximum at baseline indices equals 1.
 Returns: T_norm (normalized transmittance)
 """
 function scale_transmittance(
-    T,
-    ind::Vector{Int64}
-) where {FT <: AbstractFloat}
+        T,
+        ind::Vector{Int64}
+    ) where {FT <: AbstractFloat}
     
     T_abs = abs.(T)
     bl = maximum(T_abs[ind])
@@ -100,4 +99,76 @@ function MakePriori!(
     px.xₐ = [x₀... β... γ... SIF...]';
 
     return nothing
+end
+
+function Retrieval_for_Pixel(
+        # "L1B pixel-by-pixel vals"
+		R_toa, sza, vza, nflh, chlor_a, flag,
+        # params fixed for the retrieval scheme
+		params :: RetrievalParams,
+    )
+
+    # preprocess: if the flag is false, not doing the retrieval
+	if ismissing(flag)
+		return missing
+	end
+	
+	MyPixel       = Pixel();
+	MyModel       = params.forward_model
+    MyIter        = params.iteration_method
+	nIter         = params.nIter
+	thr_Converge  = params.thr_Converge
+	βₐ            = params.βₐ
+    c₁            = params.c₁
+    c₂            = params.c₂
+
+	# Step1: construct struct
+	MyPixel.λ  = params.λ;
+	MyPixel.λc = params.λc;
+	MyPixel.λ_bl_ind = params.λ_bl_ind;
+	MyPixel.E     = params.E;
+	MyPixel.nPoly = params.nPoly;
+	MyPixel.nPC   = params.nPC;
+	MyPixel.nSIF  = params.nSIF;
+	MyPixel.Sₐ    = params.Sₐ;
+	MyPixel.trans_mat = params.PrinComp[:, 1:MyPixel.nPC];
+	MyPixel.SIF_shape = params.SIFComp[:, 1:MyPixel.nSIF];
+
+	MyPixel.R_toa = R_toa;
+	MyPixel.sza   = sza;
+	MyPixel.vza   = vza;
+	MyPixel.nflh  = nflh;
+	MyPixel.chlor_a = chlor_a;
+	noise         = sqrt.( c₁ .+ c₂ .* MyPixel.R_toa);
+	MyPixel.Sₑ    = Diagonal(noise.^2);
+	MyPixel.flag  = flag; 
+	
+	# set-up
+	MakePriori!(MyPixel, βₐ);
+	MyPixel.x  = MyPixel.xₐ;
+	MyPixel.y  = MyModel(MyPixel.x, MyPixel);
+	MyPixel.iter_label = 0;
+
+    # Step2: iteration
+	try
+		MyIter(
+			MyPixel, 
+			MyModel,
+			nIter=nIter,
+			thr_Converge=thr_Converge
+		)
+	catch e
+		println(e)
+		return missing
+	end
+
+	# Step3: return
+	# return if converge
+	if abs(MyPixel.ΔRMSE) < thr_Converge
+		# println("successfully retrieved")
+		return MyPixel
+	else
+		return missing
+	end
+
 end

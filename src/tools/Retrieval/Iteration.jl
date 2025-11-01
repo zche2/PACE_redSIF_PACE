@@ -49,7 +49,7 @@ end
 Levenberg-Marquardt optimization for retrieval.
 """
 function LM_Iteration!(
-        px::Pixel,
+        px :: Pixel,
         model;
         nIter::Int = 20,
         thr_Converge::Float64 = 1e-8,
