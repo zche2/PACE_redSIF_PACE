@@ -38,7 +38,7 @@ md"""
 
 # ╔═╡ 5afd8471-0ec5-454a-aeb3-1921a60bd48f
 # wavelenth
-λ_min = 650.; λ_max = 820.;
+λ_min = 610.; λ_max = 820.;
 
 # ╔═╡ 8c4f5fa0-0929-4a55-8e52-bbcd4adfcbb1
 # wavenumber
@@ -267,7 +267,7 @@ Where γ is correction factor accounting for （1) light path (VZA and SZA) and 
 
 # ╔═╡ 08343917-236b-4bfb-be42-9b560139906c
 begin
-	n    = 2;
+	n    = 10;
 	nPC  = rank;
 	nSIF = 1;
 

@@ -44,8 +44,16 @@ function GN_Iteration!(
 end
 
 """
-    LM_Iteration!(px::Pixel, model; nIter::Int=20, thr_Converge::Float64=1e-8,
-                  γ_init::Float64=10.0, γ⁺::Float64=2.0, γ⁻::Float64=1.5)
+    LM_Iteration!(
+        px :: Pixel,
+        model;
+        nIter::Int = 20,
+        thr_Converge::Float64 = 1e-8,
+        γ_init::Float64 = 10.0,
+        γ⁺::Float64 = 10.0,            # Factor to increase γ when step fails
+        γ⁻::Float64 = 2.0,             # Factor to reduce γ when step accepted
+        max_runtime ::Float64 = 2.0,  # maximum runtime in seconds
+    )
 Levenberg-Marquardt optimization for retrieval.
 """
 function LM_Iteration!(
@@ -54,13 +62,18 @@ function LM_Iteration!(
         nIter::Int = 20,
         thr_Converge::Float64 = 1e-8,
         γ_init::Float64 = 10.0,
-        γ⁺::Float64 = 10.0,          # Factor to increase γ when step fails
-        γ⁻::Float64 = 2.0            # Factor to reduce γ when step accepted.
+        γ⁺::Float64 = 10.0,            # Factor to increase γ when step fails
+        γ⁻::Float64 = 2.0,             # Factor to reduce γ when step accepted
+        max_runtime ::Float64 = 20.0,  # maximum runtime in seconds
     )
+
+    # start_time
+    start_time = time();
     
     # Initialize
-    Sa_inv = inv(px.Sₐ)
-    Se_inv = inv(px.Sₑ)
+    xₐ = px.xₐ;      
+    Sa_inv = inv(px.Sₐ);
+    Se_inv = inv(px.Sₑ);
     len    = length(px.R_toa);
     γ      = γ_init;
     
@@ -71,6 +84,13 @@ function LM_Iteration!(
     
     # Iteration loop
     while ( abs(ΔRMSE) > thr_Converge ) && ( px.iter_label < nIter )
+
+        # check runtime
+        elapsed_time = time() - start_time;
+        if elapsed_time > max_runtime
+            @warn "LM_Iteration! exceeded max runtime" iteration=px.iter_label time=elapsed
+            break
+        end
         
         px.iter_label += 1;
 

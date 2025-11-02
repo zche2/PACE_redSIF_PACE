@@ -2,7 +2,7 @@
 > #####  About the Model
 The most up-to-date script should be `Automate_MakeModel.jl`
 
-Save the model in jld2 files, see directory: `/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection`
+Save the model in jld2 files, see directory: `../data/MyProjects/PACE_redSIF_PACE/interp_xSection`
 
 with meta data of temperature, pressure, and wavenumber grids used
 
@@ -14,4 +14,4 @@ p.s., something has messed up, .log files in this folder should not be distribut
 
 > ##### File Used in Subsequent Analysis
 
-- Absorptance of O$_2$ and H$_2$O stored in `/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01`
+- Absorptance of O$_2$ and H$_2$O stored in `../data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01`

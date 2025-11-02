@@ -167,6 +167,7 @@ begin
 	valid_mask  = findall(coalesce.(nflh .< 0.005, false))
 	R_noSIF     = R_toa[valid_mask,:];
 	sza_noSIF   = sza[valid_mask];
+	vza_noSIF   = vza[valid_mask];
 	R_baseline  = R_noSIF[:,bl_ind];
 	E_baseline  = E[bl_ind];
 	λ_baseline  = λ[bl_ind];
@@ -249,7 +250,8 @@ begin
 	indₛ     = rand(1:nₛ, n_sample);
 	indₜ₁    = rand(1:nₜ, n_sample);
 	indₜ₂    = rand(1:nₜ, n_sample);
-	indₐ     = rand(1:nᵨ, n_sample);   # sza
+	ind_sza  = rand(1:nᵨ, n_sample);   # sza
+	ind_vza  = rand(1:nᵨ, n_sample);   # vza
 end
 
 # ╔═╡ b42dc5f2-a93f-4254-8601-ea829697d180
@@ -257,7 +259,8 @@ begin
 	# Preallocate storage for each component
 	len_λ   = length(λ);
 	ρ_all   = zeros(n_sample, len_λ);
-	μ_all   = zeros(n_sample);
+	μ₁_all  = zeros(n_sample);
+	μ₂_all  = zeros(n_sample);
 	T₁_all  = zeros(n_sample, len_λ);
 	T₂_all  = zeros(n_sample, len_λ);
 	SIF_all = zeros(n_sample, len_λ);
@@ -268,18 +271,21 @@ begin
 	    # ----- rho -----
 	    ρ_all[i, :] = K₀_recon * coeffs_record[indᵨ[i], :];
 	    
-	    # ----- cos(sza) -----
-	    μ_all[i] = cosd(sza_noSIF[indₐ[i]]);
+	    # ----- cos(sza) and cos(vza) -----
+	    μ₁_all[i] = cosd(sza_noSIF[ind_sza[i]]);
+		μ₂_all[i] = cosd(vza_noSIF[ind_vza[i]]);
 	    
 	    # ----- Transmittance -----
-	    T₁_all[i, :] = trans_new[indₜ₁[i], :];
-	    T₂_all[i, :] = @. T₁_all[i, :] * trans_new[indₜ₂[i], :];
+		σ₁ = @. - 1 / μ₁_all[i] * log( trans_new[indₜ₁[i], :] );
+		σ₂ = @. - 1 / μ₂_all[i] * log( trans_new[indₜ₂[i], :] );
+	    T₁_all[i, :] = @. exp( - σ₁ );
+	    T₂_all[i, :] = @. exp( - σ₁ - σ₂ );
 	    
 	    # ----- water-leaving SIF -----
 	    SIF_all[i, :] = SIF_new[:, indₛ[i]];
 	    
 	    # ----- TOA -----
-	    pseudo_obs_all[i, :] = @. E / pi * μ_all[i] * ρ_all[i, :] * T₂_all[i, :] + SIF_all[i, :] * T₁_all[i, :];
+	    pseudo_obs_all[i, :] = @. E / pi * μ₁_all[i] * ρ_all[i, :] * T₂_all[i, :] + SIF_all[i, :] * T₁_all[i, :];
 
 		# ----- noise -----
 		stds = sqrt.(c1 .+ c2 .* pseudo_obs_all[i, :]);
@@ -315,7 +321,7 @@ Go bruins! 🦫
 
 # ╔═╡ 0a000d90-d661-4ebe-bc08-2c8b2a3abc0f
 begin
-	rank       = 10;
+	rank       = 15;
 	# NMF
 	HighResNMF = Spectral_NMF(
 		trans, 
@@ -341,7 +347,7 @@ end
 # ╔═╡ 09d8afad-d4f4-4625-9940-f1c82ac957aa
 begin
 	# set up retrieval scheme
-	n     = 2;
+	n     = 10;
 	nPC   = rank;
 	nSIF  = 1;
 
@@ -414,12 +420,13 @@ params = RetrievalParams(
 
 # ╔═╡ 838bd7b3-7a74-411c-b7d9-f003353d4a1f
 begin
+	k = 4000;
 	# Single pixel ref.
-	Retrieval_for_Pixel(
-		pseudo_obs_all[:,1],
-		sza_noSIF[indₐ[1]],
-		30.0,
-		maximum(SIF_new[:, indₛ[1]]),
+	MyPixel = Retrieval_for_Pixel(
+		pseudo_obs_all[k,:],
+		sza_noSIF[ind_sza[k]],
+		vza_noSIF[ind_vza[k]],
+		maximum(SIF_new[:, indₛ[k]]),
 		1.0,
 		1.0,
 		params
@@ -433,6 +440,76 @@ begin
 # 	nflh[SIF_index],      # flag
 # 	Ref(params₄) 
 # )
+end
+
+# ╔═╡ 164ff48c-89a0-45c0-8d3c-af86262a5267
+md"""
+##### Reconstruct
+"""
+
+# ╔═╡ ad35e7ab-5158-4d3d-aa80-a54301b1eedd
+begin
+	_, ρ, T₁, T₂, SIF = forward_model(MyPixel.x, MyPixel, return_components=true)
+	
+    # Plot TOA radiance, fitted baseline, and residuals
+    p1 = plot(layout=(6,1), size=(800, 1200), legend=true)
+    
+    # Sample indices
+    sample_idx = k;
+    
+    # 1. ρ (Reflectance)
+    plot!(p1[1], λ, ρ_all[sample_idx, :], title="ρ (degree=$n)", ylabel="ρ", lw=1., label="truth")
+	plot!(p1[1], λ, ρ, lw=1.5, label="fit")
+    
+    # 2. T₁ (One-way Transmittance)
+    plot!(p1[2], λ, T₁_all[sample_idx, :], title="T₁ (nPC=$nPC)", ylabel="T₁", lw=1., label="truth")
+	plot!(p1[2], λ, T₁, lw=1.5, label="fit")
+    
+    # 3. T₂ (Two-way Transmittance)
+    plot!(p1[3], λ, T₂_all[sample_idx, :], title="T₂", ylabel="T₂", lw=1., label="truth")
+	plot!(p1[3], λ, T₂, lw=1.5, label="fit")
+	
+    # 4. SIF
+    plot!(p1[4], λ, SIF_all[sample_idx, :], title="SIF", ylabel="SIF", lw=1., label="truth")
+	plot!(p1[4], λ, SIF, lw=1.5, label="fit")
+	
+    # 5. Residual (Observed - Fitted)
+    residual = @. MyPixel.y - MyPixel.R_toa;
+    plot!(p1[5], λ, residual, title="Residual", label="Fit - Obs",
+          ylabel="Residual", lw=1.5)
+	
+	# 6. SIF
+    plot!(p1[6], λ, MyPixel.R_toa, title="TOA radiance", ylabel="radiance", lw=1.5, label="truth")
+	plot!(p1[6], λ, MyPixel.y, xlabel="Wavelength [nm]", lw=1., label="fit")
+
+	# title
+    plot!(p1, titlefontsize=9)
+    p1
+end
+
+# ╔═╡ 6df90f60-e318-4196-aefc-822ac5e5d551
+md"""
+## For all pseudo measurements
+Excited to unveil 🎶
+
+"""
+
+# ╔═╡ 064feee6-92bd-4fcd-852b-0a356b99fdc4
+begin
+	# arrs.
+	sza_pxs = sza_noSIF[ind_sza];
+	vza_pxs = vza_noSIF[ind_vza];
+	SIF_pxs = maximum(SIF_new[:, indₛ], dims=1);
+	# Multi pixel
+	Retrieval_all = Retrieval_for_Pixel.(
+						eachslice(pseudo_obs_all, dims=1),
+						sza_pxs,
+						vza_pxs,
+						SIF_pxs,
+						1.0,
+						1.0,
+						Ref(params)
+					)
 end
 
 # ╔═╡ Cell order:
@@ -451,15 +528,19 @@ end
 # ╟─83f4ae07-fbfb-46e0-9806-1a89ff99527a
 # ╟─ca262d91-7318-493b-ad0d-44e34ce3961c
 # ╟─2a0ac581-5e43-44ef-a8d4-a30ccf4d1c0f
-# ╟─781e7324-2768-4f17-a0cc-96f0bf5d078e
+# ╠═781e7324-2768-4f17-a0cc-96f0bf5d078e
 # ╟─7ce2ad51-4d30-4008-b4b2-94e90330df65
 # ╠═fceee754-f52a-4725-b860-95a4c95129bf
 # ╠═91f48071-853a-4701-a422-896a350482d0
 # ╠═b42dc5f2-a93f-4254-8601-ea829697d180
-# ╟─b1cc4469-ce38-4dbb-908e-7cc1f0f6a630
+# ╠═b1cc4469-ce38-4dbb-908e-7cc1f0f6a630
 # ╟─c90eda45-e488-4320-9e17-296da1197e93
 # ╠═0a000d90-d661-4ebe-bc08-2c8b2a3abc0f
 # ╠═09d8afad-d4f4-4625-9940-f1c82ac957aa
 # ╠═a3dfbedc-7c7a-4559-bbf3-0252857465b4
 # ╠═339dea16-d9b2-4f9f-b784-ce0e3849ef3b
 # ╠═838bd7b3-7a74-411c-b7d9-f003353d4a1f
+# ╟─164ff48c-89a0-45c0-8d3c-af86262a5267
+# ╟─ad35e7ab-5158-4d3d-aa80-a54301b1eedd
+# ╟─6df90f60-e318-4196-aefc-822ac5e5d551
+# ╠═064feee6-92bd-4fcd-852b-0a356b99fdc4

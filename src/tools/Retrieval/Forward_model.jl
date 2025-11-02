@@ -2,7 +2,8 @@ using LegendrePolynomials
 
 function forward_model(
         x,
-        px :: Pixel,       # Pixel struct
+        px :: Pixel;       # Pixel struct
+        return_components::Bool=false
     )
 
     # reflectance
@@ -21,5 +22,10 @@ function forward_model(
 
     # TOA radiance
     rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ + SIF * T₁;
-    return rad
+    
+    if return_components
+        return rad, ρ, T₁, T₂, SIF
+    else
+        return rad
+    end
 end
