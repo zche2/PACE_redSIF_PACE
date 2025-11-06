@@ -13,6 +13,12 @@ end
 # ╔═╡ ff37d1f2-08f6-4bd2-9611-cceada1c0e4b
 using JLD2, Interpolations, Revise
 
+# ╔═╡ 9bff5713-ab8d-4554-ae7b-b6f8793744d6
+# ╠═╡ disabled = true
+#=╠═╡
+using Base.Threads
+  ╠═╡ =#
+
 # ╔═╡ 75a354c8-5b88-459a-9aa2-189229a8a532
 using ForwardDiff, DiffResults, Plots, LinearAlgebra, DelimitedFiles, NCDatasets, Statistics
 
@@ -30,6 +36,11 @@ md"""
 ## Create pseudo measurement
 Created on 2025-10-31 🎃
 """
+
+# ╔═╡ 2b4d2c63-ee1c-4b52-8aa5-eb23d70e2d18
+#=╠═╡
+println("Running with $(Threads.nthreads()) threads")
+  ╠═╡ =#
 
 # ╔═╡ 49880075-3490-4a9d-81a7-57109a7602f5
 # wavelenth
@@ -431,15 +442,6 @@ begin
 		1.0,
 		params
 	)
-# 	Retrieval4.(
-# 	eachslice(R_toa[SIF_index, :], dims=1),
-# 	sza[SIF_index],
-# 	vza[SIF_index],
-# 	nflh[SIF_index],      # nflh
-# 	chlor_a[SIF_index],   # chlor_a
-# 	nflh[SIF_index],      # flag
-# 	Ref(params₄) 
-# )
 end
 
 # ╔═╡ 164ff48c-89a0-45c0-8d3c-af86262a5267
@@ -494,7 +496,35 @@ Excited to unveil 🎶
 
 """
 
+# ╔═╡ 9f18e909-5a77-44ac-a510-ac4191282bcd
+#=╠═╡
+println("Running with $(Threads.nthreads()) threads")
+  ╠═╡ =#
+
+# ╔═╡ a82609f4-b8ab-4601-ab91-df6380764195
+# ╠═╡ disabled = true
+#=╠═╡
+@threads for i in 1:n_sample
+    try
+        Retrieval_all[i] = Retrieval_for_Pixel(
+            pseudo_obs_all[i, :],
+            sza_pxs[i],
+            vza_pxs[i],
+            SIF_pxs[i],
+            1.0,
+            1.0,
+            params
+        )
+    catch e
+        @warn "Pixel $i failed" exception=e
+        Retrieval_all[i] = missing
+    end
+end
+  ╠═╡ =#
+
 # ╔═╡ 064feee6-92bd-4fcd-852b-0a356b99fdc4
+# ╠═╡ disabled = true
+#=╠═╡
 begin
 	# arrs.
 	sza_pxs = sza_noSIF[ind_sza];
@@ -511,9 +541,17 @@ begin
 						Ref(params)
 					)
 end
+  ╠═╡ =#
+
+# ╔═╡ a4588031-e1f2-4d40-9735-41ca7a78c7f7
+#=╠═╡
+Retrieval_all = Vector{Union{Pixel, Missing}}(undef, n_sample)
+  ╠═╡ =#
 
 # ╔═╡ Cell order:
 # ╟─02bfa302-b66d-11f0-2f66-5d3686c10c23
+# ╠═9bff5713-ab8d-4554-ae7b-b6f8793744d6
+# ╠═2b4d2c63-ee1c-4b52-8aa5-eb23d70e2d18
 # ╠═cc5c4ce8-8805-45ff-8203-00b18c49875b
 # ╠═ff37d1f2-08f6-4bd2-9611-cceada1c0e4b
 # ╠═75a354c8-5b88-459a-9aa2-189229a8a532
@@ -543,4 +581,7 @@ end
 # ╟─164ff48c-89a0-45c0-8d3c-af86262a5267
 # ╟─ad35e7ab-5158-4d3d-aa80-a54301b1eedd
 # ╟─6df90f60-e318-4196-aefc-822ac5e5d551
+# ╠═a4588031-e1f2-4d40-9735-41ca7a78c7f7
+# ╠═9f18e909-5a77-44ac-a510-ac4191282bcd
+# ╠═a82609f4-b8ab-4601-ab91-df6380764195
 # ╠═064feee6-92bd-4fcd-852b-0a356b99fdc4
