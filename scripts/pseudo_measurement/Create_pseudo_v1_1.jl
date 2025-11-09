@@ -90,7 +90,7 @@ sitp₂   = scale(itp₂, r₁, r₂);
 # set extrapolation filling value = 0
 setp0₂  = extrapolate(sitp₂, 0)
 # interpolation
-SIF_PC  = reduce(hcat, [setp0₂.(λ, i) for i in range₂]); 
+SIF_PC  = reduce(hcat, [setp0₂.(oci_band, i) for i in range₂]); 
 println("SIF shape interpolated")
 
 # load SNR
@@ -333,4 +333,6 @@ elapsed_time = end_time - start_time
 println("Retrieval complete! Total time elapsed: $elapsed_time")
 
 # save results
-@save "retrieval_results_v1.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params
+version = "v1_3"
+message = "nPoly=$n, rank=$rank\n Change penalty function for T₁ and T₂ conversion: smooth_x = 10. / (1 + exp( -x[px.nPoly+px.nPC+2]) ) + 1."
+@save "/home/zhe2/FraLab/PACE_redSIF_PACE/scripts/pseudo_measurement/retrieval_results_$version.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params message

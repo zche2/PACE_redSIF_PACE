@@ -13,12 +13,6 @@ end
 # ╔═╡ ff37d1f2-08f6-4bd2-9611-cceada1c0e4b
 using JLD2, Interpolations, Revise
 
-# ╔═╡ 9bff5713-ab8d-4554-ae7b-b6f8793744d6
-# ╠═╡ disabled = true
-#=╠═╡
-using Base.Threads
-  ╠═╡ =#
-
 # ╔═╡ 75a354c8-5b88-459a-9aa2-189229a8a532
 using ForwardDiff, DiffResults, Plots, LinearAlgebra, DelimitedFiles, NCDatasets, Statistics
 
@@ -36,6 +30,12 @@ md"""
 ## Create pseudo measurement
 Created on 2025-10-31 🎃
 """
+
+# ╔═╡ 9bff5713-ab8d-4554-ae7b-b6f8793744d6
+# ╠═╡ disabled = true
+#=╠═╡
+using Base.Threads
+  ╠═╡ =#
 
 # ╔═╡ 2b4d2c63-ee1c-4b52-8aa5-eb23d70e2d18
 #=╠═╡
@@ -496,6 +496,9 @@ Excited to unveil 🎶
 
 """
 
+# ╔═╡ a4588031-e1f2-4d40-9735-41ca7a78c7f7
+Retrieval_all = Vector{Union{Pixel, Missing}}(undef, n_sample)
+
 # ╔═╡ 9f18e909-5a77-44ac-a510-ac4191282bcd
 #=╠═╡
 println("Running with $(Threads.nthreads()) threads")
@@ -541,11 +544,6 @@ begin
 						Ref(params)
 					)
 end
-  ╠═╡ =#
-
-# ╔═╡ a4588031-e1f2-4d40-9735-41ca7a78c7f7
-#=╠═╡
-Retrieval_all = Vector{Union{Pixel, Missing}}(undef, n_sample)
   ╠═╡ =#
 
 # ╔═╡ Cell order:
