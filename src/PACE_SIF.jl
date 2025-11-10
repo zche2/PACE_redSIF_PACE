@@ -14,7 +14,7 @@ using .Atmosphere
 export Instrument, Atmosphere, Retrieval
 
 # Optionally re-export specific functions/types
-export KernelInstrument, conv_matx, interpolate_RSR
+export KernelInstrument, conv_matx, interpolate_RSR, read_rescale
 export layer_VCD
 export Pixel, RetrievalParams, forward_model, Retrieval_for_Pixel
 export GN_Iteration!, LM_Iteration!

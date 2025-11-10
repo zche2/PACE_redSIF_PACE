@@ -1,7 +1,7 @@
 import Pkg; Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE");
 include("/home/zhe2/FraLab/PACE_redSIF_PACE/PACE_SIF.jl")
 
-using vSmartMOM,  vSmartMOM.Absorption
+using vSmartMOM, vSmartMOM.Absorption
 using JLD2
 using Interpolations
 using NCDatasets, Einsum, Statistics
