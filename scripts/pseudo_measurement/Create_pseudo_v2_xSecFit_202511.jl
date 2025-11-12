@@ -168,7 +168,7 @@ end
 println("Fitting complete!")
 
 # Generate pseudo observations
-n_sample = 200;
+n_sample = 100;
 println("Generating $n_sample pseudo observations...")
 
 # Random sampling
@@ -319,7 +319,7 @@ println("Sₐ =====> Diagonal terms updated, with diagonal terms: $(diag(Sₐ))"
 println("βₐ and γₐ ======> Set to climatology (?) values")
 
 # iteration method
-thr_Converge = 1e-3
+thr_Converge = 1e-4
 MyIter = (px, MyModel) -> LM_Iteration!(
     px, 
     MyModel;
@@ -328,7 +328,7 @@ MyIter = (px, MyModel) -> LM_Iteration!(
     γ_init = 1000.0,
     γ⁺ = 10.0,
     γ⁻ = 2.0,
-    max_runtime = 1000.0
+    max_runtime = 200.0
 );
 
 params = RetrievalParams_xSecFit(
@@ -362,16 +362,16 @@ start_time = now();
 println("Starting retrieval for $n_sample samples at $start_time...")
 
 # single pixel retrieval
-i = 10;
-Retrieval_for_Pixel(
-    pseudo_obs_all[i, :],
-    sza_noSIF[ind_sza[i]],
-    vza_noSIF[ind_sza[i]],
-    maximum(SIF_all[i, :]),
-    1.0,
-    1.0,
-    params
-)
+# i = 27;
+# Retrieval_for_Pixel(
+#     pseudo_obs_all[i, :],
+#     sza_noSIF[ind_sza[i]],
+#     vza_noSIF[ind_sza[i]],
+#     maximum(SIF_all[i, :]),
+#     1.0,
+#     1.0,
+#     params
+# );
 
 
 @threads for i in 1:n_sample
@@ -403,7 +403,25 @@ end_time = now()
 elapsed_time = end_time - start_time
 println("Retrieval complete! Total time elapsed: $elapsed_time")
 
-# save results
+# ===========================================
+# Save results
+# ===========================================
 version = "v2_1"
 message = "nPoly=$nPoly, cutoff at the edge hasn't been fully solved."
-@save "/home/zhe2/FraLab/PACE_redSIF_PACE/scripts/pseudo_measurement/retrieval_results_$version.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params message MyIter
+# exclude heavy fields: interpolators and kernels (they're big)
+params_to_save = (
+    λ = params.λ,
+    λc = params.λc,
+    E  = params.E,
+    c₁ = params.c₁,
+    c₂ = params.c₂,
+    nPoly = params.nPoly,
+    nLayer = params.nLayer,
+    nSIF = params.nSIF,
+    Sₐ = params.Sₐ,
+    βₐ = params.βₐ,
+    γₐ = params.γₐ,
+    SIFComp = params.SIFComp,
+    thr_Converge = params.thr_Converge
+)
+@save "/home/zhe2/FraLab/PACE_redSIF_PACE/scripts/pseudo_measurement/retrieval_results_$version.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params_to_save message MyIter

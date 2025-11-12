@@ -136,7 +136,12 @@ function Retrieval_for_Pixel_xSecFit(
 	end
 
 	MyPixel       = Pixel_xSecFit();
-	MyModel       = params.forward_model
+	MyModel       = (x, px) -> forward_model(
+						x,
+						px, 
+						params;
+					);
+	params.forward_model
     MyIter        = params.iteration_method
 	thr_Converge  = params.thr_Converge
 	βₐ            = params.βₐ
@@ -154,9 +159,6 @@ function Retrieval_for_Pixel_xSecFit(
 	MyPixel.nSIF    = params.nSIF;
 	MyPixel.Sₐ      = params.Sₐ;
 	MyPixel.SIF_shape = params.SIFComp[:, 1:MyPixel.nSIF];
-	MyPixel.o2_sitp   = params.o2_sitp;
-	MyPixel.h2o_sitp  = params.h2o_sitp;
-	MyPixel.InstrumentKernel = params.InstrumentKernel;
 
 	MyPixel.R_toa = R_toa;
 	MyPixel.sza   = sza;

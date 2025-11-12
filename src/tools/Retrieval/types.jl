@@ -141,11 +141,6 @@ mutable struct Pixel_xSecFit <: Pixel
 	SIF_shape
 	"centered wavelength for fast computation of Legendre Polys, = center_wavelength(λ)"
 	λc 
-	"Look-up table (LUT) for absorption calculation"
-	o2_sitp
-	h2o_sitp
-	"Kernel response function"
-	InstrumentKernel
 
 	# pixel L1B measurement & set up
 	"TOA radiance"

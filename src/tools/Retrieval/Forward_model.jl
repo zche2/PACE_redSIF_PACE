@@ -2,6 +2,59 @@ using LegendrePolynomials
 
 function forward_model(
         x,
+        px :: Pixel_xSecFit,
+        params :: RetrievalParams_xSecFit;
+        return_components::Bool=false
+)
+    # unpack params
+    o2_sitp = params.o2_sitp;
+    h2o_sitp = params.h2o_sitp;
+    InstrumentKernel = params.InstrumentKernel;
+
+    # reflectance
+    xᵨ    = x[1 : px.nPoly+1]
+    v     = collectPl.(px.λc, lmax=px.nPoly);
+    ρ     = hcat(v...)' * xᵨ;
+
+    # T↑ transmittance for SIF
+    x₁    = x[(px.nPoly+2):(px.nPoly+7)];
+    T₁    = compute_transmittance(
+                x₁,
+                InstrumentKernel,
+                o2_sitp,
+                h2o_sitp,
+            );
+
+    # T↓↑ transmittance for reflected radiance
+    x₂    = x[(px.nPoly+8):(px.nPoly+13)];
+    T₂    = compute_transmittance(
+                x₂,
+                InstrumentKernel,
+                o2_sitp,
+                h2o_sitp,
+            );
+
+    # SIF magnitude
+    xₛ     = x[end - px.nSIF + 1 : end];
+    SIF    = px.SIF_shape * xₛ;
+
+    # TOA radiance
+    rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ + SIF * T₁;
+    
+    if return_components
+        return rad, ρ, T₁, T₂, SIF
+    else
+        return rad
+    end
+
+end;
+
+"""
+    forward_model_ToBeUpdated(x, px::Pixel; return_components::Bool=false)
+    This is incomplete! 🟢 Please update the function name and docstring accordingly.
+"""
+function forward_model_ToBeUpdated(
+        x,
         px;
         return_components::Bool=false
     )
@@ -21,7 +74,7 @@ function forward_model(
 		error("Unknown retrieval method type.")
 	end
 
-end
+end;
 
 """
     forward_model_xSecFit(x, px::Pixel; return_components::Bool=false)
