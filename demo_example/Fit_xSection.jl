@@ -322,6 +322,12 @@ function forward_model(
 	)
 end
 
+# ╔═╡ 17375ba6-b754-4185-8324-a83b58507a1d
+mean(log10.(∑vcd_o2_all))
+
+# ╔═╡ ee23ddfa-3feb-45e4-81b4-3e3cf1c0f04c
+mean(log10.(∑vcd_h2o_all))
+
 # ╔═╡ d9ed49f2-4052-4ff6-b476-e8296cd2573b
 begin
 	# priori
@@ -485,6 +491,8 @@ plot(
 # ╟─e41487a4-56e9-47b0-8ec6-a5f97d97e46c
 # ╟─72eb78e2-8c07-4198-bd8c-2102850776fc
 # ╠═53051ea6-2500-47b0-b6e1-1d56a3c659dd
+# ╠═17375ba6-b754-4185-8324-a83b58507a1d
+# ╠═ee23ddfa-3feb-45e4-81b4-3e3cf1c0f04c
 # ╠═d9ed49f2-4052-4ff6-b476-e8296cd2573b
 # ╟─3fdbb03f-867f-469c-a8be-12bb7ef779ec
 # ╠═ac775343-96af-444b-9cc7-36ad99b44178

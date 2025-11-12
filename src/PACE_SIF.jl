@@ -14,11 +14,30 @@ using .Atmosphere
 export Instrument, Atmosphere, Retrieval
 
 # Optionally re-export specific functions/types
-export KernelInstrument, conv_matx, interpolate_RSR, read_rescale
+# Instrument
+export KernelInstrument, conv_matx, interpolate_RSR, read_rescale, λ_to_ν, ν_to_λ
+
+# Atmosphere
 export layer_VCD
-export Pixel, RetrievalParams, forward_model, Retrieval_for_Pixel
+
+# Retrieval
+# export types
+export SpectraOfPC, MatrixFactor
+export RetrievalParams_PCFit, Pixel_PCFit         # PC fit
+export RetrievalParams_xSecFit, Pixel_xSecFit     # cross-section fit
+
+# export forward model (can choose which to export)
+export forward_model
+
+# export decomposition methods
+export Spectral_SVD, Spectral_NMF
+
+# export other tools
+export center_wavelength, root_mean_square, scale_transmittance, 
+       Jacobian, GainMatrix, MakePriori!
+export Retrieval_for_Pixel
+
+# export iteration
 export GN_Iteration!, LM_Iteration!
-export Spectral_SVD, Spectral_NMF, SpectraOfPC, MatrixFactor
-export center_wavelength, root_mean_square, scale_transmittance
 
 end  # module PACE_SIF

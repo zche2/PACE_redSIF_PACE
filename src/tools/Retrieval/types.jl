@@ -1,5 +1,9 @@
 using LinearAlgebra
 
+# Abstract base type
+abstract type Pixel end
+abstract type RetrievalParams end
+
 Base.@kwdef struct SpectraOfPC{FT <: AbstractFloat} 
     band::Vector{FT}                            # Wavelengths (1D array)
     PrinComp::Union{LinearAlgebra.Adjoint{Float64, Matrix{Float64}}, Matrix{FT}}                        
@@ -16,7 +20,7 @@ Base.@kwdef struct MatrixFactor{FT <: AbstractFloat}
     Loading::Matrix{FT}                         # Loading coefficients (samples × rank)
 end
 
-Base.@kwdef struct RetrievalParams
+Base.@kwdef struct RetrievalParams_PCFit <: RetrievalParams
 	# specific to measurement
 	λ
 	λc
@@ -41,7 +45,7 @@ Base.@kwdef struct RetrievalParams
 	thr_Converge::Float64 = 1e-6
 end
 
-mutable struct Pixel
+mutable struct Pixel_PCFit <: Pixel
 	# universal for the granule
 	λ      # fitting window
 	E      # observed extraterrestrial irradiance
@@ -88,7 +92,7 @@ mutable struct Pixel
 	iter_label
 
 	# Inner constructer
-	function Pixel()
+	function PixelPCFit()
         new()
     end
     """
@@ -96,4 +100,83 @@ mutable struct Pixel
     specify type when doing outer constructor
     string representation using base show
     """
+end
+
+Base.@kwdef struct RetrievalParams_xSecFit <: RetrievalParams
+	# specific to measurement
+	λ
+	λc
+	E
+	c₁
+	c₂
+	o2_sitp
+	h2o_sitp
+	InstrumentKernel
+
+	# Forward model settings
+	forward_model
+	nPoly::Int
+	nLayer::Int
+	nSIF::Int
+	Sₐ
+	βₐ
+	γₐ
+	SIFComp
+
+	# Iteration settings
+	iteration_method = LM_Iteration!
+	thr_Converge::Float64 = 1e-6
+end
+
+mutable struct Pixel_xSecFit <: Pixel
+	# universal for the granule
+	λ      # fitting window
+	E      # observed extraterrestrial irradiance
+	nPoly  # degree of Legendre Polynomial
+	nLayer # layers of atmosphere to be fit (default to be 1 for now)
+	nSIF   # number of SIF PCs
+	"a priori matrix (variance=standard deviation**2)"
+	Sₐ 
+	"SIF shape specified"
+	SIF_shape
+	"centered wavelength for fast computation of Legendre Polys, = center_wavelength(λ)"
+	λc 
+	"Look-up table (LUT) for absorption calculation"
+	o2_sitp
+	h2o_sitp
+	"Kernel response function"
+	InstrumentKernel
+
+	# pixel L1B measurement & set up
+	"TOA radiance"
+	R_toa
+	"solar zenith angle"
+	sza
+	"viewing zenith angle"
+	vza
+	"normalized fluorescence height (nFLH)"
+	nflh
+	"chlor_a concentration"
+	chlor_a
+	"measurement error (variance)"
+	Sₑ
+	"flag: 0 - not doing retrieval due to bad input data, refer to l2flag / nflh"
+	flag   # 🔴 not necessarily need?
+	"a priori estimation"
+	xₐ
+	
+	# retrieval
+	"retrieved state vector"
+	x
+	"modelled radiance"
+	y
+	"convergence flag"
+	ΔRMSE
+	"iteration label"
+	iter_label
+
+	# Inner constructer
+	function Pixel_xSecFit()
+		new()
+	end
 end

@@ -25,7 +25,7 @@
     - v4.1: Non-negative matrix factorization fit 
     - v4.2: Add chlorophyll absorption (bad)
 
-- v5: Cross section fit
+- v5: Cross section fit (see demo)
 
 ##### <b>Retrieval</b>
 Apply the up-to-date forward model

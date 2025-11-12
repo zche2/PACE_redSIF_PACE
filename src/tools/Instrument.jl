@@ -4,25 +4,19 @@ using Interpolations
 using Parameters
 using vSmartMOM, vSmartMOM.Absorption
 
-export KernelInstrument, conv_matx, interpolate_RSR, read_rescale
+export KernelInstrument, conv_matx, interpolate_RSR, read_rescale, λ_to_ν, ν_to_λ
   
 struct KernelInstrument
     band          # central wavelength of each band
     wvlen         # wavelength grid of reference spectrum (OCI)
     RSR           # spectral response function matrix
     wvlen_out     # output wavelength grid (spectrum grid), high resolution
-    ν_step        # wavenumber step
     ν_grid        # wavenumber grid
     RSR_out       # interpolated RSR
     
-    function KernelInstrument(band, wvlen, RSR, wvlen_out, ν_step)
+    function KernelInstrument(band, wvlen, RSR, wvlen_out, ν_grid)
         RSR_out = interpolate_RSR(band, wvlen, RSR, wvlen_out);
-        λ_max = maximum(wvlen_out);
-        λ_min = minimum(wvlen_out);
-        ν_min = λ_to_ν(λ_max);
-        ν_max = λ_to_ν(λ_min);
-        ν_grid = ν_min:ν_step:ν_max;
-        new(band, wvlen, RSR, wvlen_out, ν_step, ν_grid, RSR_out)
+        new(band, wvlen, RSR, wvlen_out, ν_grid, RSR_out)
     end
 end
 
@@ -45,7 +39,7 @@ end;
 
 function ν_to_λ(ν)
     # convert wavelength (in nm) to wavenumber (in cm-1)
-    λ = 1 /(ν * 1E7);
+    λ = 1 /(ν * 1E-7);
     return λ
 end;
 
@@ -80,8 +74,9 @@ function interpolate_RSR(band, wvlen, RSR, wvlen_out)
     # interpolate RSR to this resolution
     # RSR matrix: m x n
     # m - number of bands; n - number of wavelength in reference spectrum
-    RSR_out = zeros(Float64, length(band), length(wvlen_out));
-    for i=1:length(band)
+    n_bands = length(band)
+    RSR_out = zeros(Float64, n_bands, length(wvlen_out));
+    Threads.@threads for i=1:n_bands
         # interpolator: knots & value
         interp_linear = 
             LinearInterpolation(wvlen, RSR[:,i], extrapolation_bc=Line());

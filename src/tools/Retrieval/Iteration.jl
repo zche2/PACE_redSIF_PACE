@@ -55,6 +55,8 @@ end
         max_runtime ::Float64 = 2.0,  # maximum runtime in seconds
     )
 Levenberg-Marquardt optimization for retrieval.
+See the method from https://epubs.siam.org/doi/epdf/10.1137/0111030.
+where adjusting γ is equivalent to adjusting the updating angle towards the trust region.
 """
 function LM_Iteration!(
         px :: Pixel,
@@ -64,7 +66,7 @@ function LM_Iteration!(
         γ_init::Float64 = 10.0,
         γ⁺::Float64 = 10.0,            # Factor to increase γ when step fails
         γ⁻::Float64 = 2.0,             # Factor to reduce γ when step accepted
-        max_runtime ::Float64 = 20.0,  # maximum runtime in seconds
+        max_runtime ::Float64 = 60.0,  # maximum runtime in seconds
     )
 
     # start_time
@@ -78,7 +80,7 @@ function LM_Iteration!(
     γ      = γ_init;
     
     Kₙ, px.y = Jacobian(px.x, x -> model(x, px), len)
-    RMSE₀ = 1e20;
+    RMSE₀ = Inf;
     RMSE₁ = root_mean_square(px.R_toa, px.y);
     ΔRMSE = RMSE₁ - RMSE₀;
     
@@ -88,7 +90,7 @@ function LM_Iteration!(
         # check runtime
         elapsed_time = time() - start_time;
         if elapsed_time > max_runtime
-            @warn "LM_Iteration! exceeded max runtime" iteration=px.iter_label time=elapsed
+            @warn "LM_Iteration! exceeded max runtime" iteration=px.iter_label time=elapsed_time
             break
         end
         
@@ -104,6 +106,7 @@ function LM_Iteration!(
         # Evaluate at trial point
         K_trial, y_trial = Jacobian(x_trial, x -> model(x, px), len)
         RMSE_trial       = root_mean_square(px.R_toa, y_trial)
+        # println("Iter: $(px.iter_label), RMSE₁: $(RMSE₁), RMSE_trial: $(RMSE_trial), ΔRMSE: $(ΔRMSE), γ: $(γ)")
         
         # Check if step improves the fit
         if RMSE_trial < RMSE₁
