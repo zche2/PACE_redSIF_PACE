@@ -18,3 +18,7 @@
         nPoly=10, rank=15  
         Change penalty function for T₁ and T₂ conversion:   
         smooth_x = 10. / (1 + exp( -x[px.nPoly+px.nPC+2]) ) + 1.  
+
+    -----
+
+    - v2.1 - v2.3 | cross section fits (p, T, vcd in state vector): are time-consuming. T1 and T2 are essentially unrelated

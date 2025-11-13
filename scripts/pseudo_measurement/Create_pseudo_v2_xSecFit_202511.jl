@@ -168,11 +168,11 @@ end
 println("Fitting complete!")
 
 # Generate pseudo observations
-n_sample = 100;
+n_sample = 200;
 println("Generating $n_sample pseudo observations...")
 
 # Random sampling
-Random.seed!(42)
+Random.seed!(512)
 nᵨ       = n_pixels;   # also select SZA from
 nₛ       = size(SIF_new, 2);
 nₜ        = size(trans_new, 1);
@@ -286,7 +286,7 @@ println("SRF generated.")
 
 # parameters
 println("Setting up retrieval parameters...")
-nPoly  = 10
+nPoly  = 6
 nLayer = 1
 nSIF   = 1
 
@@ -324,11 +324,11 @@ MyIter = (px, MyModel) -> LM_Iteration!(
     px, 
     MyModel;
     thr_Converge = thr_Converge,
-    nIter = 30,
+    nIter = 20,
     γ_init = 1000.0,
     γ⁺ = 10.0,
     γ⁻ = 2.0,
-    max_runtime = 200.0
+    max_runtime = 400.0
 );
 
 params = RetrievalParams_xSecFit(
@@ -406,8 +406,8 @@ println("Retrieval complete! Total time elapsed: $elapsed_time")
 # ===========================================
 # Save results
 # ===========================================
-version = "v2_1"
-message = "nPoly=$nPoly, cutoff at the edge hasn't been fully solved."
+version = "v2_4"
+message = "nPoly=$nPoly, cutoff at the edge hasn't been fully solved; take viewing geometry into account."
 # exclude heavy fields: interpolators and kernels (they're big)
 params_to_save = (
     λ = params.λ,

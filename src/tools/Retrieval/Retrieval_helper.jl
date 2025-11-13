@@ -135,13 +135,12 @@ function Retrieval_for_Pixel_xSecFit(
 		return missing
 	end
 
-	MyPixel       = Pixel_xSecFit();
-	MyModel       = (x, px) -> forward_model(
+	MyPixel       = Pixel_xSecFit()
+	MyModel       = (x, px) -> params.forward_model(
 						x,
 						px, 
 						params;
-					);
-	params.forward_model
+					)
     MyIter        = params.iteration_method
 	thr_Converge  = params.thr_Converge
 	βₐ            = params.βₐ

@@ -11,6 +11,10 @@ function forward_model(
     h2o_sitp = params.h2o_sitp;
     InstrumentKernel = params.InstrumentKernel;
 
+    # cos(sza) and cos(vza)
+    μ₁    = 1 / cosd(px.sza);
+    μ₂    = 1 / cosd(px.vza);
+
     # reflectance
     xᵨ    = x[1 : px.nPoly+1]
     v     = collectPl.(px.λc, lmax=px.nPoly);
@@ -33,6 +37,10 @@ function forward_model(
                 o2_sitp,
                 h2o_sitp,
             );
+
+    # take light path into account
+    T₂    = @. T₂^( μ₁ + μ₂ );
+    T₁    = @. T₁^( μ₂ );
 
     # SIF magnitude
     xₛ     = x[end - px.nSIF + 1 : end];
