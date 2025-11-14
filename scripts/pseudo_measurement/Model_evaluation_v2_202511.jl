@@ -482,9 +482,9 @@ println("MyKernel: $(Base.summarysize(MyKernel) / 1024^2) MB")
 # ╠═52f5f17b-5c42-4913-8fab-e02887d7af1b
 # ╠═e5d1f463-2598-4c9f-a8bb-0713138d8791
 # ╠═fc4e824a-91a3-4328-9263-8c9bcf43acc6
-# ╠═1f9b016f-01b1-4dc0-986e-aa58aa48bb73
-# ╠═44368e86-8b96-4ec3-89fd-8111ad61d780
-# ╠═3a09dc6e-cf67-43f4-9068-c5c9fb5e93db
+# ╟─1f9b016f-01b1-4dc0-986e-aa58aa48bb73
+# ╟─44368e86-8b96-4ec3-89fd-8111ad61d780
+# ╟─3a09dc6e-cf67-43f4-9068-c5c9fb5e93db
 # ╟─657ac6d3-5d10-4269-86a1-4cbccdb04451
 # ╠═cbc20a9d-c08e-470b-9cb3-143e8100fc06
 # ╟─d611690f-cf36-4b34-8031-fd4e2354cbc0

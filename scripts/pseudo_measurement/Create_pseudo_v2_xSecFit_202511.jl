@@ -66,7 +66,7 @@ println("Transmittance interpolated: $(size(trans_new, 1)) spectra")
 
 # Load and interpolate SIF shapes
 println("Loading SIF shapes...")
-SIF_shape_dict = JLD2.load("/home/zhe2/data/MyProjects/PACE_redSIF_PACE/SIF_singular_vector.jld2")
+SIF_shape_dict = JLD2.load("/home/zhe2/data/MyProjects/PACE_redSIF_PACE/reference_spectra/SIF_singular_vector.jld2")
 
 # Create interpolator
 itp = interpolate(SIF_shape_dict["SIF_shapes"], (BSpline(Linear()), NoInterp()))
@@ -90,12 +90,15 @@ sitp₂   = scale(itp₂, r₁, r₂);
 # set extrapolation filling value = 0
 setp0₂  = extrapolate(sitp₂, 0)
 # interpolation
-SIF_PC  = reduce(hcat, [setp0₂.(oci_band, i) for i in range₂]); 
+SIF_PC      = reduce(hcat, [setp0₂.(oci_band, i) for i in range₂]); 
+SIF_PC1_max = maximum(SIF_PC[:,1]);
+# scale SIF principle components
+SIF_PC      /= SIF_PC1_max;
 println("SIF shape interpolated")
 
 # load SNR
 println("Loading SNR data...")
-filename = raw"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt";
+filename = raw"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt";
 lines = readlines(filename);
 end_header_index = findfirst(x -> x == "/end_header", lines);
 data  = readdlm(filename, String, skipstart=end_header_index);
@@ -142,7 +145,7 @@ sza_noSIF = sza[valid_mask]
 vza_noSIF = vza[valid_mask]
 
 # Fit polynomials
-order = 6
+order = 4
 n_pixels = size(R_noSIF, 1)
 K₀ = hcat(collectPl.(λc[bl_ind], lmax=order)...)'
 K₀_recon = hcat(collectPl.(λc, lmax=order)...)'
@@ -168,7 +171,7 @@ end
 println("Fitting complete!")
 
 # Generate pseudo observations
-n_sample = 200;
+n_sample = 500;
 println("Generating $n_sample pseudo observations...")
 
 # Random sampling
@@ -198,13 +201,9 @@ pseudo_obs_all = zeros(n_sample, len_λ);
     # ----- rho -----
     ρ_all[i, :] = K₀_recon * coeffs_record[indᵨ[i], :];
     
-    # ----- cos(sza) and cos(vza) -----
-    μ₁_all[i] = cosd(sza_noSIF[ind_sza[i]]);
-    μ₂_all[i] = cosd(vza_noSIF[ind_vza[i]]);
-    
     # ----- Transmittance -----
-    σ₁ = @. - 1 / μ₁_all[i] * log( trans_new[indₜ₁[i], :] );
-    σ₂ = @. - 1 / μ₂_all[i] * log( trans_new[indₜ₂[i], :] );
+    σ₁ = @. - log( trans_new[indₜ₁[i], :] );
+    σ₂ = @. - log( trans_new[indₜ₂[i], :] );
     T₁_all[i, :] = @. exp( - σ₁ );
     T₂_all[i, :] = @. exp( - σ₁ - σ₂ );
     
@@ -246,7 +245,7 @@ function SRF_for_pace(
         λ_max,
         λ_min,
         ν_step;
-        filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI_RSRs.nc"
+        filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_RSRs.nc"
     )
 
     # read data
@@ -361,18 +360,6 @@ Retrieval_all = Vector{Union{Pixel_xSecFit, Missing}}(undef, n_sample);
 start_time = now();
 println("Starting retrieval for $n_sample samples at $start_time...")
 
-# single pixel retrieval
-# i = 27;
-# Retrieval_for_Pixel(
-#     pseudo_obs_all[i, :],
-#     sza_noSIF[ind_sza[i]],
-#     vza_noSIF[ind_sza[i]],
-#     maximum(SIF_all[i, :]),
-#     1.0,
-#     1.0,
-#     params
-# );
-
 
 @threads for i in 1:n_sample
     if i % (n_sample÷10) == 0
@@ -406,8 +393,8 @@ println("Retrieval complete! Total time elapsed: $elapsed_time")
 # ===========================================
 # Save results
 # ===========================================
-version = "v2_4"
-message = "nPoly=$nPoly, cutoff at the edge hasn't been fully solved; take viewing geometry into account."
+version = "v2_5"
+message = "Fit polynomial order=$order, retrieval nPoly=$nPoly, cutoff at the edge hasn't been fully solved; no viewing geometry correction applied (inherently included)."
 # exclude heavy fields: interpolators and kernels (they're big)
 params_to_save = (
     λ = params.λ,
