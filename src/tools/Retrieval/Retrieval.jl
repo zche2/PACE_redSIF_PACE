@@ -14,7 +14,7 @@ export RetrievalParams_PCFit, Pixel_PCFit         # PC fit
 export RetrievalParams_xSecFit, Pixel_xSecFit     # cross-section fit
 
 # export forward model (can choose which to export)
-export forward_model
+export forward_model, compute_transmittance
 
 # export decomposition methods
 export Spectral_SVD, Spectral_NMF

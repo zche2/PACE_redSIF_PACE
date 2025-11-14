@@ -106,7 +106,8 @@ function LM_Iteration!(
         # Evaluate at trial point
         K_trial, y_trial = Jacobian(x_trial, x -> model(x, px), len)
         RMSE_trial       = root_mean_square(px.R_toa, y_trial)
-        # println("Iter: $(px.iter_label), RMSE₁: $(RMSE₁), RMSE_trial: $(RMSE_trial), ΔRMSE: $(ΔRMSE), γ: $(γ)")
+        # @info "Iter: $(px.iter_label), RMSE₁: $(RMSE₁), RMSE_trial: $(RMSE_trial), ΔRMSE: $(ΔRMSE), γ: $(γ)"
+        # @info "  x: $(px.x), xₐ: $(xₐ), Δx: $(Δx)"
         
         # Check if step improves the fit
         if RMSE_trial < RMSE₁

@@ -22,3 +22,6 @@
     -----
 
     - v2.1 - v2.3 | cross section fits (p, T, vcd in state vector): are time-consuming. T1 and T2 are essentially unrelated
+    
+    - v2.4 | incorporate viewing geometry, true sza and vza are known and remain the same both when constructing pseudo-measurements and doing the retrieval. => since µ-scaling is applied after convolution, some non-linearities might be introduced. Given that the ensemble of transmittance is constructed with varying viewing angles, should not be re-accounted for ...
+

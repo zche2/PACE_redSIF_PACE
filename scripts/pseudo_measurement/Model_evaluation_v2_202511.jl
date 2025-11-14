@@ -13,6 +13,9 @@ using PACE_SIF
 # ╔═╡ 1e7ee390-2fcb-475b-81f9-47d96589fc45
 using JLD2, Plots, NCDatasets
 
+# ╔═╡ e5d1f463-2598-4c9f-a8bb-0713138d8791
+using LegendrePolynomials
+
 # ╔═╡ 5784065a-bb43-11f0-3465-4109cdf30bb7
 md"""
 ### Evaluate Retrieval from pseudo-measurements
@@ -20,7 +23,7 @@ md"""
 
 # ╔═╡ 0043b5a8-7df7-4044-9fef-e1fd874ba9fb
 # load data
-@load "retrieval_results_v2_3.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params_to_save message MyIter
+@load "retrieval_results_v2_4.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params_to_save message MyIter
 
 # ╔═╡ 71807df9-dbde-4b49-a956-cb96a8f8e675
 println(message)
@@ -46,51 +49,9 @@ begin
 	ν_grid_o2, p_grid_hPa, t_grid = o2_sitp.ranges;
 	println("LUT loaded.")
 	
-	println("Generating spectral response function...")
-	
-	function SRF_for_pace(
-	        λ_max,
-	        λ_min,
-	        ν_step;
-	        filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI_RSRs.nc"
-	    )
-	
-	    # read data
-	    pace   = Dataset(filename, "r");
-		wavlen = pace["wavelength"][:];
-		RSR    = pace["RSR"];
-		band   = pace["bands"];
-	
-	    ind₁   = findall( λ_min .< wavlen .< λ_max );
-		ind₂   = findall( λ_min .< band .< λ_max )
-		λ_msr  = wavlen[ind₁];
-		MyRSR  = RSR[ind₁, ind₂];
-	
-	    # output high res wavelength 
-	    ν_min     = λ_to_ν(λ_max);
-	    ν_max     = λ_to_ν(λ_min);
-	    ν_grid    = ν_min:ν_step:ν_max;
-	    wvlen_out = ν_to_λ.(reverse(collect(ν_grid)));
-	    println("  SRF ν grid: $ν_min to $ν_max cm⁻¹ with step $ν_step cm⁻¹: $ν_grid ");
-	    println("  SRF λ grid: $(minimum(wvlen_out)) to $(maximum(wvlen_out)) nm with length $(length(wvlen_out))");
-	
-	    # construct
-	    MyKernel = KernelInstrument(
-			band[ind₂],
-			λ_msr,
-			MyRSR,
-			wvlen_out,
-			ν_grid
-		);
-	
-	    return MyKernel
-	end
-	
-	MyKernel = SRF_for_pace(
-		λ_max, λ_min, ν_grid_o2.step.hi
-	);
-	
-	println("SRF generated.")
+	kernel_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/"
+	@load kernel_dir*"KernelInstrument.jld2" MyKernel
+	println("Kernel instrument loaded.")
 end
 
 # ╔═╡ c5c347e7-c12e-459d-b207-bb674495a5f7
@@ -144,22 +105,130 @@ begin
 			T₁_rec_all[i,:]   .= missing;
 			T₂_rec_all[i,:]   .= missing;
 			SIF_rec_all[i,:]  .= missing;
-			continue
+		else
+			_, ρ, T₁, T₂, SIF = MyModel(MyPixel.x, MyPixel)
+			residual_all[i,:] = @. MyPixel.y - MyPixel.R_toa;
+			ρ_rec_all[i,:]    = ρ;
+			T₁_rec_all[i,:]   = T₁;
+			T₂_rec_all[i,:]   = T₂;
+			SIF_rec_all[i,:]  = SIF;
 		end
-		_, ρ, T₁, T₂, SIF = MyModel(MyPixel.x, MyPixel)
-		residual_all[i,:] = @. MyPixel.y - MyPixel.R_toa;
-		ρ_rec_all[i,:]    = ρ;
-		T₁_rec_all[i,:]   = T₁;
-		T₂_rec_all[i,:]   = T₂;
-		SIF_rec_all[i,:]  = SIF;
 	end
 end
 
+# ╔═╡ 52f5f17b-5c42-4913-8fab-e02887d7af1b
+k = 60; _, ρ, T₁_k, T₂_k, SIF = MyModel(Retrieval_all[k].x, Retrieval_all[k])
+
+# ╔═╡ fc4e824a-91a3-4328-9263-8c9bcf43acc6
+begin
+	
+	# manual reconstruction of T2
+	this_vec  = Retrieval_all[k].x;
+	thisPixel = Retrieval_all[k];
+	
+	# reflectance
+    xᵨ    = this_vec[1 : thisPixel.nPoly+1]
+    v     = collectPl.(thisPixel.λc, lmax=thisPixel.nPoly);
+    thisρ = hcat(v...)' * xᵨ;
+	
+	# cos(sza) and cos(vza)
+    μ₁    = 1 / cosd(thisPixel.sza);
+    μ₂    = 1 / cosd(thisPixel.vza);
+
+    # T↑ transmittance for SIF
+    thisx₁    = this_vec[(thisPixel.nPoly+2):(thisPixel.nPoly+7)];
+    thisT₁    = Retrieval.compute_transmittance(
+                thisx₁,
+                MyKernel,
+                o2_sitp,
+                h2o_sitp,
+            );
+
+    # T↓↑ transmittance for reflected radiance
+    thisx₂    = this_vec[(thisPixel.nPoly+8):(thisPixel.nPoly+13)];
+    thisT₂    = Retrieval.compute_transmittance(
+                thisx₂,
+                MyKernel,
+                o2_sitp,
+                h2o_sitp,
+            );
+
+    # take light path into account
+    @. thisT₂ = thisT₂^( μ₁ + μ₂ );
+    @. thisT₁ = thisT₁^( μ₂ );
+
+	# SIF
+	thisxₛ     = this_vec[end - thisPixel.nSIF + 1 : end];
+    thisSIF    = thisPixel.SIF_shape * thisxₛ;
+
+end
+
+# ╔═╡ 1f9b016f-01b1-4dc0-986e-aa58aa48bb73
+begin
+	plot(
+		λ, ρ_all[k,:], size=(800, 300),
+		xticks = (620:10:860, string.(620:10:860)),
+		title="ρ",
+		label="truth", lw=1.,
+		)
+	plot!(
+		λ, ρ, label="reconstructed",  lw=1.,
+	);
+	plot!(
+		λ, thisρ, label="manually reconstructed",  lw=2., ls=:dash, color=:olive
+	);
+end
+
+# ╔═╡ 44368e86-8b96-4ec3-89fd-8111ad61d780
+begin
+	plot(
+		λ, T₂_all[k,:], size=(800, 300),
+		xticks = (620:10:860, string.(620:10:860)),
+		title="T₂",
+		label="truth", lw=1.,
+		)
+	plot!(
+		λ, T₂_k, label="reconstructed",  lw=1.,
+	);
+	plot!(
+		λ, thisT₂, label="manually reconstructed",  lw=2., ls=:dash, color=:olive
+	);
+end
+
+# ╔═╡ 3a09dc6e-cf67-43f4-9068-c5c9fb5e93db
+begin
+	plot(
+		λ, T₁_all[k,:], size=(800, 300),
+		xticks = (620:10:860, string.(620:10:860)),
+		title="T₁",
+		label="truth", lw=1.,
+		)
+	plot!(
+		λ, T₁_k, label="reconstructed",  lw=1.,
+	);
+	plot!(
+		λ, thisT₁, label="manually reconstructed",  lw=2., ls=:dash, color=:olive
+	);
+end
+
 # ╔═╡ 657ac6d3-5d10-4269-86a1-4cbccdb04451
-n_sample
+begin
+	plot(
+		λ, SIF_all[k,:], size=(800, 300),
+		xticks = (620:10:860, string.(620:10:860)),
+		title="SIF",
+		label="truth", lw=1.,
+		)
+	plot!(
+		λ, SIF, label="reconstructed",  lw=1.,
+	);
+	plot!(
+		λ, thisSIF, label="manually reconstructed",  lw=2., ls=:dash, color=:olive
+	);
+end
 
 # ╔═╡ cbc20a9d-c08e-470b-9cb3-143e8100fc06
-Δn = 5;
+@info n_sample ;Δn = 10;
 
 # ╔═╡ d611690f-cf36-4b34-8031-fd4e2354cbc0
 md"""
@@ -354,8 +423,8 @@ begin
 		if ismissing(MyPixel)
 			continue
 		end
-        plot!(p_RTOA, λ, MyPixel.y, color=color, lw=1)
-        plot!(p_RTOA, λ, MyPixel.R_toa, color=color, ls=:dash, lw=2)
+        plot!(p_RTOA, λ, MyPixel.y, color=color, lw=.5)
+        plot!(p_RTOA, λ, MyPixel.R_toa, color=color, ls=:dash, lw=1)
     end
     
     p_RTOA
@@ -389,7 +458,14 @@ plot(
 )
 
 # ╔═╡ 33147397-cb05-4eb5-ac93-ace9e3cf434e
+# save the Kernel (no need to compute everytime)
+println("MyKernel: $(Base.summarysize(MyKernel) / 1024^2) MB")
 
+# ╔═╡ a8dfb70f-4fc6-4659-a008-484bed3cd0da
+# save_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/"
+
+# ╔═╡ 889d02a2-b1d0-46d1-bc1b-030064a322ef
+# @save save_dir*"KernelInstrument.jld2" MyKernel
 
 # ╔═╡ Cell order:
 # ╟─5784065a-bb43-11f0-3465-4109cdf30bb7
@@ -403,14 +479,20 @@ plot(
 # ╠═c5c347e7-c12e-459d-b207-bb674495a5f7
 # ╠═7a2d63f0-4784-4e15-96ae-dc14c8169d65
 # ╠═0785ec75-0e55-4c7a-856c-47a11f6fef3e
-# ╠═657ac6d3-5d10-4269-86a1-4cbccdb04451
+# ╠═52f5f17b-5c42-4913-8fab-e02887d7af1b
+# ╠═e5d1f463-2598-4c9f-a8bb-0713138d8791
+# ╠═fc4e824a-91a3-4328-9263-8c9bcf43acc6
+# ╠═1f9b016f-01b1-4dc0-986e-aa58aa48bb73
+# ╠═44368e86-8b96-4ec3-89fd-8111ad61d780
+# ╠═3a09dc6e-cf67-43f4-9068-c5c9fb5e93db
+# ╟─657ac6d3-5d10-4269-86a1-4cbccdb04451
 # ╠═cbc20a9d-c08e-470b-9cb3-143e8100fc06
 # ╟─d611690f-cf36-4b34-8031-fd4e2354cbc0
 # ╟─adc231eb-8101-4766-93e2-dbcb514759d5
 # ╟─814bc0e3-250d-427d-b4ee-885df2b0d041
 # ╟─a935fc93-17ac-4ace-a277-e8ca23ca00c1
 # ╠═f2652a7b-b54f-42d8-8a33-08b5822101d1
-# ╟─06940505-ab59-4972-b3d3-d2a480c9361f
+# ╠═06940505-ab59-4972-b3d3-d2a480c9361f
 # ╟─27105614-d35b-414b-a8ee-ad843b15dceb
 # ╟─da5690a2-ed42-465b-ae13-2b2a32218f24
 # ╟─8deeced5-bb89-4284-845d-da0a28fbfd3e
@@ -427,3 +509,5 @@ plot(
 # ╟─5fb64951-1f67-405d-ad32-94247cb8807d
 # ╟─23b72be9-2999-47ec-8d8b-ea58ad120823
 # ╠═33147397-cb05-4eb5-ac93-ace9e3cf434e
+# ╠═a8dfb70f-4fc6-4659-a008-484bed3cd0da
+# ╠═889d02a2-b1d0-46d1-bc1b-030064a322ef

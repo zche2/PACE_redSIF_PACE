@@ -20,7 +20,7 @@ md"""
 
 # ╔═╡ 0043b5a8-7df7-4044-9fef-e1fd874ba9fb
 # load data
-@load "retrieval_results_v1_3.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params message
+@load "retrieval_results_v1_2.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params message
 
 # ╔═╡ 71807df9-dbde-4b49-a956-cb96a8f8e675
 println(message)

@@ -1,11 +1,40 @@
 using LegendrePolynomials
 
+
+"""
+    forward_model_ToBeUpdated(x, px::Pixel; return_components::Bool=false)
+    This is incomplete! 🟢 Please update the function name and docstring accordingly.
+"""
+function forward_model_ToBeUpdated(
+        x,
+        px;
+        return_components::Bool=false
+    )
+    if px isa Pixel_xSecFit
+		return forward_model_xSecFit(
+            x,
+            px;
+            return_components=return_components
+        )
+	elseif px isa Pixel_PCFit
+		return forward_model_PCfit(
+            x,
+            px;
+            return_components=return_components
+        )
+	else
+		error("Unknown retrieval method type.")
+	end
+
+end;
+
+
 function forward_model(
         x,
         px :: Pixel_xSecFit,
         params :: RetrievalParams_xSecFit;
         return_components::Bool=false
-)
+    )
     # unpack params
     o2_sitp = params.o2_sitp;
     h2o_sitp = params.h2o_sitp;
@@ -39,15 +68,15 @@ function forward_model(
             );
 
     # take light path into account
-    T₂    = @. T₂^( μ₁ + μ₂ );
-    T₁    = @. T₁^( μ₂ );
+    @. T₂ = T₂^( μ₁ + μ₂ );
+    @. T₁ = T₁^( μ₂ );
 
     # SIF magnitude
-    xₛ     = x[end - px.nSIF + 1 : end];
-    SIF    = px.SIF_shape * xₛ;
+    xₛ   = x[(end - px.nSIF + 1) : end];
+    SIF  = px.SIF_shape * xₛ;
 
     # TOA radiance
-    rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ + SIF * T₁;
+    rad  = @. px.E * cosd(px.sza) / π * T₂ * ρ + SIF * T₁;
     
     if return_components
         return rad, ρ, T₁, T₂, SIF
@@ -55,34 +84,7 @@ function forward_model(
         return rad
     end
 
-end;
-
-"""
-    forward_model_ToBeUpdated(x, px::Pixel; return_components::Bool=false)
-    This is incomplete! 🟢 Please update the function name and docstring accordingly.
-"""
-function forward_model_ToBeUpdated(
-        x,
-        px;
-        return_components::Bool=false
-    )
-    if px isa Pixel_xSecFit
-		return forward_model_xSecFit(
-            x,
-            px;
-            return_components=return_components
-        )
-	elseif px isa Pixel_PCFit
-		return forward_model_PCfit(
-            x,
-            px;
-            return_components=return_components
-        )
-	else
-		error("Unknown retrieval method type.")
-	end
-
-end;
+end
 
 """
     forward_model_xSecFit(x, px::Pixel; return_components::Bool=false)
@@ -91,7 +93,7 @@ Notes:
 - fit one- and two-way transmittance respectively, assuming completely independent.
 """
 
-function forward_model_xSecFit(
+function forward_model_xSecFit_old(
         x,
         px :: Pixel_xSecFit;       # Pixel struct
         return_components::Bool=false
@@ -151,13 +153,13 @@ function forward_model_PCfit(
 
     # T↓↑ transmittance for SIF
     smooth_x = 10. / (1 + exp( -x[px.nPoly+px.nPC+2]) ) + 1.;
-    T₂       = @. exp( smooth_x * log(T₁) );
+    @. T₂    = sexp( smooth_x * log(T₁) );
 
     # SIF magnitude
-    SIF   = px.SIF_shape * x[px.nPoly+px.nPC+px.nSIF+2];
+    SIF    = px.SIF_shape * x[px.nPoly+px.nPC+px.nSIF+2];
 
     # TOA radiance
-    rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ + SIF * T₁;
+    @. rad = px.E * cosd(px.sza) / π * T₂ * ρ + SIF * T₁;
     
     if return_components
         return rad, ρ, T₁, T₂, SIF
