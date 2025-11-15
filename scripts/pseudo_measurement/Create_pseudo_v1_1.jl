@@ -66,7 +66,7 @@ println("Transmittance interpolated: $(size(trans_new, 1)) spectra")
 
 # Load and interpolate SIF shapes
 println("Loading SIF shapes...")
-SIF_shape_dict = JLD2.load("/home/zhe2/data/MyProjects/PACE_redSIF_PACE/SIF_singular_vector.jld2")
+SIF_shape_dict = JLD2.load("/home/zhe2/data/MyProjects/PACE_redSIF_PACE/reference_spectra/SIF_singular_vector.jld2")
 
 # Create interpolator
 itp = interpolate(SIF_shape_dict["SIF_shapes"], (BSpline(Linear()), NoInterp()))
@@ -95,7 +95,7 @@ println("SIF shape interpolated")
 
 # load SNR
 println("Loading SNR data...")
-filename = raw"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt";
+filename = raw"/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt";
 lines = readlines(filename);
 end_header_index = findfirst(x -> x == "/end_header", lines);
 data  = readdlm(filename, String, skipstart=end_header_index);
@@ -142,7 +142,7 @@ sza_noSIF = sza[valid_mask]
 vza_noSIF = vza[valid_mask]
 
 # Fit polynomials
-order = 6
+order = 4;
 n_pixels = size(R_noSIF, 1)
 K₀ = hcat(collectPl.(λc[bl_ind], lmax=order)...)'
 K₀_recon = hcat(collectPl.(λc, lmax=order)...)'
@@ -172,7 +172,7 @@ n_sample = 5000
 println("Generating $n_sample pseudo observations...")
 
 # Random sampling
-Random.seed!(42)
+Random.seed!(512)
 nᵨ       = n_pixels;   # also select SZA from
 nₛ       = size(SIF_new, 2);
 nₜ        = size(trans_new, 1);
@@ -203,8 +203,8 @@ pseudo_obs_all = zeros(n_sample, len_λ);
     μ₂_all[i] = cosd(vza_noSIF[ind_vza[i]]);
     
     # ----- Transmittance -----
-    σ₁ = @. - 1 / μ₁_all[i] * log( trans_new[indₜ₁[i], :] );
-    σ₂ = @. - 1 / μ₂_all[i] * log( trans_new[indₜ₂[i], :] );
+    σ₁ = @. - log( trans_new[indₜ₁[i], :] );
+    σ₂ = @. - log( trans_new[indₜ₂[i], :] );
     T₁_all[i, :] = @. exp( - σ₁ );
     T₂_all[i, :] = @. exp( - σ₁ - σ₂ );
     
@@ -333,6 +333,6 @@ elapsed_time = end_time - start_time
 println("Retrieval complete! Total time elapsed: $elapsed_time")
 
 # save results
-version = "v1_3"
-message = "nPoly=$n, rank=$rank\n Change penalty function for T₁ and T₂ conversion: smooth_x = 10. / (1 + exp( -x[px.nPoly+px.nPC+2]) ) + 1."
+version = "v1_4"
+message = "construction order=$order, nPoly=$n, rank=$rank\n Change penalty function for T₁ and T₂ conversion: smooth_x = 10. / (1 + exp( -x[px.nPoly+px.nPC+2]) ) + 1."
 @save "/home/zhe2/FraLab/PACE_redSIF_PACE/scripts/pseudo_measurement/retrieval_results_$version.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params message

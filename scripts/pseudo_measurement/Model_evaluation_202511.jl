@@ -13,6 +13,9 @@ using PACE_SIF
 # ╔═╡ 1e7ee390-2fcb-475b-81f9-47d96589fc45
 using JLD2, Plots
 
+# ╔═╡ 9b1d50ad-795c-4009-b08f-bd6036e0a7f2
+using LegendrePolynomials
+
 # ╔═╡ 5784065a-bb43-11f0-3465-4109cdf30bb7
 md"""
 ### Evaluate Retrieval from pseudo-measurements
@@ -20,7 +23,7 @@ md"""
 
 # ╔═╡ 0043b5a8-7df7-4044-9fef-e1fd874ba9fb
 # load data
-@load "retrieval_results_v1_3.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params message
+@load "retrieval_results_v1_4.jld2" Retrieval_all pseudo_obs_all ρ_all T₁_all T₂_all SIF_all params message
 
 # ╔═╡ 71807df9-dbde-4b49-a956-cb96a8f8e675
 println(message)
@@ -63,6 +66,132 @@ end
 # ╔═╡ 3c70a6da-0dcf-46b0-9303-62dcc45db133
 #show params
 println("nPoly, nPC = ($(params.nPoly), $(params.nPC))"); println("Use NMF")
+
+# ╔═╡ 8ab531ab-c4ef-45ce-accd-9e14612d6181
+begin
+	# check pseudo measurement
+	p = plot(size=(800, 400), legend=false)
+	for i in 1:Δn:n_sample
+		MyPixel = Retrieval_all[i];
+		if !ismissing(MyPixel)
+			plot!(λ, MyPixel.R_toa)
+		end
+	end
+	p
+end
+
+# ╔═╡ 783ee578-a211-471a-b2db-1f23ec819150
+begin
+	k = 400;
+	
+	# manual reconstruction of T2
+	this_vec  = Retrieval_all[k].x;
+	thisPixel = Retrieval_all[k];
+
+	# auto
+	 _, ρ, T₁_k, T₂_k, SIF = forward_model(this_vec,thisPixel, return_components=true)
+	
+	# reflectance
+    xᵨ    = this_vec[1 : thisPixel.nPoly+1]
+    v     = collectPl.(thisPixel.λc, lmax=thisPixel.nPoly);
+    thisρ = hcat(v...)' * xᵨ;
+
+    # T↑ transmittance for SIF
+    thisx₁    = this_vec[(thisPixel.nPoly+2):(thisPixel.nPoly+thisPixel.nPC+1)]
+    thisT₁    = thisPixel.trans_mat * thisx₁;
+
+    # T↓↑ transmittance for reflected radiance
+	smooth_x = 10. / (1 + exp( -this_vec[thisPixel.nPoly+thisPixel.nPC+2]) ) + 1.;
+    thisT₂       = @. exp( smooth_x * log(thisT₁) );
+
+	# SIF
+	thisxₛ     = this_vec[end - thisPixel.nSIF + 1 : end];
+    thisSIF    = thisPixel.SIF_shape * thisxₛ;
+
+	# rad
+	thisRad    = @. thisPixel.E * cosd(thisPixel.sza) / π * thisT₂ * thisρ + thisSIF * thisT₁;
+
+end
+
+# ╔═╡ 95965f00-ec5a-44d8-9c0b-0aec6c3ee42d
+begin
+	plot(
+		λ, ρ_all[k,:], size=(800, 300),
+		xticks = (620:10:860, string.(620:10:860)),
+		title="ρ",
+		label="truth", lw=1.,
+		)
+	plot!(
+		λ, ρ, label="reconstructed",  lw=1.,
+	);
+	plot!(
+		λ, thisρ, label="manually reconstructed",  lw=2., ls=:dash, color=:olive
+	);
+end
+
+# ╔═╡ 9948296b-0951-4162-b302-b37170143323
+begin
+	plot(
+		λ, T₂_all[k,:], size=(800, 300),
+		xticks = (620:10:860, string.(620:10:860)),
+		title="T₂",
+		label="truth", lw=1.,
+		)
+	plot!(
+		λ, T₂_k, label="reconstructed",  lw=1.,
+	);
+	plot!(
+		λ, thisT₂, label="manually reconstructed",  lw=2., ls=:dash, color=:olive
+	);
+end
+
+# ╔═╡ dc4a96c7-bff2-4430-b38d-7bb0365c443b
+begin
+	plot(
+		λ, T₁_all[k,:], size=(800, 300),
+		xticks = (620:10:860, string.(620:10:860)),
+		title="T₁",
+		label="truth", lw=1.,
+		)
+	plot!(
+		λ, T₁_k, label="reconstructed",  lw=1.,
+	);
+	plot!(
+		λ, thisT₁, label="manually reconstructed",  lw=2., ls=:dash, color=:olive
+	);
+end
+
+# ╔═╡ d3362979-cb2a-4ef1-ab5c-04c67f4252d7
+begin
+	plot(
+		λ, SIF_all[k,:], size=(800, 300),
+		xticks = (620:10:860, string.(620:10:860)),
+		title="SIF",
+		label="truth", lw=1.,
+		)
+	plot!(
+		λ, SIF, label="reconstructed",  lw=1.,
+	);
+	plot!(
+		λ, thisSIF, label="manually reconstructed",  lw=2., ls=:dash, color=:olive
+	);
+end
+
+# ╔═╡ 657d3fdd-abca-4cf9-bde6-889d30aad0ca
+begin
+	plot(
+		λ, thisPixel.R_toa, size=(800, 300),
+		xticks = (620:10:860, string.(620:10:860)),
+		title="R_toa",
+		label="truth", lw=1.,
+		)
+	plot!(
+		λ, thisPixel.y, label="reconstructed",  lw=1.,
+	);
+	plot!(
+		λ, thisRad, label="manual",  lw=1.,
+	);
+end
 
 # ╔═╡ d611690f-cf36-4b34-8031-fd4e2354cbc0
 md"""
@@ -302,6 +431,14 @@ plot(
 # ╠═0785ec75-0e55-4c7a-856c-47a11f6fef3e
 # ╠═cbc20a9d-c08e-470b-9cb3-143e8100fc06
 # ╠═3c70a6da-0dcf-46b0-9303-62dcc45db133
+# ╠═9b1d50ad-795c-4009-b08f-bd6036e0a7f2
+# ╠═8ab531ab-c4ef-45ce-accd-9e14612d6181
+# ╠═783ee578-a211-471a-b2db-1f23ec819150
+# ╠═95965f00-ec5a-44d8-9c0b-0aec6c3ee42d
+# ╠═9948296b-0951-4162-b302-b37170143323
+# ╠═dc4a96c7-bff2-4430-b38d-7bb0365c443b
+# ╠═d3362979-cb2a-4ef1-ab5c-04c67f4252d7
+# ╠═657d3fdd-abca-4cf9-bde6-889d30aad0ca
 # ╟─d611690f-cf36-4b34-8031-fd4e2354cbc0
 # ╟─adc231eb-8101-4766-93e2-dbcb514759d5
 # ╟─814bc0e3-250d-427d-b4ee-885df2b0d041
