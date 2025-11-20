@@ -20,4 +20,8 @@
         smooth_x = 10. / (1 + exp( -x[px.nPoly+px.nPC+2]) ) + 1.  
     - v1.4
         order=4, nPoly=10, rank=15, new penalty function, no considering viewing geometry.
-    
+
+- v3: 
+    Enable fitting more PCs of SIF shape
+
+    - v3.1 

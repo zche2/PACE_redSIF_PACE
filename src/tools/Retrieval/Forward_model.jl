@@ -18,7 +18,7 @@ function forward_model(
     T₂       = @. exp( smooth_x * log(T₁) );
 
     # SIF magnitude
-    SIF   = px.SIF_shape * x[px.nPoly+px.nPC+px.nSIF+2];
+    SIF   = px.SIF_shape * x[(px.nPoly+px.nPC+3):(px.nPoly+px.nPC+px.nSIF+2)];
 
     # TOA radiance
     rad   = @. px.E * cosd(px.sza) / π * T₂ * ρ + SIF * T₁;

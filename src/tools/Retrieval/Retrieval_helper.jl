@@ -83,11 +83,12 @@ function GainMatrix(
 end
 
 function MakePriori!(
-    px :: Pixel,
-    β   :: Vector{FT};
+    px  :: Pixel,
+    β   :: Vector{FT},
+	n   :: Int64;
     γ   :: Vector{FT} = [(secd(px.sza) + secd(px.vza)) / secd(px.vza)],  
                 # extra terms for T₁ and T₂ conversion
-    SIF :: Vector{FT} = [px.nflh],  
+    SIF :: Vector{FT} = [1.66685;  0.00876223;  -0.000753521;  0.00012267;  1.24771e-5],  
                 # coeff. for SIF PCs
     ) where {FT <: AbstractFloat}
 
@@ -96,7 +97,9 @@ function MakePriori!(
     G₀  = inv( K₀'K₀ )K₀';
     x₀  = G₀ * px.R_toa; 
 
-    px.xₐ = [x₀... β... γ... SIF...]';
+	SIF_terms = SIF[1:n];
+
+    px.xₐ = [x₀... β... γ... SIF_terms...]';
 
     return nothing
 end
@@ -133,6 +136,7 @@ function Retrieval_for_Pixel(
 	MyPixel.Sₐ    = params.Sₐ;
 	MyPixel.trans_mat = params.PrinComp[:, 1:MyPixel.nPC];
 	MyPixel.SIF_shape = params.SIFComp[:, 1:MyPixel.nSIF];
+	MyPixel.Ŝ     = Matrix{Float64}(undef, size(params.Sₐ));
 
 	MyPixel.R_toa = R_toa;
 	MyPixel.sza   = sza;
@@ -144,7 +148,7 @@ function Retrieval_for_Pixel(
 	MyPixel.flag  = flag; 
 	
 	# set-up
-	MakePriori!(MyPixel, βₐ);
+	MakePriori!(MyPixel, βₐ, MyPixel.nSIF);
 	MyPixel.x  = MyPixel.xₐ;
 	MyPixel.y  = MyModel(MyPixel.x, MyPixel);
 	MyPixel.iter_label = 0;

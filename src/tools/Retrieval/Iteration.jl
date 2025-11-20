@@ -116,6 +116,8 @@ function LM_Iteration!(
             RMSE₁ = RMSE_trial
             ΔRMSE = RMSE₁ - RMSE₀
             px.ΔRMSE = ΔRMSE
+            # Update posterior covariance
+            px.Ŝ = inv(Sa_inv + Kₙ' * Se_inv * Kₙ)
             # Decrease damping (success)
             γ /= γ⁻
             
