@@ -60,7 +60,7 @@ println("Number of samples: $n_sample")
 println("Random seed: $random_seed")
 println("NFLH threshold: $nflh_threshold")
 println("NMF rank: $rank")
-println("Order of polynomials: $n, Number of retrieval PCs: $nPC, SIF PCs: $nSIF")
+println("Order of polynomials to fit: $n, Number of retrieval PCs: $nPC, SIF PCs: $nSIF")
 println("Number of iterations: $nIter, Convergence threshold: $thr_Converge")
 println("====================\n")
 
@@ -220,7 +220,8 @@ len_λ = length(λ)
 T₁_all = zeros(n_sample, len_λ)
 T₂_all = zeros(n_sample, len_λ)
 SIF_all = zeros(n_sample, len_λ)
-pseudo_obs_all = zeros(n_sample, len_λ)
+SIF_loadings_all = zeros(n_sample, nSIF)
+pseudo_obs_all   = zeros(n_sample, len_λ)
 
 # Generate pseudo data
 @threads for i in 1:n_sample
@@ -239,6 +240,7 @@ pseudo_obs_all = zeros(n_sample, len_λ)
     
     # ----- water-leaving SIF -----
     SIF_all[i, :] = SIF_new[:, indₛ[i]]
+    SIF_loadings_all[i, :] = SIF_SVD.Loading[1:nSIF, indₛ[i]]
     
     # ----- TOA -----
     pseudo_obs_all[i, :] = @. E / pi * μ₁_all[i] * ρ_all[i, :] * T₂_all[i, :] + SIF_all[i, :] * T₁_all[i, :]
@@ -288,20 +290,15 @@ println("NMF decomposition complete!")
 loading_var_sif   = var(SIF_SVD.Loading[1:nSIF,:], dims=2) .* 2 ;  # 2 as a scale factor?
 
 # MakePriori
-Sₐ   = I(n+nPC+nSIF+2) .+ 0.;
-# update diagonal term
-for i=1:(n+1)
-    Sₐ[i,i] = 1e10;
-    # large variance applies no constrain to these polynomial term
-end
-# \beta
-for i=(n+2):(n+nPC+1)
-    Sₐ[i,i] = loading_var_trans[i - (n+1)];
-end
-# \gamma
-Sₐ[n+nPC+2, n+nPC+2] = 2;
-# SIF
-Sₐ[(end-nSIF+1):end, (end-nSIF+1):end] = diagm(fill(loading_var_sif[1], nSIF));
+diag_values = vcat(
+    fill(1e10, n+1),
+    loading_var_trans[1:nPC],
+    [2.0],
+    loading_var_sif[1:nSIF]
+);
+
+Sₐ = Diagonal(diag_values);
+
 println("Diagonal terms updated, with diagonal terms: $(diag(Sₐ))")
 
 # Create the retrieval parameters
@@ -362,3 +359,26 @@ end
 end_time = now()
 elapsed_time = end_time - start_time
 println("Retrieval complete! Total time elapsed: $elapsed_time")
+
+# save results
+version = "v3_1"
+message = "Configurations: \n" *
+          "Wavelength range: $λ_min - $λ_max nm\n" *
+          "Polynomial order: $order\n" *
+          "SIF scale factor: $scale_factor_SIF\n" *
+          "Number of samples: $n_sample\n" *
+          "Random seed: $random_seed\n" *
+          "NFLH threshold: $nflh_threshold\n" *
+          "NMF rank: $rank\n" *
+          "Order of polynomials to fit: $n, Number of retrieval PCs: $nPC, SIF PCs: $nSIF\n" *
+          "Number of iterations: $nIter, Convergence threshold: $thr_Converge\n" *
+          "Retrieval started at: $start_time, ended at: $end_time, elapsed time: $elapsed_time\n";
+ground_truth = (
+    psuedo_obs_all = pseudo_obs_all,
+    ρ_all = ρ_all,
+    T₁_all = T₁_all,
+    T₂_all = T₂_all,
+    SIF_all = SIF_all,
+    SIF_loadings_all = SIF_loadings_all
+);
+@save "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_$version.jld2" Retrieval_all ground_truth params message
