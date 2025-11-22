@@ -24,4 +24,10 @@
 - v3: 
     Enable fitting more PCs of SIF shape
 
-    - v3.1 
+    - v3.0 nSIF = 1 as reference retrieval
+        v3.0.1 zero noise: no measurement noise when creating pseudo data
+
+    - v3.1 nSIF = 2
+
+        v3.1.1 Set SNR degradation bands  
+        v3.1.2 Wavelength 670-780nm (try to avoid Water band as much as possible).  

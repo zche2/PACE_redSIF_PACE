@@ -17,7 +17,7 @@ using StatsBase
 using JLD2, Plots
 
 # ╔═╡ 53ffd4a4-1b68-4367-8fc2-981ac10fd6cf
-using LegendrePolynomials
+using LegendrePolynomials, LinearAlgebra
 
 # ╔═╡ 4ba2eb08-51de-4cef-81bb-399e170038db
 md"""
@@ -26,7 +26,7 @@ md"""
 
 # ╔═╡ a0e0c732-d392-45a1-85a0-1120d673bddf
 # load data
-@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_1.jld2" Retrieval_all ground_truth params message
+@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_1_1.jld2" Retrieval_all ground_truth params message
 
 # ╔═╡ 80afb5d5-d9db-4232-8dda-54272516f3c5
 println(message)
@@ -68,7 +68,10 @@ begin
 			continue
 		end
 		_, ρ, T₁, T₂, SIF = forward_model(MyPixel.x, MyPixel, return_components=true)
+		# residual normalized by standard deviation
 		residual_all[i,:] = @. MyPixel.y - MyPixel.R_toa;
+		sd = sqrt.(diag(MyPixel.Sₑ))
+		residual_all[i,:] = residual_all[i,:]./sd;
 		ρ_rec_all[i,:]    = ρ;
 		T₁_rec_all[i,:]   = T₁;
 		T₂_rec_all[i,:]   = T₂;
@@ -78,7 +81,7 @@ begin
 end
 
 # ╔═╡ 43661e88-d46e-4043-8a0d-ecaf0896d192
-Δn = 150;
+Δn = 250;
 
 # ╔═╡ 48e326f5-f20c-4994-80bb-b7d5a8517876
 begin
@@ -166,7 +169,7 @@ end
 
 # ╔═╡ 2ea4e56d-c82b-45ed-aa14-efdd4f58a933
 begin
-	check_SIF_PC = 1;
+	check_SIF_PC = 2;
 	x = SIF_loading_all[:,check_SIF_PC];
 	y = SIF_rec_loading_all[:, check_SIF_PC];
 
@@ -199,7 +202,8 @@ begin
     ylabel="SIF loading (recon.)",
     title="PC$(check_SIF_PC)",
     colorbar_title="Count",
-    size=(600, 500)
+    size=(600, 500),
+	ylims=(-0.15, 0.05)
 )
 	
 end
@@ -207,7 +211,7 @@ end
 # ╔═╡ ec2b1bab-9512-4131-bd60-c9c994c3c220
 begin
 	# posterior covariance matrix
-	k = 900;
+	k = 10;
 	Ŝ    = Retrieval_all[k].Ŝ;
 	logŜ = log10.(abs.(Ŝ));
 	cmin = -10.5; cmax=-2.0;
@@ -239,32 +243,104 @@ begin
 	)
 end
 
+# ╔═╡ 60e10bd3-3113-4ea7-88fe-af8c9fce0983
+diag(Retrieval_all[10].Sₐ)
+
 # ╔═╡ 62785b35-482d-43c2-a89f-346f24e09d6c
 begin
 	# distribution of the last term of S\hat
 	# preallocate
+	cov_SIF1   = Vector{Union{Missing, AbstractFloat}}(undef, n_sample);
 	cov_SIF2   = Vector{Union{Missing, AbstractFloat}}(undef, n_sample);
 	# reconstruct
 	for i in 1:n_sample
 		MyPixel = Retrieval_all[i];
 		if ismissing(MyPixel)
-			cov_SIF2[i,:] .= missing;
+			cov_SIF1[i] = missing;
+			cov_SIF2[i] = missing;
 			continue
 		end
-		cov_SIF2[i,:] = MyPixel.Ŝ[end:end];
+		cov_SIF1[i] = MyPixel.Ŝ[(end-1),(end-1)];
+		cov_SIF2[i] = MyPixel.Ŝ[end,end];
 	end
 	
 	histogram(
-		log10.(cov_SIF2), 
+		log10.(cov_SIF1), 
 	    bins = 100,
 	    xlabel = "log Value",
 	    ylabel = "Frequency",
-	    title  = "Variance of SIF PC2, priori=$(log10(0.002))", titlefontsize=10,
+	    title  = "Variance of SIF PC1", titlefontsize=10,
 	    legend = false,
-		size  = (800, 300),
+		size   = (800, 300),
 		margin=8Plots.mm
 	)
 	
+end
+
+# ╔═╡ 14ca76c0-1f90-4606-8ad4-e84b1fe578d3
+md"""
+##### Reconstructed PCs
+"""
+
+# ╔═╡ c09df677-540c-497c-9d2a-bf8b68b47d6a
+begin
+	path_sif_shapes = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/reference_spectra/SIF_singular_vector.jld2";
+	scale_factor_SIF = 20;
+	# Load and interpolate SIF shapes
+	println("Loading SIF shapes...")
+	SIF_shape_dict = JLD2.load(path_sif_shapes)
+	
+	# SVD to SIF
+	SIF_SVD = Spectral_SVD(
+	    SIF_shape_dict["SIF_shapes"]*scale_factor_SIF,
+	    SIF_shape_dict["SIF_wavelen"],
+	    Float64.(collect(skipmissing(λ))),
+	    if_log = false
+	)
+	
+	SIF_new = SIF_SVD.PrinComp * SIF_SVD.Loading
+	println("SIF shapes SVD completed!")
+end
+
+# ╔═╡ 09baea12-c86c-4b6e-bfac-047262d5eb6a
+begin
+	SIF_PC1_true  = SIF_loading_all[:,1] * SIF_SVD.PrinComp[:,1]';
+	SIF_PC1_recon = SIF_rec_loading_all[:,1] * SIF_SVD.PrinComp[:,1]';
+
+	p_SIF_PC1 = plot(
+			size=(800, 300), legend=false, dpi=300,
+			title="PC₁ (solid: truth, dash: reconstructed)", titlefontsize=8
+		)
+
+    # Plot true and retrieved with matching colors
+    for (i, idx) in enumerate(1:Δn:n_sample)
+        color = colors[mod1(i, length(colors))]
+        plot!(p_SIF_PC1, λ, SIF_PC1_true[idx, :], color=color, lw=1)
+        plot!(p_SIF_PC1, λ, SIF_PC1_recon[idx, :], color=color, ls=:dash, lw=2)
+    end
+    
+    p_SIF_PC1
+end
+
+# ╔═╡ 87114d37-1035-48d5-9045-f054fad0462a
+begin
+	SIF_PC2_true  = SIF_loading_all[:,2] * SIF_SVD.PrinComp[:,2]';
+	SIF_PC2_recon = SIF_rec_loading_all[:,2] * SIF_SVD.PrinComp[:,2]';
+
+	p_SIF_PC2 = plot(
+			size=(800, 300), legend=false, dpi=300,
+			title="PC₂ (solid: truth, dash: reconstructed)", titlefontsize=8,
+			xticks = (620:10:860, string.(620:10:860))
+		)
+
+    # Plot true and retrieved with matching colors
+    for (i, idx) in enumerate(1:Δn:n_sample)
+        color = colors[mod1(i, length(colors))]
+        plot!(p_SIF_PC2, λ, SIF_PC2_true[idx, :], color=color, lw=1)
+        plot!(p_SIF_PC2, λ, SIF_PC2_recon[idx, :], color=color, ls=:dash, lw=2)
+    end
+    
+    p_SIF_PC2
 end
 
 # ╔═╡ 8c97ca1e-eabd-4b72-9457-0f6a0dacd877
@@ -326,7 +402,8 @@ plot(
 	(T₁_all[1:Δn:n_sample, :] .- T₁_rec_all[1:Δn:n_sample, :])',
 	size=(800, 300),
 	legend=false,
-	title="T₁ (truth-reconstructed)", titlefontsize=8
+	title="T₁ (truth-reconstructed)", titlefontsize=8,
+	xticks = (620:10:860, string.(620:10:860))
 )
 
 # ╔═╡ b0146c13-766f-4e5c-a063-3ac5175de4b2
@@ -371,7 +448,7 @@ plot(
 	residual_all[1:Δn:n_sample, :]',
 	size=(800, 300),
 	legend=false,
-	title="residual [$(λ[1]), $(λ[end])] nm", titlefontsize=8,
+	title="residual [$(λ[1]), $(λ[end])] nm (normalized by Se)", titlefontsize=8,
 	xticks = (620:10:860, string.(620:10:860))
 )
 
@@ -398,6 +475,33 @@ begin
     p_RTOA
 end
 
+# ╔═╡ 9e02dfc6-693f-4c42-867e-22426bab1d55
+md"""
+##### Other test
+"""
+
+# ╔═╡ a155418b-b63b-40bf-9a91-f2ed8a18c776
+plot(
+	λ, 
+	(@. log(T₂_all[1:Δn:n_sample, :]) / log(T₁_all[1:Δn:n_sample, :]))',
+	size=(800, 200),
+	legend=false,
+	title="log(T₂)/log(T₁): truth", titlefontsize=8,
+	xticks = (620:10:860, string.(620:10:860)),
+	ylims=(0.0, 20.0)
+)
+
+# ╔═╡ 0c0f9051-80ad-4387-8f42-e88bae3b62ef
+plot(
+	λ, 
+	(@. log(T₂_rec_all[1:Δn:n_sample, :]) / log(T₁_rec_all[1:Δn:n_sample, :]))',
+	size   = (800, 200),
+	legend = false,
+	title  = "log(T₂)/log(T₁): reconstructed", titlefontsize=8,
+	xticks = (620:10:860, string.(620:10:860)),
+	# ylims  = (1.9, 2.1)
+)
+
 # ╔═╡ Cell order:
 # ╠═5df61699-9460-4b55-90e8-0a1ba8fc01de
 # ╠═a7e9e7cf-9788-44a0-a81a-3c4ed8424e1d
@@ -416,11 +520,16 @@ end
 # ╟─d9107ea5-f9c9-417f-ab8f-002c2c121909
 # ╟─562ab347-5913-41fd-8dd8-02577ce53157
 # ╟─2e6935e5-eb36-4231-83fe-7bafec557f7f
-# ╠═1e1db338-7d49-456b-8acc-e2e38d64f70c
+# ╟─1e1db338-7d49-456b-8acc-e2e38d64f70c
 # ╟─2ea4e56d-c82b-45ed-aa14-efdd4f58a933
 # ╟─ec2b1bab-9512-4131-bd60-c9c994c3c220
 # ╟─7f65e7fa-3273-4855-8ba7-7f3f010f1c5f
+# ╠═60e10bd3-3113-4ea7-88fe-af8c9fce0983
 # ╠═62785b35-482d-43c2-a89f-346f24e09d6c
+# ╟─14ca76c0-1f90-4606-8ad4-e84b1fe578d3
+# ╟─c09df677-540c-497c-9d2a-bf8b68b47d6a
+# ╟─09baea12-c86c-4b6e-bfac-047262d5eb6a
+# ╠═87114d37-1035-48d5-9045-f054fad0462a
 # ╟─8c97ca1e-eabd-4b72-9457-0f6a0dacd877
 # ╟─58fc7afa-bdb2-438d-96da-53ce752e2f81
 # ╟─93d648e0-21de-4893-9d81-df5979be333f
@@ -433,3 +542,6 @@ end
 # ╟─2e528284-7418-4b22-b251-502cdc6d5e08
 # ╟─a2486341-0ad3-475a-aae2-bfdf0d81e91e
 # ╟─186394b5-ca04-4b35-bf0e-642ad4fe613d
+# ╟─9e02dfc6-693f-4c42-867e-22426bab1d55
+# ╟─a155418b-b63b-40bf-9a91-f2ed8a18c776
+# ╟─0c0f9051-80ad-4387-8f42-e88bae3b62ef

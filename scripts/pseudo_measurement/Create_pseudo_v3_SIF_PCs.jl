@@ -20,6 +20,9 @@ println("Running with $(Threads.nthreads()) threads")
 λ_min = 620.0
 λ_max = 860.0
 
+λ_remove_min = 750.0
+λ_remove_max = 749.0
+
 #====== Pseudo observation generation ======#
 n_sample = 5000
 random_seed = 512
@@ -54,6 +57,7 @@ thr_Converge = 1e-6;
 
 println("\n=== Configuration ===")
 println("Wavelength range: $λ_min - $λ_max nm")
+println("SNR degradation range: $λ_remove_min - $λ_remove_max nm")
 println("Polynomial order: $order")
 println("SIF scale factor: $scale_factor_SIF")
 println("Number of samples: $n_sample")
@@ -301,6 +305,11 @@ Sₐ = Diagonal(diag_values);
 
 println("Diagonal terms updated, with diagonal terms: $(diag(Sₐ))")
 
+# remove bands from retrieval evaluation by manually degrading ther SNR
+c2_modified    = copy(c2);
+wv_degrade_ind = findall((λ .>= λ_remove_min) .& (λ .<= λ_remove_max));
+c2_modified[wv_degrade_ind] .= 1e6;  
+
 # Create the retrieval parameters
 params = RetrievalParams(
     # Measurement specific
@@ -309,7 +318,7 @@ params = RetrievalParams(
     λ_bl_ind = bl_ind,               # Baseline band indices
     E        = E,                    # Solar irradiance
 	c₁       = c1, 					 # PACE SNR 
-	c₂       = c2, 			       	 # PACE SNR
+	c₂       = c2_modified, 			       	
     
     # Forward model settings
     forward_model = forward_model,
@@ -361,9 +370,10 @@ elapsed_time = end_time - start_time
 println("Retrieval complete! Total time elapsed: $elapsed_time")
 
 # save results
-version = "v3_1"
+version = "v3_1_2"
 message = "Configurations: \n" *
           "Wavelength range: $λ_min - $λ_max nm\n" *
+          "SNR degradation range: $λ_remove_min - $λ_remove_max nm\n" *
           "Polynomial order: $order\n" *
           "SIF scale factor: $scale_factor_SIF\n" *
           "Number of samples: $n_sample\n" *

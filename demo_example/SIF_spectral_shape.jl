@@ -136,8 +136,9 @@ end
 
 # ╔═╡ dabd0781-165b-4d8b-be7d-7eb909d21af4
 SIF_PC = Spectral_SVD1(
-	SIF_shape_dict["SIF_shapes"]*scale_factor_SIF, SIF_shape_dict["SIF_wavelen"], 
-    Float64.(collect(skipmissing(oci_band)))
+	SIF_shape_dict["SIF_shapes"]*scale_factor_SIF, 
+	SIF_shape_dict["SIF_wavelen"], 
+    Float64.(collect(skipmissing(oci_band))),
 )
 
 # ╔═╡ 6a59463e-1d7d-4e36-9ab7-2ee741d28782
@@ -147,6 +148,7 @@ begin
 	p = plot(size=(800, 300), title=Title)
 	plot!(p, oci_band, PrinComp[:,1:3], lw=1, label=VarExp_[1:3]')
 	plot!(p, oci_band, SIF_PC.PrinComp[:,1:3], lw=2, ls=:dash)
+	# plot!(p, oci_band, SIF_PC.PrinComp[1:10, :], lw=1, label=VarExp_[1:3]')
 end
 
 # ╔═╡ 1f2455ac-4cf5-4285-b69b-8bffd936a366
@@ -172,6 +174,39 @@ mean(SIF_PC.Loading[1:5,:], dims=2)'
 # ╔═╡ b73e00b9-1bd3-4ba2-bae2-71711fb1f493
 [1.66685; 0.00876223;  -0.000753521;  0.00012267;  1.24771e-5]
 
+# ╔═╡ ff99daa6-094f-42b4-8563-2c93a5c9e5d0
+md"""
+##### some connections between PC loadings
+"""
+
+# ╔═╡ 5272abe0-5671-4299-b0ec-e0858d91c31d
+histogram(Loading[2,:], label="Loading PC₂", size=(600, 200), bins=50)
+
+
+# ╔═╡ 8302fee6-abbf-448f-a8c5-ef274eeb1a86
+scatter(Loading[1,:], Loading[2,:], xlabel="Loading 1", ylabel="Loading 2")
+
+# ╔═╡ 556e7f40-2615-4ffe-b16c-d2d300287518
+begin
+	ratio = Loading[1,:] ./ Loading[2,:];
+	log_ratio = log10.(abs.(ratio)) .* sign.(ratio)
+	histogram(
+		log_ratio, label="sign-log ratio of loading1 over loading2"
+	)
+end
+
+# ╔═╡ fc703c2f-3365-435d-b4a4-953ad729d39c
+begin
+	# ratio against SIF magnitude
+	scatter(
+		Loading[1,:],
+		log_ratio,
+		zcolor=SIF_PC.Loading[1,:],
+		xlabel="Loading of PC1",
+		ylabel="log ratio"
+	)
+end
+
 # ╔═╡ Cell order:
 # ╟─1cd2d4da-c63f-11f0-0848-59692eec694b
 # ╠═7b951624-b362-4c44-b364-157ab5e7373d
@@ -181,8 +216,13 @@ mean(SIF_PC.Loading[1:5,:], dims=2)'
 # ╟─62725e91-1c83-445d-a293-7f760424d1bf
 # ╠═05c6cb1a-e3cf-4da8-97e0-91869d44417c
 # ╠═dabd0781-165b-4d8b-be7d-7eb909d21af4
-# ╟─6a59463e-1d7d-4e36-9ab7-2ee741d28782
+# ╠═6a59463e-1d7d-4e36-9ab7-2ee741d28782
 # ╟─1f2455ac-4cf5-4285-b69b-8bffd936a366
 # ╠═86ff4e64-a7c4-4ad5-a7eb-46f5a08f8b37
 # ╠═65812732-f3b3-4fbd-9fa9-29320eddcf6d
 # ╠═b73e00b9-1bd3-4ba2-bae2-71711fb1f493
+# ╟─ff99daa6-094f-42b4-8563-2c93a5c9e5d0
+# ╟─5272abe0-5671-4299-b0ec-e0858d91c31d
+# ╠═8302fee6-abbf-448f-a8c5-ef274eeb1a86
+# ╟─556e7f40-2615-4ffe-b16c-d2d300287518
+# ╠═fc703c2f-3365-435d-b4a4-953ad729d39c
