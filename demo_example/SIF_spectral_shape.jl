@@ -207,6 +207,63 @@ begin
 	)
 end
 
+# ╔═╡ d4e4318f-79f9-4228-ab65-c416f62a61d5
+md"""
+##### Confirm SVD to transmittance (with the expectation that log transformed PCs are more capable of separating water and O2 features)
+"""
+
+# ╔═╡ 422f19fd-55c6-4aa6-9afe-eabcb9336175
+begin
+	path_transmittance_summer = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc"
+	
+	path_transmittance_winter = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_winter_FineWvResModel_FullRange_Aug01.nc"
+
+	# Load MERRA2 transmittance data
+	println("Loading transmittance data...")
+	summer = Dataset(path_transmittance_summer)
+	winter = Dataset(path_transmittance_winter)
+	
+	trans = cat(summer["transmittance"][:, :], winter["transmittance"][:, :], dims=1)
+	bands = summer["band"][:]
+	
+	close(summer)
+	close(winter)
+	println("Transmittance data loaded: $(size(trans, 1)) spectra")
+	
+end
+
+# ╔═╡ 45bf4b9c-2f6b-409d-8bf3-e91d7d9a260e
+begin
+	if_log = true;
+	trans_PC = Spectral_SVD(
+		Float64.(trans'),
+		bands,
+		Float64.(collect(skipmissing(oci_band))),
+		if_log=if_log
+	)
+end
+
+# ╔═╡ b92fc553-3089-43c9-a42a-22774a4b2366
+begin
+	nPC_trans = 4;
+	# time to visualize it!
+	title_trans = "PrinComp (T spec) - percent of variance explained (%)"
+	p_trans = plot(size=(800, 300), title=title_trans)
+	plot(p_trans, 
+		oci_band, 
+		trans_PC.PrinComp[:,1:nPC_trans], 
+		lw=2, 
+		label=trans_PC.VarExp[1:nPC_trans]'
+	)
+end
+
+# ╔═╡ 60aa0cd0-578f-4929-90d7-441e56b46640
+begin
+	# mean and variance of each components
+	@info mean(trans_PC.Loading[1:nPC_trans,:], dims=2)'
+	@info var(trans_PC.Loading[1:nPC_trans,:], dims=2)'
+end
+
 # ╔═╡ Cell order:
 # ╟─1cd2d4da-c63f-11f0-0848-59692eec694b
 # ╠═7b951624-b362-4c44-b364-157ab5e7373d
@@ -223,6 +280,11 @@ end
 # ╠═b73e00b9-1bd3-4ba2-bae2-71711fb1f493
 # ╟─ff99daa6-094f-42b4-8563-2c93a5c9e5d0
 # ╟─5272abe0-5671-4299-b0ec-e0858d91c31d
-# ╠═8302fee6-abbf-448f-a8c5-ef274eeb1a86
+# ╟─8302fee6-abbf-448f-a8c5-ef274eeb1a86
 # ╟─556e7f40-2615-4ffe-b16c-d2d300287518
-# ╠═fc703c2f-3365-435d-b4a4-953ad729d39c
+# ╟─fc703c2f-3365-435d-b4a4-953ad729d39c
+# ╟─d4e4318f-79f9-4228-ab65-c416f62a61d5
+# ╠═422f19fd-55c6-4aa6-9afe-eabcb9336175
+# ╠═45bf4b9c-2f6b-409d-8bf3-e91d7d9a260e
+# ╠═b92fc553-3089-43c9-a42a-22774a4b2366
+# ╠═60aa0cd0-578f-4929-90d7-441e56b46640

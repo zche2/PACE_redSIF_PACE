@@ -19,6 +19,10 @@ function Spectral_SVD(
     print("Spectra interpolated to target bands: from $(length(bandᵢₙ)) to $(length(bandₒᵤₜ)).\n")
 
     # --- SVD ---
+    if if_log
+        profile_new = log.(profile_new)
+    end
+    
     F        = svd(profile_new);
     PrinComp = F.U;    
     S        = F.S;  
