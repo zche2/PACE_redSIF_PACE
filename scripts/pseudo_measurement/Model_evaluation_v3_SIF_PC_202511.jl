@@ -26,10 +26,13 @@ md"""
 
 # ╔═╡ a0e0c732-d392-45a1-85a0-1120d673bddf
 # load data
-@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_1_1.jld2" Retrieval_all ground_truth params message
+@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_2.jld2" Retrieval_all ground_truth params message
 
 # ╔═╡ 80afb5d5-d9db-4232-8dda-54272516f3c5
 println(message)
+
+# ╔═╡ ae141818-d9ac-4af5-937b-db206eb66e07
+if_log = true
 
 # ╔═╡ 070867ac-5d08-4fee-b94d-c02c2915513b
 begin
@@ -67,7 +70,7 @@ begin
 			SIF_rec_loading_all[i,:] .= missing;
 			continue
 		end
-		_, ρ, T₁, T₂, SIF = forward_model(MyPixel.x, MyPixel, return_components=true)
+		_, ρ, T₁, T₂, SIF = forward_model(MyPixel.x, MyPixel, return_components=true, if_log=if_log)
 		# residual normalized by standard deviation
 		residual_all[i,:] = @. MyPixel.y - MyPixel.R_toa;
 		sd = sqrt.(diag(MyPixel.Sₑ))
@@ -81,7 +84,7 @@ begin
 end
 
 # ╔═╡ 43661e88-d46e-4043-8a0d-ecaf0896d192
-Δn = 250;
+Δn = 100;
 
 # ╔═╡ 48e326f5-f20c-4994-80bb-b7d5a8517876
 begin
@@ -169,7 +172,7 @@ end
 
 # ╔═╡ 2ea4e56d-c82b-45ed-aa14-efdd4f58a933
 begin
-	check_SIF_PC = 2;
+	check_SIF_PC = 1;
 	x = SIF_loading_all[:,check_SIF_PC];
 	y = SIF_rec_loading_all[:, check_SIF_PC];
 
@@ -177,54 +180,61 @@ begin
 	valid_pairs = collect(zip(skipmissing(x), skipmissing(y)))
 	x_clean = [p[1] for p in valid_pairs]
 	y_clean = [p[2] for p in valid_pairs]
-	
-	# # Calculate 2D kernel density
-	# k = kde((x_clean, y_clean))
-	# density = pdf(k, x_clean, y_clean)
-	
-	# # Create scatter plot colored by density
-	# scatter(x_clean, y_clean, 
-	#     zcolor=density, 
-	#     marker=:circle, 
-	#     markersize=2,
-	#     colorbar=true,
-	#     xlabel="X",
-	#     ylabel="Y",
-	#     title="Scatter colored by density",
-	#     colorbar_title="Density",
-	#     legend=false,
-	#     size=(600, 500)
-	# )
 
-	histogram2d(x_clean, y_clean,
-    bins=50,
-    xlabel="SIF loading (truth)",
-    ylabel="SIF loading (recon.)",
-    title="PC$(check_SIF_PC)",
-    colorbar_title="Count",
-    size=(600, 500),
-	ylims=(-0.15, 0.05)
-)
+	x1 = SIF_loading_all[:,2];
+	y1 = SIF_rec_loading_all[:, 2];
+
+	# Create vectors of valid pairs only
+	valid_pairs1 = collect(zip(skipmissing(x1), skipmissing(y1)))
+	x_clean1 = [p[1] for p in valid_pairs1]
+	y_clean1 = [p[2] for p in valid_pairs1]
+
+	h1 = histogram2d(
+		x_clean, y_clean,
+	    bins=100,
+	    xlabel="SIF loading (truth)",
+	    ylabel="SIF loading (recon.)",
+	    title="PC$(check_SIF_PC)",
+	    colorbar_title="Count",
+		# ylims=(-0.15, 0.05)
+	)
+
+	h2 = histogram2d(
+		x_clean1, y_clean1,
+	    bins=100,
+	    xlabel="SIF loading (truth)",
+	    ylabel="SIF loading (recon.)",
+	    title="PC2",
+	    colorbar_title="Count",
+	)
+
+	plot(h1, h2, layout=(1,2), size=(800, 300))
 	
 end
+
+# ╔═╡ 80c4cade-aa9a-4d82-a9c5-85226e576025
+@info size(x_clean)
 
 # ╔═╡ ec2b1bab-9512-4131-bd60-c9c994c3c220
 begin
 	# posterior covariance matrix
-	k = 10;
-	Ŝ    = Retrieval_all[k].Ŝ;
-	logŜ = log10.(abs.(Ŝ));
-	cmin = -10.5; cmax=-2.0;
-	heatmap(logŜ,
-    xlabel="Parameter index",
-	    ylabel="Parameter index",
-	    title="Posterior Covariance (k=$k)", 
-	    colorbar_title="Covariance",
-	    aspect_ratio=:equal,
-	    color=:viridis,
-	    clims=(cmin, cmax)  # symmetric color scale
-	)
-	
+	k = 400;
+	if ismissing(Retrieval_all[k])
+		@info "missing"
+	else
+		Ŝ    = Retrieval_all[k].Ŝ;
+		logŜ = log10.(abs.(Ŝ));
+		cmin = -10.5; cmax=-1.0;
+		heatmap(logŜ,
+	    	xlabel="Parameter index",
+		    ylabel="Parameter index",
+		    title="Posterior Covariance (abs, k=$k)", 
+		    colorbar_title="Covariance",
+		    aspect_ratio=:equal,
+		    color=:viridis,
+		    clims=(cmin, cmax)  # symmetric color scale
+		)
+	end
 end
 
 # ╔═╡ 7f65e7fa-3273-4855-8ba7-7f3f010f1c5f
@@ -244,7 +254,7 @@ begin
 end
 
 # ╔═╡ 60e10bd3-3113-4ea7-88fe-af8c9fce0983
-diag(Retrieval_all[10].Sₐ)
+diag(log.(Retrieval_all[k].Sₐ))
 
 # ╔═╡ 62785b35-482d-43c2-a89f-346f24e09d6c
 begin
@@ -252,28 +262,53 @@ begin
 	# preallocate
 	cov_SIF1   = Vector{Union{Missing, AbstractFloat}}(undef, n_sample);
 	cov_SIF2   = Vector{Union{Missing, AbstractFloat}}(undef, n_sample);
+	cov_γ      = Vector{Union{Missing, AbstractFloat}}(undef, n_sample);
+	
 	# reconstruct
 	for i in 1:n_sample
 		MyPixel = Retrieval_all[i];
 		if ismissing(MyPixel)
 			cov_SIF1[i] = missing;
 			cov_SIF2[i] = missing;
+			cov_γ[i]    = missing;
 			continue
 		end
 		cov_SIF1[i] = MyPixel.Ŝ[(end-1),(end-1)];
 		cov_SIF2[i] = MyPixel.Ŝ[end,end];
+		cov_γ[i]    = MyPixel.Ŝ[(end-2),(end-2)];
 	end
 	
-	histogram(
+	h3 = histogram(
 		log10.(cov_SIF1), 
 	    bins = 100,
 	    xlabel = "log Value",
 	    ylabel = "Frequency",
 	    title  = "Variance of SIF PC1", titlefontsize=10,
 	    legend = false,
-		size   = (800, 300),
 		margin=8Plots.mm
 	)
+
+	h4 = histogram(
+		log10.(cov_SIF2), 
+	    bins = 100,
+	    xlabel = "log Value",
+	    ylabel = "Frequency",
+	    title  = "Variance of SIF PC2", titlefontsize=10,
+	    legend = false,
+		margin=8Plots.mm
+	)
+
+	h5 = histogram(
+		log10.(cov_γ), 
+	    bins = 100,
+	    xlabel = "log Value",
+	    ylabel = "Frequency",
+	    title  = "Variance of the factor α", titlefontsize=10,
+	    legend = false,
+		margin=8Plots.mm
+	)
+
+	plot(h3,h4,h5, layout=(3,1), size=(800, 800))
 	
 end
 
@@ -437,21 +472,6 @@ plot(
 	title="ρ (truth/reconstructed)", titlefontsize=8
 )
 
-# ╔═╡ 2e528284-7418-4b22-b251-502cdc6d5e08
-md"""
-##### Residual
-"""
-
-# ╔═╡ a2486341-0ad3-475a-aae2-bfdf0d81e91e
-plot(
-	λ, 
-	residual_all[1:Δn:n_sample, :]',
-	size=(800, 300),
-	legend=false,
-	title="residual [$(λ[1]), $(λ[end])] nm (normalized by Se)", titlefontsize=8,
-	xticks = (620:10:860, string.(620:10:860))
-)
-
 # ╔═╡ 186394b5-ca04-4b35-bf0e-642ad4fe613d
 begin
     p_RTOA = plot(
@@ -475,6 +495,21 @@ begin
     p_RTOA
 end
 
+# ╔═╡ 2e528284-7418-4b22-b251-502cdc6d5e08
+md"""
+##### Residual
+"""
+
+# ╔═╡ a2486341-0ad3-475a-aae2-bfdf0d81e91e
+plot(
+	λ, 
+	residual_all[1:Δn:n_sample, :]',
+	size=(800, 300),
+	legend=false,
+	title="residual [$(λ[1]), $(λ[end])] nm (normalized by Se)", titlefontsize=8,
+	xticks = (620:10:860, string.(620:10:860))
+)
+
 # ╔═╡ 9e02dfc6-693f-4c42-867e-22426bab1d55
 md"""
 ##### Other test
@@ -488,7 +523,7 @@ plot(
 	legend=false,
 	title="log(T₂)/log(T₁): truth", titlefontsize=8,
 	xticks = (620:10:860, string.(620:10:860)),
-	ylims=(0.0, 20.0)
+	ylims=(0.0, 5.0)
 )
 
 # ╔═╡ 0c0f9051-80ad-4387-8f42-e88bae3b62ef
@@ -511,6 +546,7 @@ plot(
 # ╟─4ba2eb08-51de-4cef-81bb-399e170038db
 # ╠═a0e0c732-d392-45a1-85a0-1120d673bddf
 # ╠═80afb5d5-d9db-4232-8dda-54272516f3c5
+# ╠═ae141818-d9ac-4af5-937b-db206eb66e07
 # ╠═070867ac-5d08-4fee-b94d-c02c2915513b
 # ╠═a7321f67-d360-4011-912e-bee5d6df95ee
 # ╠═43661e88-d46e-4043-8a0d-ecaf0896d192
@@ -522,14 +558,15 @@ plot(
 # ╟─2e6935e5-eb36-4231-83fe-7bafec557f7f
 # ╟─1e1db338-7d49-456b-8acc-e2e38d64f70c
 # ╟─2ea4e56d-c82b-45ed-aa14-efdd4f58a933
-# ╟─ec2b1bab-9512-4131-bd60-c9c994c3c220
+# ╠═80c4cade-aa9a-4d82-a9c5-85226e576025
+# ╠═ec2b1bab-9512-4131-bd60-c9c994c3c220
 # ╟─7f65e7fa-3273-4855-8ba7-7f3f010f1c5f
 # ╠═60e10bd3-3113-4ea7-88fe-af8c9fce0983
-# ╠═62785b35-482d-43c2-a89f-346f24e09d6c
+# ╟─62785b35-482d-43c2-a89f-346f24e09d6c
 # ╟─14ca76c0-1f90-4606-8ad4-e84b1fe578d3
 # ╟─c09df677-540c-497c-9d2a-bf8b68b47d6a
 # ╟─09baea12-c86c-4b6e-bfac-047262d5eb6a
-# ╠═87114d37-1035-48d5-9045-f054fad0462a
+# ╟─87114d37-1035-48d5-9045-f054fad0462a
 # ╟─8c97ca1e-eabd-4b72-9457-0f6a0dacd877
 # ╟─58fc7afa-bdb2-438d-96da-53ce752e2f81
 # ╟─93d648e0-21de-4893-9d81-df5979be333f
@@ -539,9 +576,9 @@ plot(
 # ╟─b0146c13-766f-4e5c-a063-3ac5175de4b2
 # ╟─04200a20-e507-4375-a9ab-15ccf6df9031
 # ╟─546dc52d-0484-4a70-9a6b-6e31bdd5965a
+# ╟─186394b5-ca04-4b35-bf0e-642ad4fe613d
 # ╟─2e528284-7418-4b22-b251-502cdc6d5e08
 # ╟─a2486341-0ad3-475a-aae2-bfdf0d81e91e
-# ╟─186394b5-ca04-4b35-bf0e-642ad4fe613d
 # ╟─9e02dfc6-693f-4c42-867e-22426bab1d55
 # ╟─a155418b-b63b-40bf-9a91-f2ed8a18c776
 # ╟─0c0f9051-80ad-4387-8f42-e88bae3b62ef

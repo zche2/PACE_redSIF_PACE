@@ -48,6 +48,8 @@ path_snr = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_L1BLUT
 nflh_threshold = 0.05  # Threshold for valid NFLH
 
 #====== retrieval ======#
+DecompositionMethod = :SVD;    # "NMF" or "SVD"
+if_log = true;               # whether to do log-SVD for transmittance
 rank  = 15;
 n     = 10;
 nPC   = rank;
@@ -63,7 +65,8 @@ println("SIF scale factor: $scale_factor_SIF")
 println("Number of samples: $n_sample")
 println("Random seed: $random_seed")
 println("NFLH threshold: $nflh_threshold")
-println("NMF rank: $rank")
+println("Decomposition method: $DecompositionMethod with if_log=$if_log")
+println("NMF rank (effective only when method=NMF): $rank")
 println("Order of polynomials to fit: $n, Number of retrieval PCs: $nPC, SIF PCs: $nSIF")
 println("Number of iterations: $nIter, Convergence threshold: $thr_Converge")
 println("====================\n")
@@ -268,27 +271,49 @@ println("Pseudo observations complete!")
 
 #= Principal Components =#
 
-# NMF
-HighResNMF = Spectral_NMF(
-    trans, 
-    bands,
-    Float64.(collect(skipmissing(oci_band))); 
-    rank=rank
-);
-# W and H
-λ₀ = HighResNMF.band;
-W₀ = HighResNMF.Loading;
-H₀ = HighResNMF.PrinComp;
+if DecompositionMethod == :NMF
+    # NMF
+    HighResNMF = Spectral_NMF(
+        trans, 
+        bands,
+        Float64.(collect(skipmissing(oci_band))); 
+        rank=rank
+    );
+    # W and H
+    λ₀ = HighResNMF.band;
+    W₀ = HighResNMF.Loading;
+    H₀ = HighResNMF.PrinComp;
 
-# matrics
-mean_val  = [round(mean(W₀[:, i]), digits=2) for i in 1:rank];
-max_val   = [round(maximum(W₀[:, i]), digits=2) for i in 1:rank];
-min_val   = [round(minimum(W₀[:, i]), digits=2) for i in 1:rank];
+    # matrics
+    mean_val  = [round(mean(W₀[:, i]), digits=2) for i in 1:rank];
+    max_val   = [round(maximum(W₀[:, i]), digits=2) for i in 1:rank];
+    min_val   = [round(minimum(W₀[:, i]), digits=2) for i in 1:rank];
 
-# s.d. for the loading term
-loading_ave_trans = [mean(W₀[:, i]) for i in 1:rank];
-loading_var_trans = [var(W₀[:, i]) for i in 1:rank];
-println("NMF decomposition complete!")
+    # s.d. for the loading term
+    loading_ave_trans = [mean(W₀[:, i]) for i in 1:rank];
+    loading_var_trans = [var(W₀[:, i]) for i in 1:rank];
+
+    # pass PrinComp
+    PrinComp = H₀';
+    println("NMF decomposition complete!")
+
+elseif DecompositionMethod == :SVD
+    # SVD
+    HighResSVD = Spectral_SVD(
+        Float64.(trans'),
+        bands,
+        Float64.(collect(skipmissing(oci_band))),
+        if_log = if_log
+    )
+
+    # matrics
+    loading_ave_trans = [mean(HighResSVD.Loading[i, :]) for i in 1:nPC];
+    loading_var_trans = [var(HighResSVD.Loading[i, :]) for i in 1:nPC];
+
+    # pass PrinComp
+    PrinComp = HighResSVD.PrinComp[:, 1:nPC];
+    println("SVD decomposition complete!")
+end
 
 # SVD 
 loading_var_sif   = var(SIF_SVD.Loading[1:nSIF,:], dims=2) .* 2 ;  # 2 as a scale factor?
@@ -310,6 +335,14 @@ c2_modified    = copy(c2);
 wv_degrade_ind = findall((λ .>= λ_remove_min) .& (λ .<= λ_remove_max));
 c2_modified[wv_degrade_ind] .= 1e6;  
 
+# forward model
+forward_model_here = (x, px) -> forward_model(
+    x,
+    px;
+    if_log = if_log,
+    return_components = false
+)
+
 # Create the retrieval parameters
 params = RetrievalParams(
     # Measurement specific
@@ -321,14 +354,14 @@ params = RetrievalParams(
 	c₂       = c2_modified, 			       	
     
     # Forward model settings
-    forward_model = forward_model,
+    forward_model = forward_model_here,
     nPoly = n,                       # Degree of Legendre polynomial
     nPC   = nPC,                     # Number of transmittance PCs
     nSIF  = nSIF,                    # Number of SIF PCs
-    Sₐ = Sₐ,   					     # Prior covariance
-    βₐ = loading_ave_trans,                # Prior state
-    PrinComp = HighResNMF.PrinComp',       # Principal components
-    SIFComp  = SIF_SVD.PrinComp,           # SIF components
+    Sₐ    = Sₐ,   					 # Prior covariance
+    βₐ    = loading_ave_trans,       # Prior state
+    PrinComp = PrinComp,             # Principal components
+    SIFComp  = SIF_SVD.PrinComp,     # SIF components
     
     # Iteration settings (optional, have defaults)
     iteration_method = LM_Iteration!,
@@ -370,7 +403,7 @@ elapsed_time = end_time - start_time
 println("Retrieval complete! Total time elapsed: $elapsed_time")
 
 # save results
-version = "v3_1_2"
+version = "v3_2"
 message = "Configurations: \n" *
           "Wavelength range: $λ_min - $λ_max nm\n" *
           "SNR degradation range: $λ_remove_min - $λ_remove_max nm\n" *
@@ -378,6 +411,7 @@ message = "Configurations: \n" *
           "SIF scale factor: $scale_factor_SIF\n" *
           "Number of samples: $n_sample\n" *
           "Random seed: $random_seed\n" *
+          "Decomposition method: $DecompositionMethod with if_log=$if_log\n" *
           "NFLH threshold: $nflh_threshold\n" *
           "NMF rank: $rank\n" *
           "Order of polynomials to fit: $n, Number of retrieval PCs: $nPC, SIF PCs: $nSIF\n" *

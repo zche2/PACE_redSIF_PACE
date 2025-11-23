@@ -1,11 +1,11 @@
 import Pkg; Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE");
-include("/home/zhe2/FraLab/PACE_redSIF_PACE/PACE_SIF.jl")
 
 using vSmartMOM,  vSmartMOM.Absorption
 using JLD2
 using Interpolations
-using NCDatasets, Einsum, Statistics
+using NCDatasets, Einsum, Statistics, Random
 using Parameters, ProgressMeter, ProgressLogging
+using PACE_SIF
 
 function read_rescale(itp_filename::String)
 	model = load_interpolation_model(itp_filename);
@@ -25,8 +25,9 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	# --- reanalysis data used --- #
 	dir  = "/home/zhe2/data/MERRA2_reanalysis/";
 	file = "MERRA2_400.inst6_3d_ana_Nv.20240705.nc4";
+
 	# --- specify the output NetCDF filename ---
-	output_filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/transmittance_summer_FineWvResModel_FullRange_Aug01.nc";
+	output_filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Nov23.nc";
 
 	o2_jld2 = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01/Finer_Wavenumber_grid_FullRange_Aug01_O2.jld2";
 	o2_sitp = read_rescale(o2_jld2);
@@ -36,6 +37,10 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	metadata = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01/Finer_Wavenumber_grid_FullRange_Aug01.log"
 
 	ν_grid, p_grid_hPa, t_grid = o2_sitp.ranges;
+
+	# --- To extract upper atmospheric layers ---#
+	n_layers_min = 30;
+	n_layers_max = 72;
 
 	# --- Here it get automated! ---
 
@@ -68,7 +73,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	p_rshp = reshape(p_swap, :);
 
 	# step
-	MyStep = 95;
+	MyStep = 55;
 
 	# select
 	temp = T_rshp[1:MyStep:end, :];
@@ -86,12 +91,12 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	println("👍 pressure profiled rescaled to hPa!")
 
 	# stdout
-	println("$(size(p_full)[1]) profiles selected! ✌️")
+	println("$(size(p_full)[1]) profiles selected! 🤞")
 
 
 	# Spectral response function
 	# read data
-	filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI_RSRs.nc";
+	filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_RSRs.nc";
 	pace = Dataset(filename, "r");
 
 	wavlen = pace["wavelength"][:];
@@ -107,7 +112,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	λ_msr  = wavlen[ind₁];
 	MyRSR  = RSR[ind₁, ind₂];
 
-	MyKernel = PACE_SIF.KernelInstrument(
+	MyKernel = KernelInstrument(
 		band=band[ind₂],
 		wvlen=λ_msr,
 		RSR=RSR[ind₁, ind₂],
@@ -117,24 +122,28 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
 
 	# VCD => xSection
-
 	vmr_o2  = .21
-	len     = size(temp)[1];
+	len     = size(temp)[1]
 	vmr_h2o = zeros(Float64, size(temp))
 	vcd_dry = zeros(Float64, size(temp))
 	vcd_h2o = zeros(Float64, size(temp))
 	τ       = zeros(Float64, (len, length(ν_grid)))
 
+	# generate idx
+	idx = rand(n_layers_min:n_layers_max, len);
+	println("number of layers to be included randomly selected from $n_layers_min to $n_layers_max, done!")	
+
 	@info "Starting"
-	@showprogress 5 "Processing data..." for i in 1:len
-		p_half_slice = p_half[i, :];
-		p_full_slice = p_full[i, :];
-		T_slice = temp[i, :];
-		q_slice = qw[i, :];
+	@showprogress 10 "Processing data..." for i in 1:len
+		target_layer = idx[i];    # from the TOA down to the targeted layer
+		p_half_slice = p_half[i, 1:target_layer];
+		p_full_slice = p_full[i, 1:target_layer];
+		T_slice = temp[i, 1:target_layer];
+		q_slice = qw[i, 1:target_layer];
 		
 		# Apply the function
-		vcd_dry_tmp, vcd_h2o_tmp, vmr_h2o_tmp = PACE_SIF.layer_VCD(
-			p_half_slice, q_slice);
+		vcd_dry_tmp, vcd_h2o_tmp, vmr_h2o_tmp = layer_VCD(
+			p_half_slice, q_slice, n_layers=target_layer);
 
 		if(length(p_full_slice)==length(T_slice))
 			# get spectra & optical depth
@@ -163,7 +172,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	# --- Taking into account the variations of SZA and VZA ---
 	vza = [0, 15, 35, 45, 60, 75];
 	AMF = 1 ./ cosd.(vza);
-	# broadcast to# of profiles
+	# broadcast to # of profiles
 	num_rep = floor(Int, len / length(AMF)) + 1;
 	# repeat and truncate
 	AMF_bc  = repeat(AMF, num_rep)[1:len];
@@ -239,6 +248,12 @@ if abspath(PROGRAM_FILE) == @__FILE__
 		pres_var.attrib["units"] = "hPa"
 		pres_var[:] = ps / 100.
 
+		layer_var = defVar(ds, "num_of_layers", Float64, ("profile", ))
+		layer_var.attrib["long_name"] = "number of vertical layers to be included"
+		layer_var.attrib["unit"] = "unitless"
+		layer_var.attrib["description"] = "randomly selected from $n_layers_min to $n_layers_max, idx=1 means TOA."
+		layer_var[:] = idx
+
 		q_var = defVar(ds, "q", Float64, ("profile", "layer", ))
 		q_var.attrib["long_name"] = "specific humidity"
 		q_var.attrib["unit"] = "kg/kg"
@@ -254,7 +269,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
 		vcd_h2o_var.attrib["unit"] = "molec/cm^2"
 		vcd_h2o_var[:, :] = vcd_h2o
 
-		vmr_h2o_var = defVar(ds, "vmr_h2o_var", Float64, ("profile", "layer", ))
+		vmr_h2o_var = defVar(ds, "vmr_h2o", Float64, ("profile", "layer", ))
 		vmr_h2o_var.attrib["long_name"] = "vertical mixing ratio of H2O of water vapor per layer"
 		vmr_h2o_var.attrib["unit"] = "molec/molec"
 		vmr_h2o_var[:, :] = vmr_h2o

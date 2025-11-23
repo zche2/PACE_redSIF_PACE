@@ -31,3 +31,5 @@
 
         v3.1.1 Set SNR degradation bands  
         v3.1.2 Wavelength 670-780nm (try to avoid Water band as much as possible).  
+
+    - v3.2 Try log SVD to transmittance spectra and apply the new penalty function.

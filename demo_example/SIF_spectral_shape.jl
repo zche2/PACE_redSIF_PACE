@@ -264,6 +264,29 @@ begin
 	@info var(trans_PC.Loading[1:nPC_trans,:], dims=2)'
 end
 
+# ╔═╡ 0ef9d9d1-b6a4-4e0a-bae5-c65d6c7d1a40
+md"""
+##### Covariance between loadings?
+"""
+
+# ╔═╡ 1bbca7fc-56fa-4ffc-94db-a0bb261e510b
+nPC_trans_plots = 20; cov_matrix = cor(trans_PC.Loading[1:nPC_trans_plots,:], dims=2)
+
+# ╔═╡ 37114906-0b56-4676-8e4f-7cb5e7d59d7d
+heatmap(
+	cov_matrix,
+	xlabel="PC",
+	ylabel="PC",
+	title="Covariance of the first $nPC_trans_plots PCs", 
+	colorbar_title="normalized by std",
+	aspect_ratio=:equal,
+	color=:viridis,
+	clims=(-1, 1)  # symmetric color scale
+)
+
+# ╔═╡ 9d82ccd4-f688-4115-b021-c36b43c7c6dd
+
+
 # ╔═╡ Cell order:
 # ╟─1cd2d4da-c63f-11f0-0848-59692eec694b
 # ╠═7b951624-b362-4c44-b364-157ab5e7373d
@@ -286,5 +309,9 @@ end
 # ╟─d4e4318f-79f9-4228-ab65-c416f62a61d5
 # ╠═422f19fd-55c6-4aa6-9afe-eabcb9336175
 # ╠═45bf4b9c-2f6b-409d-8bf3-e91d7d9a260e
-# ╠═b92fc553-3089-43c9-a42a-22774a4b2366
+# ╟─b92fc553-3089-43c9-a42a-22774a4b2366
 # ╠═60aa0cd0-578f-4929-90d7-441e56b46640
+# ╟─0ef9d9d1-b6a4-4e0a-bae5-c65d6c7d1a40
+# ╠═1bbca7fc-56fa-4ffc-94db-a0bb261e510b
+# ╠═37114906-0b56-4676-8e4f-7cb5e7d59d7d
+# ╠═9d82ccd4-f688-4115-b021-c36b43c7c6dd
