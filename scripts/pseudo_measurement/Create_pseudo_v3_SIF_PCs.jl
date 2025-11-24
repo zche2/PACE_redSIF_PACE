@@ -5,7 +5,8 @@ Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE")
 # Load packages
 using JLD2, Interpolations, Revise
 using Base.Threads, Dates
-using ForwardDiff, DiffResults, Plots, LinearAlgebra, DelimitedFiles, NCDatasets, Statistics
+using BlockDiagonals, LinearAlgebra
+using ForwardDiff, DiffResults, Plots, DelimitedFiles, NCDatasets, Statistics
 using Polynomials, Random
 using LegendrePolynomials, Parameters, NonlinearSolve, BenchmarkTools
 using PACE_SIF
@@ -48,8 +49,8 @@ path_snr = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_L1BLUT
 nflh_threshold = 0.05  # Threshold for valid NFLH
 
 #====== retrieval ======#
-DecompositionMethod = :SVD;    # "NMF" or "SVD"
-if_log = true;               # whether to do log-SVD for transmittance
+DecompositionMethod = :NMF;    # "NMF" or "SVD"
+if_log = false;                 # whether to do log-SVD for transmittance
 rank  = 15;
 n     = 10;
 nPC   = rank;
@@ -292,6 +293,7 @@ if DecompositionMethod == :NMF
     # s.d. for the loading term
     loading_ave_trans = [mean(W₀[:, i]) for i in 1:rank];
     loading_var_trans = [var(W₀[:, i]) for i in 1:rank];
+    cov_matx          = cov(W₀, dims=1);
 
     # pass PrinComp
     PrinComp = H₀';
@@ -309,6 +311,7 @@ elseif DecompositionMethod == :SVD
     # matrics
     loading_ave_trans = [mean(HighResSVD.Loading[i, :]) for i in 1:nPC];
     loading_var_trans = [var(HighResSVD.Loading[i, :]) for i in 1:nPC];
+    cov_matx          = cov(HighResSVD.Loading[1:nPC, :], dims=2);
 
     # pass PrinComp
     PrinComp = HighResSVD.PrinComp[:, 1:nPC];
@@ -319,16 +322,14 @@ end
 loading_var_sif   = var(SIF_SVD.Loading[1:nSIF,:], dims=2) .* 2 ;  # 2 as a scale factor?
 
 # MakePriori
-diag_values = vcat(
-    fill(1e10, n+1),
-    loading_var_trans[1:nPC],
-    [2.0],
-    loading_var_sif[1:nSIF]
-);
+Sₐ = BlockDiagonal([
+    diagm(fill(1e10, n+1)),           # ρ block
+    cov_matx,                         # transmittance block  
+    diagm([2.0]),                     # smooth_x block
+    diagm(loading_var_sif[1:nSIF])    # SIF covariance block
+])
 
-Sₐ = Diagonal(diag_values);
-
-println("Diagonal terms updated, with diagonal terms: $(diag(Sₐ))")
+println("Sₐ updated, with diagonal terms: $(diag(Sₐ))")
 
 # remove bands from retrieval evaluation by manually degrading ther SNR
 c2_modified    = copy(c2);
@@ -393,7 +394,7 @@ println("Starting retrieval at $start_time...")
         Retrieval_all[i] = missing
     end
     
-    if i % 250 == 0
+    if i % 500 == 0
         println("Retrieved $i / $n_sample")
     end
 end
@@ -403,7 +404,7 @@ elapsed_time = end_time - start_time
 println("Retrieval complete! Total time elapsed: $elapsed_time")
 
 # save results
-version = "v3_2"
+version = "v3_1_3"
 message = "Configurations: \n" *
           "Wavelength range: $λ_min - $λ_max nm\n" *
           "SNR degradation range: $λ_remove_min - $λ_remove_max nm\n" *

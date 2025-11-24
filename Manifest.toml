@@ -2,7 +2,7 @@
 
 julia_version = "1.11.2"
 manifest_format = "2.0"
-project_hash = "d52e865c1c0d12b2179594334e5e44056e220b5a"
+project_hash = "0b4de0d40c4c787d9f77b825c226d470d466cfcb"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "be7ae030256b8ef14a441726c4c37766b90b93a3"
@@ -179,6 +179,16 @@ deps = ["Static"]
 git-tree-sha1 = "f21cfd4950cb9f0587d5067e69405ad2acd27b87"
 uuid = "62783981-4cbd-42fc-bca8-16325de8dc4b"
 version = "0.1.6"
+
+[[deps.BlockDiagonals]]
+deps = ["FillArrays", "LinearAlgebra"]
+git-tree-sha1 = "6e0ac86a90783f36f6daa496acf39ca138be8922"
+uuid = "0a1fb500-61f7-11e9-3c65-f5ef3456f9f0"
+version = "0.2.0"
+weakdeps = ["ChainRulesCore"]
+
+    [deps.BlockDiagonals.extensions]
+    ChainRulesCoreExt = "ChainRulesCore"
 
 [[deps.BracketingNonlinearSolve]]
 deps = ["CommonSolve", "ConcreteStructs", "NonlinearSolveBase", "PrecompileTools", "Reexport", "SciMLBase"]

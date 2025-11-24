@@ -257,11 +257,54 @@ begin
 	)
 end
 
-# ╔═╡ 60aa0cd0-578f-4929-90d7-441e56b46640
+# ╔═╡ 83147c61-dac5-47a1-a546-2fc0475e2ba9
+md"""
+##### Compare with the "upper atmospheric transmittance spec"
+"""
+
+# ╔═╡ 0d162d3a-3eac-4b7a-8656-81cbf1910552
 begin
-	# mean and variance of each components
-	@info mean(trans_PC.Loading[1:nPC_trans,:], dims=2)'
-	@info var(trans_PC.Loading[1:nPC_trans,:], dims=2)'
+	path_transmittance_summer_upper = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Nov23.nc";
+
+	upper_summer = Dataset(path_transmittance_summer_upper);
+
+end
+
+# ╔═╡ 7ae7d21d-b72b-4471-88f9-17b8e760ff55
+trans_PC_summer = Spectral_SVD(
+	Float64.(upper_summer["transmittance"][:, :]'),
+	bands,
+	Float64.(collect(skipmissing(oci_band))),
+	if_log=if_log
+)
+
+# ╔═╡ 54b8f766-4287-46f5-8196-e16838f0125d
+begin
+	p_trans1 = plot(size=(800, 300), title=title_trans)
+	plot!(
+		p_trans1, 
+		oci_band, 
+		trans_PC.PrinComp[:,1:nPC_trans], 
+		lw=2, 
+		label=trans_PC.VarExp[1:nPC_trans]'
+	)
+	plot!(
+		p_trans1, 
+		oci_band, 
+		trans_PC_summer.PrinComp[:,1:nPC_trans], 
+		lw=2, 
+		ls=:dash,
+		label=trans_PC_summer.VarExp[1:nPC_trans]'
+	)
+end
+
+# ╔═╡ 790204c1-b43c-43e2-9419-c4f6f97b7e18
+begin 
+	fig1 = plot(size=(800, 400), legend=false)
+
+	Δn = 600;
+	plot!(fig1, bands, trans[1:Δn:end,:]')
+	# plot!(fig1, bands, upper_summer["transmittance"][1:Δn:end,:]', ls=:dash)
 end
 
 # ╔═╡ 0ef9d9d1-b6a4-4e0a-bae5-c65d6c7d1a40
@@ -269,23 +312,89 @@ md"""
 ##### Covariance between loadings?
 """
 
+# ╔═╡ 60aa0cd0-578f-4929-90d7-441e56b46640
+begin
+	# mean and variance of each components
+	@info mean(trans_PC.Loading[1:nPC_trans,:], dims=2)'
+	@info var(trans_PC.Loading[1:nPC_trans,:], dims=2)'
+end
+
 # ╔═╡ 1bbca7fc-56fa-4ffc-94db-a0bb261e510b
-nPC_trans_plots = 20; cov_matrix = cor(trans_PC.Loading[1:nPC_trans_plots,:], dims=2)
+nPC_trans_plots = 20; corr_matx = cor(trans_PC.Loading[1:nPC_trans_plots,:], dims=2)
+
+# ╔═╡ 5fec92d5-259b-4dd4-8155-342f650db3ac
+cov_matx = cov(trans_PC.Loading[1:nPC_trans_plots,:], dims=2)
 
 # ╔═╡ 37114906-0b56-4676-8e4f-7cb5e7d59d7d
 heatmap(
-	cov_matrix,
+	corr_matx,
 	xlabel="PC",
 	ylabel="PC",
-	title="Covariance of the first $nPC_trans_plots PCs", 
-	colorbar_title="normalized by std",
+	title="correlation of the first $nPC_trans_plots PCs",
 	aspect_ratio=:equal,
 	color=:viridis,
 	clims=(-1, 1)  # symmetric color scale
 )
 
 # ╔═╡ 9d82ccd4-f688-4115-b021-c36b43c7c6dd
+heatmap(
+	log10.(abs.(cov_matx)), # .* sign.(cov_matx),
+	xlabel="PC",
+	ylabel="PC",
+	title="covariance of the first $nPC_trans_plots PCs log10",
+	colorbartitle="(+) pos. corr, (-) neg. corr",
+	aspect_ratio=:equal,
+	color=:viridis  # :oleron100,
+	# clims=(-12.5, 12.5)
+)
 
+# ╔═╡ 262b7c11-e98d-4c8c-ba17-3e2dd849b476
+md"""
+##### Corr for NMF components
+"""
+
+# ╔═╡ 81e976e8-1f85-45db-b101-7de234e900aa
+begin
+	rank = 20;
+	HighResNMF = Spectral_NMF(
+	        trans, 
+	        bands,
+	        Float64.(collect(skipmissing(oci_band))); 
+	        rank=rank
+	    );
+	λ₀ = HighResNMF.band;
+    W₀ = HighResNMF.Loading;
+    H₀ = HighResNMF.PrinComp;
+end
+
+# ╔═╡ e57bf431-d49f-446a-878b-8b9caef28bf3
+begin
+	corr_matx_NMF = cor(W₀, dims=1);
+	cov_matx_NMF  = cov(W₀, dims=1);
+	@info "Cov completed"
+end
+
+# ╔═╡ a4cab70f-7d99-479d-b963-e81174561203
+heatmap(
+	corr_matx_NMF,
+	xlabel="PC",
+	ylabel="PC",
+	title="correlation of the first $rank PCs in NMF",
+	aspect_ratio=:equal,
+	color=:viridis,
+	clims=(0, 1)  # symmetric color scale
+)
+
+# ╔═╡ ecbe8b91-e34f-41eb-8d89-9200ed558aa0
+heatmap(
+	log10.(cov_matx_NMF) .* sign.(cov_matx_NMF),
+	xlabel="PC",
+	ylabel="PC",
+	title="covariance of the first $rank PCs in NMF log10",
+	colorbartitle="all positively related",
+	aspect_ratio=:equal,
+	color=:viridis,
+)
 
 # ╔═╡ Cell order:
 # ╟─1cd2d4da-c63f-11f0-0848-59692eec694b
@@ -310,8 +419,19 @@ heatmap(
 # ╠═422f19fd-55c6-4aa6-9afe-eabcb9336175
 # ╠═45bf4b9c-2f6b-409d-8bf3-e91d7d9a260e
 # ╟─b92fc553-3089-43c9-a42a-22774a4b2366
-# ╠═60aa0cd0-578f-4929-90d7-441e56b46640
+# ╟─83147c61-dac5-47a1-a546-2fc0475e2ba9
+# ╠═0d162d3a-3eac-4b7a-8656-81cbf1910552
+# ╠═7ae7d21d-b72b-4471-88f9-17b8e760ff55
+# ╟─54b8f766-4287-46f5-8196-e16838f0125d
+# ╠═790204c1-b43c-43e2-9419-c4f6f97b7e18
 # ╟─0ef9d9d1-b6a4-4e0a-bae5-c65d6c7d1a40
+# ╠═60aa0cd0-578f-4929-90d7-441e56b46640
 # ╠═1bbca7fc-56fa-4ffc-94db-a0bb261e510b
-# ╠═37114906-0b56-4676-8e4f-7cb5e7d59d7d
-# ╠═9d82ccd4-f688-4115-b021-c36b43c7c6dd
+# ╠═5fec92d5-259b-4dd4-8155-342f650db3ac
+# ╟─37114906-0b56-4676-8e4f-7cb5e7d59d7d
+# ╟─9d82ccd4-f688-4115-b021-c36b43c7c6dd
+# ╟─262b7c11-e98d-4c8c-ba17-3e2dd849b476
+# ╠═81e976e8-1f85-45db-b101-7de234e900aa
+# ╠═e57bf431-d49f-446a-878b-8b9caef28bf3
+# ╟─a4cab70f-7d99-479d-b963-e81174561203
+# ╟─ecbe8b91-e34f-41eb-8d89-9200ed558aa0

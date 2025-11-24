@@ -17,7 +17,7 @@ using StatsBase
 using JLD2, Plots
 
 # ╔═╡ 53ffd4a4-1b68-4367-8fc2-981ac10fd6cf
-using LegendrePolynomials, LinearAlgebra
+using LegendrePolynomials, LinearAlgebra, BlockDiagonals
 
 # ╔═╡ 4ba2eb08-51de-4cef-81bb-399e170038db
 md"""
@@ -26,13 +26,13 @@ md"""
 
 # ╔═╡ a0e0c732-d392-45a1-85a0-1120d673bddf
 # load data
-@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_2.jld2" Retrieval_all ground_truth params message
+@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_1_3.jld2" Retrieval_all ground_truth params message
 
 # ╔═╡ 80afb5d5-d9db-4232-8dda-54272516f3c5
 println(message)
 
 # ╔═╡ ae141818-d9ac-4af5-937b-db206eb66e07
-if_log = true
+if_log = false
 
 # ╔═╡ 070867ac-5d08-4fee-b94d-c02c2915513b
 begin
@@ -163,7 +163,7 @@ begin
 	    xlabel = "Value",
 	    ylabel = "Frequency",
 	    title = "Distribution of relative error (%) in SIF retrieval @ $(λ[ind]) nm", titlefontsize=8,
-		# xlims = (-30, 30),
+		# xlims = (-40, 40),
 	    legend = false,
 		size  = (800, 300),
 		margin=8Plots.mm
@@ -240,7 +240,8 @@ end
 # ╔═╡ 7f65e7fa-3273-4855-8ba7-7f3f010f1c5f
 begin
 	# prior covariance matrix
-	Sₐ    = Retrieval_all[k].Sₐ;
+	blocks = [Matrix(b) for b in Retrieval_all[k].Sₐ.blocks]
+	Sₐ    = Matrix(BlockDiagonal(blocks))
 	logSₐ = log10.(abs.(Sₐ));
 	heatmap(logSₐ,
     xlabel="Parameter index",
@@ -252,9 +253,6 @@ begin
 	    clims=(cmin, cmax)  # symmetric color scale
 	)
 end
-
-# ╔═╡ 60e10bd3-3113-4ea7-88fe-af8c9fce0983
-diag(log.(Retrieval_all[k].Sₐ))
 
 # ╔═╡ 62785b35-482d-43c2-a89f-346f24e09d6c
 begin
@@ -556,12 +554,11 @@ plot(
 # ╟─d9107ea5-f9c9-417f-ab8f-002c2c121909
 # ╟─562ab347-5913-41fd-8dd8-02577ce53157
 # ╟─2e6935e5-eb36-4231-83fe-7bafec557f7f
-# ╟─1e1db338-7d49-456b-8acc-e2e38d64f70c
+# ╠═1e1db338-7d49-456b-8acc-e2e38d64f70c
 # ╟─2ea4e56d-c82b-45ed-aa14-efdd4f58a933
 # ╠═80c4cade-aa9a-4d82-a9c5-85226e576025
 # ╠═ec2b1bab-9512-4131-bd60-c9c994c3c220
 # ╟─7f65e7fa-3273-4855-8ba7-7f3f010f1c5f
-# ╠═60e10bd3-3113-4ea7-88fe-af8c9fce0983
 # ╟─62785b35-482d-43c2-a89f-346f24e09d6c
 # ╟─14ca76c0-1f90-4606-8ad4-e84b1fe578d3
 # ╟─c09df677-540c-497c-9d2a-bf8b68b47d6a
