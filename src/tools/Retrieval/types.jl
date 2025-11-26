@@ -86,6 +86,8 @@ mutable struct Pixel
 	ΔRMSE
 	"iteration label"
 	iter_label
+	"posterior covariance"
+	Ŝ
 
 	# Inner constructer
 	function Pixel()

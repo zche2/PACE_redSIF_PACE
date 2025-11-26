@@ -1,0 +1,487 @@
+### A Pluto.jl notebook ###
+# v0.20.3
+
+using Markdown
+using InteractiveUtils
+
+# ╔═╡ 7b951624-b362-4c44-b364-157ab5e7373d
+begin
+	import Pkg
+	Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE")
+	
+	# Load packages
+	using JLD2, Interpolations, Revise
+	using Plots, LinearAlgebra, DelimitedFiles, NCDatasets, Statistics
+	using Polynomials, Random
+	using PACE_SIF
+end
+
+# ╔═╡ 77e4aac4-380e-4458-a360-f064caec9ff3
+using NMF
+
+# ╔═╡ 1cd2d4da-c63f-11f0-0848-59692eec694b
+md"""
+## SVD to SIF shapes, dynamic wavelength range
+✍️ 2025-11-20
+"""
+
+# ╔═╡ c01835e7-9c80-4e86-891e-5133ed6ca733
+begin
+	λ_min = 620.0
+	λ_max = 860.0
+	
+	# SIF scaling
+	scale_factor_SIF = 20
+	
+	# File paths
+	path_oci = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample/sample_granule_20240830T131442_new_chl.nc"
+	path_sif_shapes = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/reference_spectra/SIF_singular_vector.jld2"
+
+	println("Loading PACE OCI data...")
+	oci = Dataset(path_oci)
+	red_band = oci["red_wavelength"][:]
+	# Select spectral band
+	ind = findall(λ_min .< red_band .< λ_max)
+	oci_band = red_band[ind]
+	println("PACE data loaded: Band selected to [$λ_min, $λ_max] nm")
+end
+
+# ╔═╡ a0781372-987f-4052-8743-e8c9b3299169
+begin
+	# load SIF
+	println("Loading SIF shapes...")
+	SIF_shape_dict = JLD2.load(path_sif_shapes)
+
+	# Create interpolator
+	itp = interpolate(SIF_shape_dict["SIF_shapes"], (BSpline(Linear()), NoInterp()))
+	range₁ = SIF_shape_dict["SIF_wavelen"][1]:SIF_shape_dict["SIF_wavelen"][end]
+	range₂ = 1:size(itp, 2)
+	sitp = scale(itp, range₁, range₂)
+	setp0 = extrapolate(sitp, 0)
+	
+	# Interpolate to OCI bands
+	SIF_new = reduce(hcat, [setp0.(oci_band, i) for i in range₂])
+	SIF_new *= scale_factor_SIF
+	println("SIF shapes scaled by factor $scale_factor_SIF: $(size(SIF_new, 2)) spectra, interpolated to oci bands (n_bands = $(size(SIF_new, 1))).")
+
+end
+
+# ╔═╡ 2e987128-abf1-49a9-b3b6-5e3bd0618c42
+begin
+	# svd
+	F = svd(SIF_new);
+    PrinComp = F.U;       # Left singular vectors
+    S        = F.S;       # Singular values (1D vector)
+    Vt       = F.Vt;      # Right singular vectors 
+    VarExp_  = S ./ sum(S) * 100;
+	Loading  = diagm(S) * Vt;
+
+	println("Shape of PrinComp: $(size(PrinComp))\n" *
+	        "Shape of VarExp: $(size(S))\n"*
+			"Shape of Loading: $(size(Vt))"
+	)
+	
+end
+
+# ╔═╡ 62725e91-1c83-445d-a293-7f760424d1bf
+begin
+	title1 = "SIF"
+	p1     = plot(size=(800, 300), title=title1, legend=false)
+	plot(p1, oci_band, SIF_new[:,1:10:end], lw=2)
+end
+
+# ╔═╡ 05c6cb1a-e3cf-4da8-97e0-91869d44417c
+begin
+	# wrap it up in a new function `Spectral_SVD`
+	function Spectral_SVD1(
+	    profile::Matrix{FT},     
+		# [wavelength x sample]
+	    bandᵢₙ::Vector{FT},
+	    bandₒᵤₜ::Vector{FT};
+		if_log::Bool = false,
+	    ) where {FT <: AbstractFloat}
+
+		n_sample    = size(profile, 2)
+		profile_new = zeros(FT, length(bandₒᵤₜ), n_sample) 
+				# [wavelength x sample]
+    
+	    for i in 1:n_sample
+	        itpᵢ = LinearInterpolation(bandᵢₙ, profile[:, i], extrapolation_bc=0)
+	        profile_new[:, i] = itpᵢ.(bandₒᵤₜ)
+	    end
+
+		print("Spectra interpolated to target bands: from $(length(bandᵢₙ)) to $(length(bandₒᵤₜ)).\n")
+
+		# --- SVD ---
+		F        = svd(profile_new);
+		PrinComp = F.U;    
+	    S        = F.S;  
+	    Vt       = F.Vt; 
+	    VarExp   = S ./ sum(S) * 100;
+		Loading  = diagm(S) * Vt;
+	
+		println("Shape of PrinComp: $(size(PrinComp))\n" *
+		        "Shape of VarExp: $(size(S))\n"*
+				"Shape of Loading (S x V'): $(size(Vt))"
+		)
+
+		# return as a struct
+	    return SpectraOfPC(
+	        band     = bandₒᵤₜ,
+	        PrinComp = PrinComp,
+	        VarExp   = VarExp,
+	        Loading  = Loading,
+	        if_log   = if_log
+	    )
+	end
+	
+end
+
+# ╔═╡ dabd0781-165b-4d8b-be7d-7eb909d21af4
+SIF_PC = Spectral_SVD1(
+	SIF_shape_dict["SIF_shapes"]*scale_factor_SIF, 
+	SIF_shape_dict["SIF_wavelen"], 
+    Float64.(collect(skipmissing(oci_band))),
+)
+
+# ╔═╡ 6a59463e-1d7d-4e36-9ab7-2ee741d28782
+begin
+	# time to visualize it!
+	Title = "PrinComp - percent of variance explained (%)"
+	p = plot(size=(800, 300), title=Title)
+	plot!(p, oci_band, PrinComp[:,1:3], lw=1, label=VarExp_[1:3]')
+	plot!(p, oci_band, SIF_PC.PrinComp[:,1:3], lw=2, ls=:dash)
+	# plot!(p, oci_band, SIF_PC.PrinComp[1:10, :], lw=1, label=VarExp_[1:3]')
+end
+
+# ╔═╡ 1f2455ac-4cf5-4285-b69b-8bffd936a366
+begin
+	# reconstruct use the first two PCs
+	nPC = 3;
+	SIF_recon = SIF_PC.PrinComp[:,1:nPC] * SIF_PC.Loading[1:nPC,:];
+
+	# compare
+	∆n     = 10;
+	title2 = "SIF vs. reconstructed SIF, nPC=$nPC"
+	p2     = plot(size=(800, 300), title=title2, legend=false)
+	plot!(p2, oci_band, SIF_new[:,1:∆n:end], lw=1)
+	plot!(p2, oci_band, SIF_recon[:,1:∆n:end], ls=:dash, lw=2)
+end
+
+# ╔═╡ 86ff4e64-a7c4-4ad5-a7eb-46f5a08f8b37
+var(SIF_PC.Loading[1:5,:], dims=2)
+
+# ╔═╡ 65812732-f3b3-4fbd-9fa9-29320eddcf6d
+mean(SIF_PC.Loading[1:5,:], dims=2)'
+
+# ╔═╡ b73e00b9-1bd3-4ba2-bae2-71711fb1f493
+[1.66685; 0.00876223;  -0.000753521;  0.00012267;  1.24771e-5]
+
+# ╔═╡ 5990a193-9ffa-4dab-ab36-db25527ba54c
+md"""
+##### What if doing NMF to SIF?
+
+
+"""
+
+# ╔═╡ 315bd984-c883-4bbd-81a4-4e40ca2e0043
+begin
+	SIF_rank = 5;
+	SIF_shapes_transp_scaled = Float64.((SIF_shape_dict["SIF_shapes"]*scale_factor_SIF)');
+
+	W, H = NMF.nndsvd(SIF_shapes_transp_scaled, SIF_rank)
+	NMF.solve!(NMF.ProjectedALS{Float64}(maxiter=50), SIF_shapes_transp_scaled, W, H)
+	
+	# SIF_NMF = Spectral_NMF(
+	# 	SIF_shapes_transp_scaled, 
+	# 	SIF_shape_dict["SIF_wavelen"], 
+	#     Float64.(collect(skipmissing(oci_band))),
+	# 	rank=SIF_rank
+	# )
+	
+	# Determine the layout dynamically (e.g., square grid)
+	nrows = ceil(Int, sqrt(SIF_rank))
+	ncols = ceil(Int, SIF_rank / nrows)
+	
+	# Create a plot with the dynamic layout
+	fig = plot(layout=(nrows, ncols))
+	
+	# Add subplots dynamically
+	for i in 1:SIF_rank
+	    plot!(fig, SIF_shape_dict["SIF_wavelen"], H[i,:], label="Plot $(mean(W[:,i]))", subplot=i)
+	end
+	
+	# Display the plot
+	fig
+end
+
+# ╔═╡ ff99daa6-094f-42b4-8563-2c93a5c9e5d0
+md"""
+##### some connections between PC loadings
+"""
+
+# ╔═╡ 5272abe0-5671-4299-b0ec-e0858d91c31d
+histogram(Loading[2,:], label="Loading PC₂", size=(600, 200), bins=50)
+
+
+# ╔═╡ 8302fee6-abbf-448f-a8c5-ef274eeb1a86
+scatter(Loading[1,:], Loading[2,:], xlabel="Loading 1", ylabel="Loading 2")
+
+# ╔═╡ 556e7f40-2615-4ffe-b16c-d2d300287518
+begin
+	ratio = Loading[1,:] ./ Loading[2,:];
+	log_ratio = log10.(abs.(ratio)) .* sign.(ratio)
+	histogram(
+		log_ratio, label="sign-log ratio of loading1 over loading2"
+	)
+end
+
+# ╔═╡ fc703c2f-3365-435d-b4a4-953ad729d39c
+begin
+	# ratio against SIF magnitude
+	scatter(
+		Loading[1,:],
+		log_ratio,
+		zcolor=SIF_PC.Loading[1,:],
+		xlabel="Loading of PC1",
+		ylabel="log ratio"
+	)
+end
+
+# ╔═╡ 5667ad97-8fb3-4e88-8ad1-54d8bdf05454
+md"""
+##### What if also do NMF decomposition to SIF?
+"""
+
+# ╔═╡ d4e4318f-79f9-4228-ab65-c416f62a61d5
+md"""
+##### Confirm SVD to transmittance (with the expectation that log transformed PCs are more capable of separating water and O2 features)
+"""
+
+# ╔═╡ 422f19fd-55c6-4aa6-9afe-eabcb9336175
+begin
+	path_transmittance_summer = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc"
+	
+	path_transmittance_winter = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_winter_FineWvResModel_FullRange_Aug01.nc"
+
+	# Load MERRA2 transmittance data
+	println("Loading transmittance data...")
+	summer = Dataset(path_transmittance_summer)
+	winter = Dataset(path_transmittance_winter)
+	
+	trans = cat(summer["transmittance"][:, :], winter["transmittance"][:, :], dims=1)
+	bands = summer["band"][:]
+	
+	close(summer)
+	close(winter)
+	println("Transmittance data loaded: $(size(trans, 1)) spectra")
+	
+end
+
+# ╔═╡ 45bf4b9c-2f6b-409d-8bf3-e91d7d9a260e
+begin
+	if_log = true;
+	trans_PC = Spectral_SVD(
+		Float64.(trans'),
+		bands,
+		Float64.(collect(skipmissing(oci_band))),
+		if_log=if_log
+	)
+end
+
+# ╔═╡ b92fc553-3089-43c9-a42a-22774a4b2366
+begin
+	nPC_trans = 4;
+	# time to visualize it!
+	title_trans = "PrinComp (T spec) - percent of variance explained (%)"
+	p_trans = plot(size=(800, 300), title=title_trans)
+	plot(p_trans, 
+		oci_band, 
+		trans_PC.PrinComp[:,1:nPC_trans], 
+		lw=2, 
+		label=trans_PC.VarExp[1:nPC_trans]'
+	)
+end
+
+# ╔═╡ 83147c61-dac5-47a1-a546-2fc0475e2ba9
+md"""
+##### Compare with the "upper atmospheric transmittance spec"
+"""
+
+# ╔═╡ 0d162d3a-3eac-4b7a-8656-81cbf1910552
+begin
+	path_transmittance_summer_upper = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Nov23.nc";
+
+	upper_summer = Dataset(path_transmittance_summer_upper);
+
+end
+
+# ╔═╡ 7ae7d21d-b72b-4471-88f9-17b8e760ff55
+trans_PC_summer = Spectral_SVD(
+	Float64.(upper_summer["transmittance"][:, :]'),
+	bands,
+	Float64.(collect(skipmissing(oci_band))),
+	if_log=if_log
+)
+
+# ╔═╡ 54b8f766-4287-46f5-8196-e16838f0125d
+begin
+	p_trans1 = plot(size=(800, 300), title=title_trans)
+	plot!(
+		p_trans1, 
+		oci_band, 
+		trans_PC.PrinComp[:,1:nPC_trans], 
+		lw=2, 
+		label=trans_PC.VarExp[1:nPC_trans]'
+	)
+	plot!(
+		p_trans1, 
+		oci_band, 
+		trans_PC_summer.PrinComp[:,1:nPC_trans], 
+		lw=2, 
+		ls=:dash,
+		label=trans_PC_summer.VarExp[1:nPC_trans]'
+	)
+end
+
+# ╔═╡ 790204c1-b43c-43e2-9419-c4f6f97b7e18
+begin 
+	fig1 = plot(size=(800, 400), legend=false)
+
+	Δn = 600;
+	plot!(fig1, bands, trans[1:Δn:end,:]')
+	# plot!(fig1, bands, upper_summer["transmittance"][1:Δn:end,:]', ls=:dash)
+end
+
+# ╔═╡ 0ef9d9d1-b6a4-4e0a-bae5-c65d6c7d1a40
+md"""
+##### Covariance between loadings?
+"""
+
+# ╔═╡ 60aa0cd0-578f-4929-90d7-441e56b46640
+begin
+	# mean and variance of each components
+	@info mean(trans_PC.Loading[1:nPC_trans,:], dims=2)'
+	@info var(trans_PC.Loading[1:nPC_trans,:], dims=2)'
+end
+
+# ╔═╡ 1bbca7fc-56fa-4ffc-94db-a0bb261e510b
+nPC_trans_plots = 20; corr_matx = cor(trans_PC.Loading[1:nPC_trans_plots,:], dims=2)
+
+# ╔═╡ 5fec92d5-259b-4dd4-8155-342f650db3ac
+cov_matx = cov(trans_PC.Loading[1:nPC_trans_plots,:], dims=2)
+
+# ╔═╡ 37114906-0b56-4676-8e4f-7cb5e7d59d7d
+heatmap(
+	corr_matx,
+	xlabel="PC",
+	ylabel="PC",
+	title="correlation of the first $nPC_trans_plots PCs",
+	aspect_ratio=:equal,
+	color=:viridis,
+	clims=(-1, 1)  # symmetric color scale
+)
+
+# ╔═╡ 9d82ccd4-f688-4115-b021-c36b43c7c6dd
+heatmap(
+	log10.(abs.(cov_matx)), # .* sign.(cov_matx),
+	xlabel="PC",
+	ylabel="PC",
+	title="covariance of the first $nPC_trans_plots PCs log10",
+	colorbartitle="(+) pos. corr, (-) neg. corr",
+	aspect_ratio=:equal,
+	color=:viridis  # :oleron100,
+	# clims=(-12.5, 12.5)
+)
+
+# ╔═╡ 262b7c11-e98d-4c8c-ba17-3e2dd849b476
+md"""
+##### Corr for NMF components
+"""
+
+# ╔═╡ 81e976e8-1f85-45db-b101-7de234e900aa
+begin
+	rank = 20;
+	HighResNMF = Spectral_NMF(
+	        trans, 
+	        bands,
+	        Float64.(collect(skipmissing(oci_band))); 
+	        rank=rank
+	    );
+	λ₀ = HighResNMF.band;
+    W₀ = HighResNMF.Loading;
+    H₀ = HighResNMF.PrinComp;
+end
+
+# ╔═╡ e57bf431-d49f-446a-878b-8b9caef28bf3
+begin
+	corr_matx_NMF = cor(W₀, dims=1);
+	cov_matx_NMF  = cov(W₀, dims=1);
+	@info "Cov completed"
+end
+
+# ╔═╡ a4cab70f-7d99-479d-b963-e81174561203
+heatmap(
+	corr_matx_NMF,
+	xlabel="PC",
+	ylabel="PC",
+	title="correlation of the first $rank PCs in NMF",
+	aspect_ratio=:equal,
+	color=:viridis,
+	clims=(0, 1)  # symmetric color scale
+)
+
+# ╔═╡ ecbe8b91-e34f-41eb-8d89-9200ed558aa0
+heatmap(
+	log10.(cov_matx_NMF) .* sign.(cov_matx_NMF),
+	xlabel="PC",
+	ylabel="PC",
+	title="covariance of the first $rank PCs in NMF log10",
+	colorbartitle="all positively related",
+	aspect_ratio=:equal,
+	color=:viridis,
+)
+
+# ╔═╡ Cell order:
+# ╟─1cd2d4da-c63f-11f0-0848-59692eec694b
+# ╠═7b951624-b362-4c44-b364-157ab5e7373d
+# ╠═77e4aac4-380e-4458-a360-f064caec9ff3
+# ╠═c01835e7-9c80-4e86-891e-5133ed6ca733
+# ╠═a0781372-987f-4052-8743-e8c9b3299169
+# ╠═2e987128-abf1-49a9-b3b6-5e3bd0618c42
+# ╟─62725e91-1c83-445d-a293-7f760424d1bf
+# ╠═05c6cb1a-e3cf-4da8-97e0-91869d44417c
+# ╠═dabd0781-165b-4d8b-be7d-7eb909d21af4
+# ╠═6a59463e-1d7d-4e36-9ab7-2ee741d28782
+# ╟─1f2455ac-4cf5-4285-b69b-8bffd936a366
+# ╠═86ff4e64-a7c4-4ad5-a7eb-46f5a08f8b37
+# ╠═65812732-f3b3-4fbd-9fa9-29320eddcf6d
+# ╠═b73e00b9-1bd3-4ba2-bae2-71711fb1f493
+# ╟─5990a193-9ffa-4dab-ab36-db25527ba54c
+# ╟─315bd984-c883-4bbd-81a4-4e40ca2e0043
+# ╟─ff99daa6-094f-42b4-8563-2c93a5c9e5d0
+# ╟─5272abe0-5671-4299-b0ec-e0858d91c31d
+# ╟─8302fee6-abbf-448f-a8c5-ef274eeb1a86
+# ╟─556e7f40-2615-4ffe-b16c-d2d300287518
+# ╟─fc703c2f-3365-435d-b4a4-953ad729d39c
+# ╠═5667ad97-8fb3-4e88-8ad1-54d8bdf05454
+# ╟─d4e4318f-79f9-4228-ab65-c416f62a61d5
+# ╠═422f19fd-55c6-4aa6-9afe-eabcb9336175
+# ╠═45bf4b9c-2f6b-409d-8bf3-e91d7d9a260e
+# ╟─b92fc553-3089-43c9-a42a-22774a4b2366
+# ╟─83147c61-dac5-47a1-a546-2fc0475e2ba9
+# ╠═0d162d3a-3eac-4b7a-8656-81cbf1910552
+# ╠═7ae7d21d-b72b-4471-88f9-17b8e760ff55
+# ╟─54b8f766-4287-46f5-8196-e16838f0125d
+# ╠═790204c1-b43c-43e2-9419-c4f6f97b7e18
+# ╟─0ef9d9d1-b6a4-4e0a-bae5-c65d6c7d1a40
+# ╠═60aa0cd0-578f-4929-90d7-441e56b46640
+# ╠═1bbca7fc-56fa-4ffc-94db-a0bb261e510b
+# ╠═5fec92d5-259b-4dd4-8155-342f650db3ac
+# ╟─37114906-0b56-4676-8e4f-7cb5e7d59d7d
+# ╟─9d82ccd4-f688-4115-b021-c36b43c7c6dd
+# ╟─262b7c11-e98d-4c8c-ba17-3e2dd849b476
+# ╠═81e976e8-1f85-45db-b101-7de234e900aa
+# ╠═e57bf431-d49f-446a-878b-8b9caef28bf3
+# ╟─a4cab70f-7d99-479d-b963-e81174561203
+# ╟─ecbe8b91-e34f-41eb-8d89-9200ed558aa0
