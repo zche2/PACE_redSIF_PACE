@@ -16,6 +16,9 @@ begin
 	using PACE_SIF
 end
 
+# ╔═╡ 77e4aac4-380e-4458-a360-f064caec9ff3
+using NMF
+
 # ╔═╡ 1cd2d4da-c63f-11f0-0848-59692eec694b
 md"""
 ## SVD to SIF shapes, dynamic wavelength range
@@ -174,6 +177,44 @@ mean(SIF_PC.Loading[1:5,:], dims=2)'
 # ╔═╡ b73e00b9-1bd3-4ba2-bae2-71711fb1f493
 [1.66685; 0.00876223;  -0.000753521;  0.00012267;  1.24771e-5]
 
+# ╔═╡ 5990a193-9ffa-4dab-ab36-db25527ba54c
+md"""
+##### What if doing NMF to SIF?
+
+
+"""
+
+# ╔═╡ 315bd984-c883-4bbd-81a4-4e40ca2e0043
+begin
+	SIF_rank = 5;
+	SIF_shapes_transp_scaled = Float64.((SIF_shape_dict["SIF_shapes"]*scale_factor_SIF)');
+
+	W, H = NMF.nndsvd(SIF_shapes_transp_scaled, SIF_rank)
+	NMF.solve!(NMF.ProjectedALS{Float64}(maxiter=50), SIF_shapes_transp_scaled, W, H)
+	
+	# SIF_NMF = Spectral_NMF(
+	# 	SIF_shapes_transp_scaled, 
+	# 	SIF_shape_dict["SIF_wavelen"], 
+	#     Float64.(collect(skipmissing(oci_band))),
+	# 	rank=SIF_rank
+	# )
+	
+	# Determine the layout dynamically (e.g., square grid)
+	nrows = ceil(Int, sqrt(SIF_rank))
+	ncols = ceil(Int, SIF_rank / nrows)
+	
+	# Create a plot with the dynamic layout
+	fig = plot(layout=(nrows, ncols))
+	
+	# Add subplots dynamically
+	for i in 1:SIF_rank
+	    plot!(fig, SIF_shape_dict["SIF_wavelen"], H[i,:], label="Plot $(mean(W[:,i]))", subplot=i)
+	end
+	
+	# Display the plot
+	fig
+end
+
 # ╔═╡ ff99daa6-094f-42b4-8563-2c93a5c9e5d0
 md"""
 ##### some connections between PC loadings
@@ -206,6 +247,11 @@ begin
 		ylabel="log ratio"
 	)
 end
+
+# ╔═╡ 5667ad97-8fb3-4e88-8ad1-54d8bdf05454
+md"""
+##### What if also do NMF decomposition to SIF?
+"""
 
 # ╔═╡ d4e4318f-79f9-4228-ab65-c416f62a61d5
 md"""
@@ -399,6 +445,7 @@ heatmap(
 # ╔═╡ Cell order:
 # ╟─1cd2d4da-c63f-11f0-0848-59692eec694b
 # ╠═7b951624-b362-4c44-b364-157ab5e7373d
+# ╠═77e4aac4-380e-4458-a360-f064caec9ff3
 # ╠═c01835e7-9c80-4e86-891e-5133ed6ca733
 # ╠═a0781372-987f-4052-8743-e8c9b3299169
 # ╠═2e987128-abf1-49a9-b3b6-5e3bd0618c42
@@ -410,11 +457,14 @@ heatmap(
 # ╠═86ff4e64-a7c4-4ad5-a7eb-46f5a08f8b37
 # ╠═65812732-f3b3-4fbd-9fa9-29320eddcf6d
 # ╠═b73e00b9-1bd3-4ba2-bae2-71711fb1f493
+# ╟─5990a193-9ffa-4dab-ab36-db25527ba54c
+# ╟─315bd984-c883-4bbd-81a4-4e40ca2e0043
 # ╟─ff99daa6-094f-42b4-8563-2c93a5c9e5d0
 # ╟─5272abe0-5671-4299-b0ec-e0858d91c31d
 # ╟─8302fee6-abbf-448f-a8c5-ef274eeb1a86
 # ╟─556e7f40-2615-4ffe-b16c-d2d300287518
 # ╟─fc703c2f-3365-435d-b4a4-953ad729d39c
+# ╠═5667ad97-8fb3-4e88-8ad1-54d8bdf05454
 # ╟─d4e4318f-79f9-4228-ab65-c416f62a61d5
 # ╠═422f19fd-55c6-4aa6-9afe-eabcb9336175
 # ╠═45bf4b9c-2f6b-409d-8bf3-e91d7d9a260e
