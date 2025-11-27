@@ -12,14 +12,15 @@ function forward_model(
     ρ     = hcat(v...)' * x[1 : px.nPoly+1];
 
     # T↑ and T↓↑ transmittance for SIF
+    smooth_x  = 10. / (1 + exp( -x[px.nPoly+px.nPC+2]) ) + 1.;
+                    # tanh(-x[px.nPoly+px.nPC+2]) + 2.;
+
     if if_log
         logT₁     = (px.trans_mat * x[(px.nPoly+2):(px.nPoly+px.nPC+1)]);
-        smooth_x  = 10. / (1 + exp( -x[px.nPoly+px.nPC+2]) ) + 1.;
         T₁        = @. exp(logT₁);
         T₂        = @. exp( smooth_x * logT₁ );
     else
         T₁       = (px.trans_mat * x[(px.nPoly+2):(px.nPoly+px.nPC+1)]);
-        smooth_x = 10. / (1 + exp( -x[px.nPoly+px.nPC+2]) ) + 1.;
         T₂       = @. exp( smooth_x * log(T₁) );
     end
 
