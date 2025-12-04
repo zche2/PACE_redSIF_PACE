@@ -20,7 +20,7 @@ function Spectral_SVD(
 
     # --- SVD ---
     if if_log
-        profile_new = log.(profile_new)
+        profile_new = - log.(profile_new)
     end
     
     F        = svd(profile_new);
@@ -51,6 +51,7 @@ function Spectral_NMF(
     bandᵢₙ::Vector{FT},
     bandₒᵤₜ::Vector{FT};
     rank::Int = 10,
+    if_log::Bool = false,
     ) where {FT <: AbstractFloat}
 
     # --- Interpolation to align with bandₒᵤₜ ---
@@ -64,6 +65,10 @@ function Spectral_NMF(
     println("the shape of profile matrix is $(size(profile_new)) - the second dimension should be wavelength!")
 
     # --- NMF ---
+    if if_log
+        profile_new = - log.(profile_new)
+    end
+
     W, H = NMF.spa(profile_new, rank)
     NMF.solve!(NMF.SPA{FT}(obj=:mse), profile_new, W, H)
 

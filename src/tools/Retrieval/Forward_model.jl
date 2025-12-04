@@ -17,8 +17,8 @@ function forward_model(
 
     if if_log
         logT₁     = (px.trans_mat * x[(px.nPoly+2):(px.nPoly+px.nPC+1)]);
-        T₁        = @. exp(logT₁);
-        T₂        = @. exp( smooth_x * logT₁ );
+        T₁        = @. exp( - logT₁ );
+        T₂        = @. exp( - smooth_x * logT₁ );
     else
         T₁       = (px.trans_mat * x[(px.nPoly+2):(px.nPoly+px.nPC+1)]);
         T₂       = @. exp( smooth_x * log(T₁) );

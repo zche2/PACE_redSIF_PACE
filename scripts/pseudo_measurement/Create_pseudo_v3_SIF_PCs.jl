@@ -26,7 +26,7 @@ println("Running with $(Threads.nthreads()) threads")
 
 #====== Pseudo observation generation ======#
 n_sample = 5000
-random_seed = 512
+random_seed = 1024
 
 # Polynomial fitting
 order = 4
@@ -37,7 +37,10 @@ order = 4
             754.3, 779.33, 867.11, 869.61, 872.13]
 
 # SIF scaling
-scale_factor_SIF = 20
+scale_factor_SIF   = 20
+
+# noise scaling
+noise_scale_factor = 1.0
 
 # File paths
 path_transmittance_summer = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc"
@@ -49,8 +52,8 @@ path_snr = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_L1BLUT
 nflh_threshold = 0.05  # Threshold for valid NFLH
 
 #====== retrieval ======#
-DecompositionMethod = :NMF;    # "NMF" or "SVD"
-if_log = false;                 # whether to do log-SVD for transmittance
+DecompositionMethod = :SVD;    # "NMF" or "SVD"
+if_log = true;                 # whether to do log-SVD for transmittance
 rank  = 15;
 n     = 10;
 nPC   = rank;
@@ -58,11 +61,15 @@ nSIF  = 2;
 nIter = 25;
 thr_Converge = 1e-6;
 
+#====== Save the Results ======#
+version = "v3_2_1";
+
 println("\n=== Configuration ===")
 println("Wavelength range: $λ_min - $λ_max nm")
 println("SNR degradation range: $λ_remove_min - $λ_remove_max nm")
 println("Polynomial order: $order")
 println("SIF scale factor: $scale_factor_SIF")
+println("scale factor for noise: $noise_scale_factor, equivalent to pixel aggregation")
 println("Number of samples: $n_sample")
 println("Random seed: $random_seed")
 println("NFLH threshold: $nflh_threshold")
@@ -254,8 +261,8 @@ pseudo_obs_all   = zeros(n_sample, len_λ)
     pseudo_obs_all[i, :] = @. E / pi * μ₁_all[i] * ρ_all[i, :] * T₂_all[i, :] + SIF_all[i, :] * T₁_all[i, :]
 
     # ----- noise -----
-    stds = sqrt.(c1 .+ c2 .* pseudo_obs_all[i, :])
-    pseudo_obs_all[i, :] += randn(len_λ) .* stds
+    stds = sqrt.(c1 .+ c2 .* pseudo_obs_all[i, :]) .* noise_scale_factor
+    pseudo_obs_all[i, :] += (randn(len_λ) .* stds)
     
     if i % 1000 == 0
         println("Processed $i / $n_sample samples")
@@ -277,7 +284,8 @@ if DecompositionMethod == :NMF
         trans, 
         bands,
         Float64.(collect(skipmissing(oci_band))); 
-        rank=rank
+        rank=rank,
+        if_log=if_log
     );
     # W and H
     λ₀ = HighResNMF.band;
@@ -318,6 +326,7 @@ elseif DecompositionMethod == :SVD
 end
 
 # SVD 
+cov_matx_sif      = cov(SIF_SVD.Loading[1:nSIF, :], dims=2) .* 2;
 loading_var_sif   = var(SIF_SVD.Loading[1:nSIF,:], dims=2) .* 2 ;  # 2 as a scale factor?
 
 # MakePriori
@@ -325,10 +334,11 @@ Sₐ = BlockDiagonal([
     diagm(fill(1e10, n+1)),           # ρ block
     cov_matx,                         # transmittance block  
     diagm([2.0]),                     # smooth_x block
-    diagm(loading_var_sif[1:nSIF])    # SIF covariance block
+    cov_matx_sif,                     # SIF cov block
+    # diagm(loading_var_sif[1:nSIF])  # SIF covariance block
 ])
 
-println("Sₐ updated, with diagonal terms: $(diag(Sₐ))")
+println("Sₐ updated, with diagonal terms: $(diag(Sₐ)), and covariance blocks: $(size(cov_matx)), $(size(cov_matx_sif))")
 
 # remove bands from retrieval evaluation by manually degrading ther SNR
 c2_modified    = copy(c2);
@@ -403,12 +413,12 @@ elapsed_time = end_time - start_time
 println("Retrieval complete! Total time elapsed: $elapsed_time")
 
 # save results
-version = "v3_1_3"
 message = "Configurations: \n" *
           "Wavelength range: $λ_min - $λ_max nm\n" *
           "SNR degradation range: $λ_remove_min - $λ_remove_max nm\n" *
           "Polynomial order: $order\n" *
           "SIF scale factor: $scale_factor_SIF\n" *
+          "Scale factor for noise: $noise_scale_factor\n" *
           "Number of samples: $n_sample\n" *
           "Random seed: $random_seed\n" *
           "Decomposition method: $DecompositionMethod with if_log=$if_log\n" *
@@ -426,3 +436,5 @@ ground_truth = (
     SIF_loadings_all = SIF_loadings_all
 );
 @save "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_$version.jld2" Retrieval_all ground_truth params message
+
+println("Results saved to /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_$version.jld2")    

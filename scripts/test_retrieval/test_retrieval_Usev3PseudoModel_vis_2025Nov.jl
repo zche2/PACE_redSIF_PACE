@@ -70,8 +70,8 @@ begin
 	nflh_threshold = 0.05  # Threshold for valid NFLH
 	
 	#====== retrieval ======#
-	DecompositionMethod = :NMF;    # "NMF" or "SVD"
-	if_log = false;                 # whether to do log-SVD for transmittance
+	DecompositionMethod = :SVD;    # "NMF" or "SVD"
+	if_log = true;                 # whether to do log-SVD for transmittance
 	n     = 10;
 	ranks = 15;
 	nPC   = ranks;
@@ -209,7 +209,8 @@ begin
 	        trans, 
 	        bands,
 	        Float64.(collect(skipmissing(oci_band))); 
-	        rank=ranks
+	        rank=ranks,
+			if_log=if_log
 	    );
 	    # W and H
 	    λ₀ = HighResNMF.band;
