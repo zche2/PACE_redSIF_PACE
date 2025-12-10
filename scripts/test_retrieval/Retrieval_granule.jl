@@ -22,7 +22,7 @@ println("Running with $(Threads.nthreads()) threads")
 # ===========================================
 # path to OCI data
 # ===========================================
-granule_name = "sample_granule_20240830T131442_new_chl"
+granule_name = "sample_granule_20250808T204353_new_chl"
 path_oci = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/sample/$(granule_name).nc"
 
 nflh_threshold = 0.05  # Threshold for valid NFLH
