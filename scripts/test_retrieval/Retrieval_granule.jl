@@ -193,8 +193,8 @@ println("Parameters setup complete!")
 # Run retrieval
 # ===========================================
 start_time    = now()
-# valid_indices = findall(coalesce.((nflh .> 0.1) .& (nflh .< 0.6), false))
-valid_indices = findall(coalesce.(nflh .> 0.1, false))
+
+valid_indices = findall(coalesce.(nflh .> 0.05, false))
 
 # Preallocate results
 results       = Vector{Union{Missing, Pixel}}(missing, length(valid_indices));
