@@ -48,7 +48,7 @@ begin
 	# degree of freedom: nu
 	ν = 3;
 	# noncentral param: \lambda
-	λ = 0;
+	# λ = 0;
 	# generate distribution
 	distribution = Chisq(ν);
 	# pdf of a distribution
@@ -199,10 +199,10 @@ md"""
 begin
 	# only using one profile for testing
 	# 1. Set the fixed index
-	ind = 3
+	ind = 13;
 	
 	# 2. Define constants
-	vmr_o2 = 0.21
+	vmr_o2 = 0.21;
 	
 	# 3. Extract slices (ensure these variables are defined in other cells)
 	# These will now update together whenever p_half, temp, etc., change.
@@ -216,9 +216,13 @@ begin
 		p_half_slice, q_slice);
 
 	# optical depth
-	xSec_slice_o2 = [o2_sitp(ν_grid, j, k) for (j, k) in zip(p_full_slice, T_slice)];
+	xSec_slice_o2  = [o2_sitp(ν_grid, j, k) for (j, k) in zip(p_full_slice, T_slice)];
+	
 	xSec_tmp_o2 = hcat(xSec_slice_o2...);
-
+	
+	xSec_slice_h2o = [h2o_sitp(ν_grid, j, k) for (j, k) in zip(p_full_slice, T_slice)];
+	
+	xSec_tmp_h2o = hcat(xSec_slice_h2o...);
 end
 
 # ╔═╡ f04edcf6-20a5-4f89-8a55-79ce2637313e
@@ -228,14 +232,17 @@ begin
 	@show size(xSec_tmp_o2)   # cross section
 	@show size(vcd_dry_tmp * vmr_o2)   # layer-resolved vertical column density
 	
-	# get optical depth of each layer
+	# get optical depth of each layer for o2
 	vcd_o2_tmp = vcd_dry_tmp * vmr_o2;
 	τ_o2       = xSec_tmp_o2 .* vcd_o2_tmp';
+
+	# get optical depth of each layer for h2o
+	τ_h2o      = xSec_tmp_h2o .* vcd_h2o_tmp';
 
 	# order of magnitude
 	idx = 1:10:72;
 	plt_list = [
-	    plot(τ_o2[:, k], 
+	    plot([τ_o2[:, k], τ_h2o[:, k]],
 	         title = "Pressure: $(p_full_slice[k]) hPa", 
 		     titlefontsize=8,
 	         legend = false) 
@@ -253,14 +260,15 @@ end
 # ╔═╡ 3ad6f119-2bba-45b7-a05b-0133a5522e37
 begin
 	# accumulated optical depth (cumsum) from TOA=0
-	τ_o2_acc = cumsum(τ_o2, dims=2);
+	τ_o2_acc  = cumsum(τ_o2, dims=2);
+	τ_h2o_acc = cumsum(τ_h2o, dims=2);
 	# test whether the last term is same as doing a matrix product - yayy!
 	@show mean(xSec_tmp_o2 * vcd_dry_tmp * vmr_o2)
 	@show mean(τ_o2_acc[:, end])
 
 	# hey
 	plt_list1 = [
-		plot(τ_o2_acc[:, k], 
+		plot([τ_o2_acc[:, k], τ_h2o_acc[:,k]],
 			 title = "Pressure: $(p_full_slice[k]) hPa", 
 			 titlefontsize=8,
 			 legend = false) 
@@ -280,19 +288,95 @@ end
 begin
 	# weight by pdf
 	weights  = reverse(y_pdf);
-	τ_o2_tot_weight = τ_o2_acc * weights
-	τ_o2_tot = τ_o2_acc[:, end];
+	τ_o2_tot_weight  = τ_o2_acc * weights
+	τ_o2_tot  = τ_o2_acc[:, end];
+	τ_h2o_tot_weight = τ_h2o_acc * weights;
+	τ_h2o_tot = τ_h2o_acc[:, end];
 	
 	# compare weighted and unweighted
 	plot(
-		[τ_o2_tot_weight, τ_o2_tot], 
-		label=["weighted" "unweighted"],
+		[
+			τ_o2_tot_weight, τ_o2_tot,
+			τ_h2o_tot_weight, τ_h2o_tot
+		], 
+		label=[
+			"weighted - O₂" "unweighted - O₂" "weighted - H₂O" "unweighted - H₂O"
+		],
 		size=(800, 300)
 	)
 end
 
-# ╔═╡ 483d44e8-89b6-43f1-8321-7906a059ac19
+# ╔═╡ 62470600-a00d-4d73-9188-36ec778e436b
+begin
+	# Spectral response function
+	# read data
+	filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_RSRs.nc";
+	pace = Dataset(filename, "r");
+	
+	wavlen = pace["wavelength"][:];
+	RSR = pace["RSR"];
+	band = pace["bands"];
+	
+	if_wavenumber = true;
+	
+	λ = if_wavenumber ? reverse(1 ./ collect(ν_grid) .* 1E7) : (1 ./ collect(ν_grid) .* 1E7);
+	
+	ind₁   = findall( λ[1] .< wavlen .< λ[end]);
+	ind₂   = findall( λ[1] .< band   .< λ[end]);
+	λ_msr  = wavlen[ind₁];
+	MyRSR  = RSR[ind₁, ind₂];
+	
+	MyKernel = KernelInstrument(
+		band=band[ind₂],
+		wvlen=λ_msr,
+		RSR=RSR[ind₁, ind₂],
+		wvlen_out=λ
+	);
+	println(size(MyKernel.RSR_out));
 
+end
+
+# ╔═╡ 483d44e8-89b6-43f1-8321-7906a059ac19
+begin
+	# compare two-way and 1.x-way transmittance: 
+	# 1) optical depth should be doubled for both cases
+	τ_o2_tot_weight2 = 2 * τ_o2_tot_weight;
+	τ_o2_tot2        = 2 * τ_o2_tot;
+	τ_h2o_tot_weight2 = 2 * τ_h2o_tot_weight;
+	τ_h2o_tot2        = 2 * τ_h2o_tot;
+	# 2) take the exponential term
+	trans_hres_weighted = exp.( - τ_o2_tot_weight2);
+	trans_hres          = exp.( - τ_o2_tot2);
+	trans_hres_h2o_weighted = exp.( - τ_h2o_tot_weight2);
+	trans_hres_h2o          = exp.( - τ_h2o_tot2);
+	# 3) convolve to low resolution
+	# 3.1) reserved order: wavenumber -> wavelength
+	if if_wavenumber
+		trans_revs = reverse(trans_hres);
+		trans_revs_weighted = reverse(trans_hres_weighted);
+		trans_revs_h2o = reverse(trans_hres_h2o);
+		trans_revs_h2o_weighted = reverse(trans_hres_h2o_weighted);
+	end
+	# 3.2) convolve
+	trans_lres          = MyKernel.RSR_out * trans_revs;
+	trans_lres_weighted = MyKernel.RSR_out * trans_revs_weighted;
+	trans_lres_h2o          = MyKernel.RSR_out * trans_revs_h2o;
+	trans_lres_h2o_weighted = MyKernel.RSR_out * trans_revs_h2o_weighted;
+	
+	# 4) visualize
+	plot(
+		[
+			trans_lres_weighted, trans_lres,
+			trans_lres_h2o_weighted, trans_lres_h2o
+		], 
+		label=[
+			"weighted - O₂" "unweighted - O₂" "weighted - H₂O" "unweighted - H₂O"
+		],
+		size=(800, 250),
+		lw=2,
+		title="O₂ + H₂O, Chi-distribution (ν=$ν)"
+	)
+end
 
 # ╔═╡ 4a1460d5-d31b-4f84-84a4-ef643ae3b952
 # ╠═╡ disabled = true
@@ -347,19 +431,6 @@ begin
 end
   ╠═╡ =#
 
-# ╔═╡ f58a4170-1f6a-4f53-9846-5a2f883a3fb0
-begin
-	# get a rough idea of the order of magnitude
-	p5 = plot(
-		, p_full[k,:],
-		yflip=true,
-		size=(300, 450),
-		margin=8Plots.mm,
-		xlabel="temperature",
-		ylabel="pressure"
-	)
-end
-
 # ╔═╡ Cell order:
 # ╟─8b35e192-f134-11f0-3097-37bfabf9cf36
 # ╠═2d8f0c3f-1512-479f-99c3-dfeee855f70f
@@ -373,12 +444,12 @@ end
 # ╠═fb724321-762b-4bac-8e45-2d47d23e56c8
 # ╠═7677f2e9-6262-45ba-804c-5e8c19a79c87
 # ╟─87b63aea-4852-405e-9a4a-47be24f0c784
-# ╠═c1102d6a-b729-444b-9fd7-e90e66d2331b
+# ╟─c1102d6a-b729-444b-9fd7-e90e66d2331b
 # ╟─cb7227d2-3e4e-42eb-b208-6573a4aff59e
 # ╠═53a3ea6e-cfa9-4d54-ab39-b82aa48eaa2c
-# ╠═f04edcf6-20a5-4f89-8a55-79ce2637313e
+# ╟─f04edcf6-20a5-4f89-8a55-79ce2637313e
 # ╠═3ad6f119-2bba-45b7-a05b-0133a5522e37
 # ╠═94a5b030-4a24-4529-9d14-44bb67c7b863
+# ╠═62470600-a00d-4d73-9188-36ec778e436b
 # ╠═483d44e8-89b6-43f1-8321-7906a059ac19
 # ╠═4a1460d5-d31b-4f84-84a4-ef643ae3b952
-# ╠═f58a4170-1f6a-4f53-9846-5a2f883a3fb0

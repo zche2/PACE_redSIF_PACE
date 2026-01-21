@@ -24,7 +24,7 @@ end
 # ╔═╡ f122b6a6-b5ec-4cb7-b7df-d9b1c23f95c7
 begin
 	# load retrieval data
-	filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/retrieval_for_sample_granule_20240830T131442_new_chl_20251203_204607.jld2";
+	filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/retrieval_for_sample_granule_20250808T204353_new_chl_20260115_173018.jld2";
 	@load filename results ref_nflh ref_Rtoa params configuration
 end
 
@@ -106,8 +106,8 @@ begin
 	    legendfontsize = 8,     # Legend text
 		colorbar_titlefontsize = 8,
 		size=(500, 250),
-		xlims=(0.1, 0.9),
-		ylims=(0.1, 0.9),
+		# xlims=(0.1, 0.9),
+		# ylims=(0.1, 0.9),
 		margin = 5Plots.mm,
 		dpi=300
 	)
@@ -132,9 +132,6 @@ begin
 	# end
 	p	
 end
-
-# ╔═╡ 6d4bedd0-776c-4802-945b-5dcabb75c8cd
-results[idx]
 
 # ╔═╡ 19149ee8-4dbe-4149-80c3-8c1d5845299c
 begin
@@ -237,7 +234,6 @@ end
 # ╠═13dbdf0a-9a42-4795-bc8a-02c1228725cc
 # ╠═692bfae1-d586-4100-8bae-461bd80185ab
 # ╠═f17fe912-fa1b-4f61-959a-e92424031db7
-# ╠═6d4bedd0-776c-4802-945b-5dcabb75c8cd
 # ╠═19149ee8-4dbe-4149-80c3-8c1d5845299c
 # ╠═d778b872-e444-412d-b0d6-609862757709
 # ╠═00628d71-e1fd-463d-9a82-e417b7766089
