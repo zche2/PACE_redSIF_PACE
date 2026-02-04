@@ -300,6 +300,9 @@ begin
 	oci_band = band[ind₂];
 	abs_diff = trans_LowRes_wlen_tot_MulConv[:, k] .- trans_LowRes_wlen_tot_ConvMul[:, k];
 	res_diff = abs_diff ./ trans_LowRes_wlen_tot_ConvMul[:, k] .* 100;
+
+	# take the ratio
+	ratio_of_MulConv_over_ConvMul = trans_LowRes_wlen_tot_MulConv ./ trans_LowRes_wlen_tot_ConvMul;
 	
 	p1 = plot()
 	plot!(p1, oci_band, trans_LowRes_wlen_sun, label="solar", lw=.5, ls=:dash)
@@ -311,7 +314,9 @@ begin
 
 	p3 = plot(oci_band, res_diff, label="relative diff (%)")
 
-	plot(p1, p2, p3, layout=(3, 1), size=(800, 800), xticks = (620:10:860, string.(620:10:860)),)
+	p4 = plot(oci_band, ratio_of_MulConv_over_ConvMul, ylabel="(f·g)ₗ / (fₗ·gₗ)", label=false)
+
+	plot(p1, p2, p3, p4, layout=(4, 1), size=(800, 800), xticks = (620:10:860, string.(620:10:860)),)
 end
 
 # ╔═╡ 77ee27de-87ec-45bf-ba94-0fbf970817d6
@@ -688,8 +693,20 @@ begin
 		label="(f·g)ₗ - recon. w/ nPC=$nPC2"
 	)
 
+	p_ratio1 = plot(xticks = (620:10:860, string.(620:10:860)),)
+	plot!(
+		p_ratio1, oci_band,
+		trans_LowRes_wlen_tot_MulConv[:, k3] ./ spec_rec₁_SolarSVD,
+		label="(f·g)ₗ / recon. w/ nPC=$nPC1"
+	)
+	plot!(
+		p_ratio1, oci_band,
+		trans_LowRes_wlen_tot_MulConv[:, k3] ./ spec_rec₂_SolarSVD,
+		label="(f·g)ₗ / recon. w/ nPC=$nPC2"
+	)
+
 	# combine
-	plot(p_rec1, p_resd1, layout=(2,1), size=(1000, 600))
+	plot(p_rec1, p_resd1, p_ratio1, layout=(3,1), size=(1000, 800))
 end
 
 # ╔═╡ 0e7914dc-5fc0-4a99-82e1-70000d4127b5
@@ -713,7 +730,16 @@ begin
 end
 
 # ╔═╡ 907d4c5f-4247-4fdc-8b7f-4fd11cb1268b
+md"""
+#### Are there systematic bias in E？
+"""
 
+# ╔═╡ 036b12df-1031-42a1-b968-2acd662c8739
+begin
+	# compare E and lres trans+solar
+	rho_by_ratio = E ./ trans_LowRes_wlen_sun;
+	plot(oci_band, rho_by_ratio, label="E / Tₛ", size=(800, 300))
+end
 
 # ╔═╡ Cell order:
 # ╟─d016099e-d1ad-11f0-0d23-39cd260c5720
@@ -737,18 +763,18 @@ end
 # ╟─442c8ada-de52-47b7-b1c5-f7ff56270381
 # ╠═16200fae-68ac-46fe-b695-e3c029db0c76
 # ╠═c9076f82-b7fb-46cf-a93c-a78723aaa32e
-# ╠═99e6142e-c59d-4d98-91c0-b8f1b625771c
+# ╟─99e6142e-c59d-4d98-91c0-b8f1b625771c
 # ╟─77ee27de-87ec-45bf-ba94-0fbf970817d6
 # ╠═cddbe493-c6e3-4129-a15d-4e4570c67fa3
 # ╟─23d13dea-16c3-4428-b7f9-8cf6ee0d8266
 # ╟─c8fdeb6f-88d6-4fe8-8a95-528cb673a8bc
-# ╟─1d044a95-4527-401a-b9ff-2a71f6e53f52
+# ╠═1d044a95-4527-401a-b9ff-2a71f6e53f52
 # ╠═d6f6442e-0fb0-4314-9538-7007e418c5b6
 # ╠═d8591e6a-b25d-4f5f-929d-20251591bef0
 # ╠═dc93e6a2-d8b2-4489-8477-98019c80009e
 # ╠═3026b16a-b52c-4438-8bdd-22b7e987ae3f
 # ╠═f3b20e9a-9888-4171-b582-b1e590ce48f1
-# ╟─da5a3f37-950a-48c2-bc46-bdc26014ebe3
+# ╠═da5a3f37-950a-48c2-bc46-bdc26014ebe3
 # ╟─54650f5d-e8d7-406e-bd87-549fed04374b
 # ╟─830ef1bb-ef76-4ef1-aeeb-02327d3e61e6
 # ╠═0908a1a3-ccfc-4203-8a5b-909f0a40646f
@@ -762,4 +788,5 @@ end
 # ╠═7f9bfdda-2903-4157-ac0e-ba445a005bd7
 # ╟─d0eb07f2-c60a-4fe4-ac6b-21478bb8bbea
 # ╟─0e7914dc-5fc0-4a99-82e1-70000d4127b5
-# ╠═907d4c5f-4247-4fdc-8b7f-4fd11cb1268b
+# ╟─907d4c5f-4247-4fdc-8b7f-4fd11cb1268b
+# ╠═036b12df-1031-42a1-b968-2acd662c8739

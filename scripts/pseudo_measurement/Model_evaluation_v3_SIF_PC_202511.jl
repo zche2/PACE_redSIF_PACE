@@ -26,7 +26,7 @@ md"""
 
 # ╔═╡ a0e0c732-d392-45a1-85a0-1120d673bddf
 # load data
-@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_2_1_ZeroNoise.jld2" Retrieval_all ground_truth params message
+@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_2_1.jld2" Retrieval_all ground_truth params message
 
 # ╔═╡ 80afb5d5-d9db-4232-8dda-54272516f3c5
 println(message)
@@ -252,13 +252,14 @@ begin
 	    logSₐ = log10.(abs.(Sₐ))
 	end
 	heatmap(logSₐ,
-  	    xlabel="Parameter index",
-	    ylabel="Parameter index",
+  	    xlabel="state vector",
+	    ylabel="state vector",
 	    title="priori Covariance", 
-	    colorbar_title="Covariance",
+	    colorbar_title="Covariance (log)",
 	    aspect_ratio=:equal,
 	    color=:viridis,
-	    clims=(cmin, cmax)  # symmetric color scale
+	    clims=(cmin, cmax),  # symmetric color scale
+		size=(500,500)
 	)
 end
 
@@ -573,7 +574,7 @@ plot(
 # ╠═070867ac-5d08-4fee-b94d-c02c2915513b
 # ╠═a7321f67-d360-4011-912e-bee5d6df95ee
 # ╠═43661e88-d46e-4043-8a0d-ecaf0896d192
-# ╠═48e326f5-f20c-4994-80bb-b7d5a8517876
+# ╟─48e326f5-f20c-4994-80bb-b7d5a8517876
 # ╟─37975e90-11c6-4aa1-84a1-a637b2a1e3b4
 # ╟─864e68b0-293c-4ce4-a454-374c65a34970
 # ╟─d9107ea5-f9c9-417f-ab8f-002c2c121909
@@ -583,7 +584,7 @@ plot(
 # ╟─2ea4e56d-c82b-45ed-aa14-efdd4f58a933
 # ╟─80c4cade-aa9a-4d82-a9c5-85226e576025
 # ╟─ec2b1bab-9512-4131-bd60-c9c994c3c220
-# ╠═7f65e7fa-3273-4855-8ba7-7f3f010f1c5f
+# ╟─7f65e7fa-3273-4855-8ba7-7f3f010f1c5f
 # ╠═1442ba93-305e-4f10-8795-4492c24fb10f
 # ╟─62785b35-482d-43c2-a89f-346f24e09d6c
 # ╟─14ca76c0-1f90-4606-8ad4-e84b1fe578d3
