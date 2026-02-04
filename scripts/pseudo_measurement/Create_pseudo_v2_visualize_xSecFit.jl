@@ -422,7 +422,7 @@ end
 # ╔═╡ 129372a1-cee7-4dde-bacc-7bd1f6782551
 begin
 	# single pixel retrieval
-	i = 501;
+	i = 51;
 	SinglePixel = Retrieval_for_Pixel(
 	    pseudo_obs_all[i, :],
 	    0.,  # sza_noSIF[ind_sza[i]],
@@ -470,37 +470,42 @@ begin
 	plot(
 		λ, ρ_all[i,:], size=(800, 300),
 		xticks = (620:10:860, string.(620:10:860)),
+		label="truth"
 	)
-	plot!(λ, ρ)
-	plot!(λ, thisρ)
+	plot!(λ, ρ, label="reconst.")
+	plot!(λ, thisρ, label="manual reconstruct")
 end
 
 # ╔═╡ 6100cc31-10bc-4dfe-b76f-96dfcb516f7a
 plot(
 	λ, [T₂_all[i,:] T₂], size=(800, 300),
 	xticks = (620:10:860, string.(620:10:860)),
-	title="T₂"
+	title="T₂",
+	label=["truth" "recon."]
 )
 
 # ╔═╡ ae030ca8-d93b-4b40-8a68-ecfd9e4fdb12
 plot(
 	λ, [T₁_all[i,:] T₁], size=(800, 300),
 	xticks = (620:10:860, string.(620:10:860)),
-	title="T₁"
+	title="T₁",
+	label=["truth" "recon."]
 )
 
 # ╔═╡ c96faaf7-4de2-40b9-9fba-81f33efa6393
 plot(
 	λ, [SIF_all[i,:] SIF], size=(800, 300),
 	xticks = (620:10:860, string.(620:10:860)),
-	title="SIF"
+	title="SIF",
+	label=["truth" "recon."]
 )
 
 # ╔═╡ 9075df12-31b1-41c1-a94b-1d9378c110cc
 plot(
 	λ, [SinglePixel.R_toa SinglePixel.y], size=(800, 300),
 	xticks = (620:10:860, string.(620:10:860)),
-	title="TOA radiance"
+	title="TOA radiance",
+	label=["truth" "recon."]
 )
 
 # ╔═╡ 3512c031-896f-4ad4-b203-cf505ffe6f62
