@@ -1,11 +1,8 @@
 #!/usr/bin/env julia
 
-# Activate project environment
-import Pkg
-Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE")
 
 # Load packages
-using JLD2, Interpolations, Revise
+using JLD2, Interpolations
 using Base.Threads, Dates
 using ForwardDiff, DiffResults, Plots, LinearAlgebra, DelimitedFiles, NCDatasets, Statistics
 using Polynomials, Random
