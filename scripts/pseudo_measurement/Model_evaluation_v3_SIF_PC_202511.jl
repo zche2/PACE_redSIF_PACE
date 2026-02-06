@@ -26,13 +26,13 @@ md"""
 
 # ╔═╡ a0e0c732-d392-45a1-85a0-1120d673bddf
 # load data
-@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_1_3.jld2" Retrieval_all ground_truth params message
+@load "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_pseudoObs/retrieval_results_v3_2_1.jld2" Retrieval_all ground_truth params message
 
 # ╔═╡ 80afb5d5-d9db-4232-8dda-54272516f3c5
 println(message)
 
 # ╔═╡ ae141818-d9ac-4af5-937b-db206eb66e07
-if_log = false
+if_log = true
 
 # ╔═╡ 070867ac-5d08-4fee-b94d-c02c2915513b
 begin
@@ -74,7 +74,7 @@ begin
 		# residual normalized by standard deviation
 		residual_all[i,:] = @. MyPixel.y - MyPixel.R_toa;
 		sd = sqrt.(diag(MyPixel.Sₑ))
-		residual_all[i,:] = residual_all[i,:]./sd;
+		# residual_all[i,:] = residual_all[i,:]./sd;
 		ρ_rec_all[i,:]    = ρ;
 		T₁_rec_all[i,:]   = T₁;
 		T₂_rec_all[i,:]   = T₂;
@@ -89,7 +89,7 @@ end
 # ╔═╡ 48e326f5-f20c-4994-80bb-b7d5a8517876
 begin
 	# check pseudo measurement
-	p = plot(size=(800, 400), legend=false, title="created ground truth measurement")
+	p = plot(size=(800, 300), legend=false, title="created ground truth measurement")
 	for i in 1:Δn:n_sample
 		MyPixel = Retrieval_all[i];
 		if !ismissing(MyPixel)
@@ -159,11 +159,11 @@ begin
 	a = a[:, ind];
 	histogram(
 		a, 
-	    bins = 100,
+	    bins = 200,
 	    xlabel = "Value",
 	    ylabel = "Frequency",
 	    title = "Distribution of relative error (%) in SIF retrieval @ $(λ[ind]) nm", titlefontsize=8,
-		# xlims = (-40, 40),
+		xlims = (-20, 40),
 	    legend = false,
 		size  = (800, 300),
 		margin=8Plots.mm
@@ -218,7 +218,7 @@ end
 # ╔═╡ ec2b1bab-9512-4131-bd60-c9c994c3c220
 begin
 	# posterior covariance matrix
-	k = 400;
+	k = 410;
 	if ismissing(Retrieval_all[k])
 		@info "missing"
 	else
@@ -240,19 +240,31 @@ end
 # ╔═╡ 7f65e7fa-3273-4855-8ba7-7f3f010f1c5f
 begin
 	# prior covariance matrix
-	blocks = [Matrix(b) for b in Retrieval_all[k].Sₐ.blocks]
-	Sₐ    = Matrix(BlockDiagonal(blocks))
-	logSₐ = log10.(abs.(Sₐ));
+	local Sₐ, logSₐ  # Declare in outer scope
+
+	try
+	    blocks = [Matrix(b) for b in Retrieval_all[k].Sₐ.blocks]
+	    Sₐ = Matrix(BlockDiagonal(blocks))
+	    logSₐ = log10.(abs.(Sₐ))
+	catch e
+	    @warn e
+	    Sₐ    = Retrieval_all[k].Sₐ
+	    logSₐ = log10.(abs.(Sₐ))
+	end
 	heatmap(logSₐ,
-    xlabel="Parameter index",
-	    ylabel="Parameter index",
+  	    xlabel="state vector",
+	    ylabel="state vector",
 	    title="priori Covariance", 
-	    colorbar_title="Covariance",
+	    colorbar_title="Covariance (log)",
 	    aspect_ratio=:equal,
 	    color=:viridis,
-	    clims=(cmin, cmax)  # symmetric color scale
+	    clims=(cmin, cmax),  # symmetric color scale
+		size=(500,500)
 	)
 end
+
+# ╔═╡ 1442ba93-305e-4f10-8795-4492c24fb10f
+Retrieval_all[k].Sₑ
 
 # ╔═╡ 62785b35-482d-43c2-a89f-346f24e09d6c
 begin
@@ -504,7 +516,9 @@ plot(
 	residual_all[1:Δn:n_sample, :]',
 	size=(800, 300),
 	legend=false,
-	title="residual [$(λ[1]), $(λ[end])] nm (normalized by Se)", titlefontsize=8,
+	title="residual [$(λ[1]), $(λ[end])] nm", 
+	titlefontsize=8,
+	# title="residual [$(λ[1]), $(λ[end])] nm (normalized by Se)", 
 	xticks = (620:10:860, string.(620:10:860))
 )
 
@@ -535,6 +549,18 @@ plot(
 	# ylims  = (1.9, 2.1)
 )
 
+# ╔═╡ 2fa0294e-ce86-4d8d-9341-cad12a6ec81a
+md"""
+##### E (solar irr.)
+"""
+
+# ╔═╡ 03414f6b-e693-460e-a310-ecfd43011bc5
+plot(
+	λ, Retrieval_all[k].E, 
+	size=(800, 200),
+	xticks = (620:10:860, string.(620:10:860))
+)
+
 # ╔═╡ Cell order:
 # ╠═5df61699-9460-4b55-90e8-0a1ba8fc01de
 # ╠═a7e9e7cf-9788-44a0-a81a-3c4ed8424e1d
@@ -554,11 +580,12 @@ plot(
 # ╟─d9107ea5-f9c9-417f-ab8f-002c2c121909
 # ╟─562ab347-5913-41fd-8dd8-02577ce53157
 # ╟─2e6935e5-eb36-4231-83fe-7bafec557f7f
-# ╠═1e1db338-7d49-456b-8acc-e2e38d64f70c
+# ╟─1e1db338-7d49-456b-8acc-e2e38d64f70c
 # ╟─2ea4e56d-c82b-45ed-aa14-efdd4f58a933
-# ╠═80c4cade-aa9a-4d82-a9c5-85226e576025
-# ╠═ec2b1bab-9512-4131-bd60-c9c994c3c220
+# ╟─80c4cade-aa9a-4d82-a9c5-85226e576025
+# ╟─ec2b1bab-9512-4131-bd60-c9c994c3c220
 # ╟─7f65e7fa-3273-4855-8ba7-7f3f010f1c5f
+# ╠═1442ba93-305e-4f10-8795-4492c24fb10f
 # ╟─62785b35-482d-43c2-a89f-346f24e09d6c
 # ╟─14ca76c0-1f90-4606-8ad4-e84b1fe578d3
 # ╟─c09df677-540c-497c-9d2a-bf8b68b47d6a
@@ -579,3 +606,5 @@ plot(
 # ╟─9e02dfc6-693f-4c42-867e-22426bab1d55
 # ╟─a155418b-b63b-40bf-9a91-f2ed8a18c776
 # ╟─0c0f9051-80ad-4387-8f42-e88bae3b62ef
+# ╟─2fa0294e-ce86-4d8d-9341-cad12a6ec81a
+# ╠═03414f6b-e693-460e-a310-ecfd43011bc5

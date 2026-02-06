@@ -35,5 +35,10 @@
         v3.1.2 Wavelength 670-780nm (try to avoid Water band as much as possible).  
         v3.1.3 Sₐ updated.  
         
+    - v3.2 Try log SVD to transmittance spectra and apply the new penalty function.  
+        v3.2.1 log SVD with updated Sₐ.  
+        v3.2.1_ReducedNoise reduce standard deviation by a factor of 10 (equivalent to pixel aggregation).  
+        v3.2.1_ZeroNoise just zero noise :\  
 
-    - v3.2 Try log SVD to transmittance spectra and apply the new penalty function.
+
+    - v3.3 NMF to optical thickness (add if_log to NMF decomposition), other params are kept the same as v3.1.3
