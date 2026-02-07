@@ -1,2 +1,4 @@
 # red SIF retrieval for OCI (PACE)
-try atm. transmission calculation for PACE red SIF retrieval
+
+Welcome!🌺
+This package retrieves red SIF signal over global ocean for PACE satellite 🛰️.
