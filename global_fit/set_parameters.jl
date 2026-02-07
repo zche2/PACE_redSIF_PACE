@@ -1,3 +1,8 @@
+# =========================================================================================================
+# This script wraps up parameter set-up for retrieval
+# =========================================================================================================
+
+
 # Load packages
 using JLD2, Interpolations, Revise
 using Base.Threads, Dates
@@ -7,9 +12,10 @@ using Polynomials, Random
 using LegendrePolynomials, Parameters, NonlinearSolve, BenchmarkTools
 using PACE_SIF
 
-println("Running with $(Threads.nthreads()) threads")
 
 function setup_retrieval_parameters(
+    red_band,     # red_band from PACE OCI data
+    E,            # extraterrestrial solar irradiance at red_band wavelengths
     λ_min, λ_max,           # wavelength range for retrieval
     scale_factor_SIF,       # scaling factor for SIF shapes (to make the variance comparable to transmittance)
     DecompositionMethod,    # :NMF or :SVD
@@ -43,12 +49,6 @@ function setup_retrieval_parameters(
     println("Transmittance: $(size(trans, 1)) spectra")
 
     # Load PACE OCI data
-    red_band, nflh, vza, sza, chlor_a, E, R_toa = Dataset(path_oci) do oci
-        rb = oci["red_wavelength"][:]
-        ind = findall(λ_min .< rb .< λ_max)
-        (rb, oci["nflh"][:, :], oci["sensor_zenith"][:, :], oci["solar_zenith"][:, :],
-         oci["chlor_a"][:, :], oci["red_solar_irradiance"][ind], oci["radiance_red"][:, :, ind])
-    end
     oci_band = red_band[findall(λ_min .< red_band .< λ_max)]
     println("PACE data: Band [$λ_min, $λ_max] nm")
 
@@ -81,7 +81,6 @@ function setup_retrieval_parameters(
     # Print summary
     println("Data Summary:")
     println("  Wavelength range: $λ_min - $λ_max nm ($(length(oci_band)) bands)")
-    println("  TOA radiance: $(size(R_toa)) pixels")
     println("  Transmittance: $(size(trans_new, 1)) spectra")
     println("  SIF shapes: $(size(SIF_SVD.Loading, 2)) components")
     println("  SNR coefficients: $(length(c1)) bands")

@@ -9,7 +9,9 @@ using PACE_SIF
 using NCDatasets, Glob
 # include dependencies - to be updated
 include("./set_parameters.jl")
-include()
+include("./pixel_retrieval.jl")
+
+println("=== Starting script with $(Threads.nthreads()) threads ===")
 
 # ===========================================
 # preprocess PACE OCI data
@@ -58,7 +60,7 @@ function subset_netcdf_dataset(
         output_path::String; 
         indices::Dict=Dict(), 
         prefix_groups::Bool=false,
-        rename_dims::Dict{String, String}=Dict(),
+        rename_dims=Dict(),
         post_process_func::Union{Function, Nothing}=nothing
     ) 
     # Open input dataset 
@@ -275,9 +277,8 @@ println("Dimensions in subsetted L2BGC dataset\n $(ds_subset_L2BGC.dim)")
 # ===========================================
 # Pixelwise Retrieval
 # ==========================================
-# create void dataset for retrieval
-# meta setup - could be included in global attributes / a separate metadata file
 # set parameters
+nflh_threshold = 0.01;           # threshold for valid pixels based on NFLH
 DecompositionMethod = :SVD;    # "NMF" or "SVD"
 if_log = true;                 # whether to do log-SVD for transmittance
 n     = 10;
@@ -312,13 +313,32 @@ configuration = "Configurations: \n" *
 
 println(configuration)
 
+params = setup_retrieval_parameters(
+    ds_subset_L1B["red_wavelength"][:],
+    ds_subset_L1B["red_solar_irradiance"][:],
+    λ_min, λ_max, scale_factor_SIF, DecompositionMethod, if_log, n, nPC, nSIF, nIter, thr_Converge,
+);
 
-# pixelwise retrieval 
 # apply Retrieval_for_Pixel func.
+# collect variables as needed
+R_toa = ds_subset_L1B["Rtoa_red"][:];
+sza   = ds_subset_L1B["solar_zenith"][:];
+vza   = ds_subset_L1B["sensor_zenith"][:];
+nflh  = ds_subset_L2AOP["nflh"][:];
+chlor_a = ds_subset_L2BGC["chlor_a"][:];
+# flag checks whether nflh is above the threshold and whether chlor_a is valid
+# for invalid pixels, set the flag to missing
+flag = (nflh .> nflh_threshold) .& .!ismissing.(chlor_a);
+flag = map(x -> x ? true : missing, flag);
 
+# retrieved state vector
+results = process_all_pixels(
+    R_toa, sza, vza, nflh, chlor_a, flag, params
+)
 
-# map back to red_band x pixel x scan
-
-
-
+# save metadata: configuration and parameters
+# get time
+# timestamp = Dates.format(now(), "yyyymmdd_HHMMSS")
+# save_dir  = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/"
+# save_name = save_dir * "retrieval_results_20250928T222455" * timestamp * ".jld2"
 
