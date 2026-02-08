@@ -16,7 +16,7 @@ export Instrument, Atmosphere, Retrieval
 # Optionally re-export specific functions/types
 export KernelInstrument, conv_matx, interpolate_RSR
 export layer_VCD
-export Pixel, RetrievalParams, forward_model, Retrieval_for_Pixel
+export Pixel, RetrievalParams, forward_model, MakePriori!, Retrieval_for_Pixel
 export GN_Iteration!, LM_Iteration!
 export Spectral_SVD, Spectral_NMF, SpectraOfPC, MatrixFactor
 export center_wavelength, root_mean_square, scale_transmittance

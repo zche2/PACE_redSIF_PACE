@@ -49,7 +49,9 @@ function setup_retrieval_parameters(
     println("Transmittance: $(size(trans, 1)) spectra")
 
     # Load PACE OCI data
-    oci_band = red_band[findall(λ_min .< red_band .< λ_max)]
+    valid_wvlen_idx = findall(λ_min .< red_band .< λ_max)
+    oci_band = red_band[valid_wvlen_idx];
+    E        = E[valid_wvlen_idx];
     println("PACE data: Band [$λ_min, $λ_max] nm")
 
     # Interpolate transmittance to OCI bands

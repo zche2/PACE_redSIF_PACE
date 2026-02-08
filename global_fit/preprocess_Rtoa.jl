@@ -7,6 +7,7 @@
 
 using PACE_SIF
 using NCDatasets, Glob
+using Plots    # just for fun XD
 # include dependencies - to be updated
 include("./set_parameters.jl")
 include("./pixel_retrieval.jl")
@@ -18,15 +19,18 @@ println("=== Starting script with $(Threads.nthreads()) threads ===")
 # ==========================================
 # input dir
 L1B_dir = "/home/zhe2/data/PACE/L1B_V3"
-L2AOP_dir = "/home/zhe2/data/PACE/L2_AOP_V3.1"
-L2BGC_dir = "/home/zhe2/data/PACE/L2_BGC_V3.1"
+L2AOP_dir = "/home/zhe2/data/PACE/L2_AOP"
+L2BGC_dir = "/home/zhe2/data/PACE/L2_BGC"
 # interim dir 
 interim_dir = "/home/zhe2/data/PACE/interim"
 
 # load one scene - to be updated!
-L1B_file_pattern = "PACE_OCI.20250928T2224??.L1B.V3.nc"
-L2AOP_file_pattern = "PACE_OCI.20250928T2224??.L2.OC_AOP.V3_1.nc"
-L2BGC_file_pattern = "PACE_OCI.20250928T2224??.L2.OC_BGC.V3_1.nc"
+L1B_file_pattern = "PACE_OCI.20250130T202059.L1B.V3.nc"
+L2AOP_file_pattern = "PACE_OCI.20250130T202059.L2.OC_AOP.V3_0.nc"
+L2BGC_file_pattern = "PACE_OCI.20250130T202059.L2.OC_BGC.V3_0.nc"
+# L1B_file_pattern = "PACE_OCI.20250928T2224??.L1B.V3.nc"
+# L2AOP_file_pattern = "PACE_OCI.20250928T2224??.L2.OC_AOP.V3_1.nc"
+# L2BGC_file_pattern = "PACE_OCI.20250928T2224??.L2.OC_BGC.V3_1.nc"
 L1B_file = first(glob(L1B_file_pattern, L1B_dir))
 L2AOP_file = first(glob(L2AOP_file_pattern, L2AOP_dir))
 L2BGC_file = first(glob(L2BGC_file_pattern, L2BGC_dir))
@@ -166,9 +170,23 @@ function subset_netcdf_dataset(
                         end
                     end
 
-                    # Copy data with subsetting (NCDatasets handles fill values automatically)
-                    merged_var[:] = var[idx_tuple...]
-
+                    # rescale data by checking whether scale_factor and add_offset exist
+                    if haskey(var.attrib, "scale_factor") && haskey(var.attrib, "add_offset")
+                        scale_factor = var.attrib["scale_factor"]
+                        add_offset = var.attrib["add_offset"]
+                        println("  | Rescaling data with scale_factor=$scale_factor and add_offset=$add_offset")
+                        # Load original data
+                        original_data = var[idx_tuple...]
+                        # Rescale data
+                        rescaled_data = rescale_data(original_data, scale_factor, add_offset)
+                        # Write rescaled data to output variable
+                        merged_var[:] = rescaled_data
+                        # add a flag attribute to indicate that the data has been rescaled
+                        merged_var.attrib["rescaled"] = "true"
+                    else
+                        # otherwise keep the original data (NCDatasets handles fill values automatically)
+                        merged_var[:] = var[idx_tuple...]
+                    end
                     println("  ✓ Copied variable: $key ($(subset_sizes))")
                 end
             end
@@ -193,6 +211,17 @@ function subset_netcdf_dataset(
     return output_file
 end
 
+# functino to rescale data
+function rescale_data(
+        x,   # input packed data
+        scale_factor,  # scale factor
+        offset,        # offset
+    )
+    # Rescale data
+    x_rescaled = (x .- offset) ./ scale_factor;
+    return x_rescaled
+end
+
 # function to calculate Rtoa from radiance and solar irradiance
 function TOA_radiance(ds::Dataset)
     println("Creating TOA radiance variable...")
@@ -208,6 +237,7 @@ function TOA_radiance(ds::Dataset)
     rhot_red = rhot_red_var[:]
     solar_irradiance = ds["red_solar_irradiance"][:]
     solar_zenith_angle = ds["solar_zenith"][:]
+    earth_sun_correction = ds.attrib["earth_sun_distance_correction"]   # unitless
 
     # Ensure dimensions are compatible for broadcasting
     solar_irradiance = reshape(solar_irradiance, (1, 1, size(solar_irradiance)...))
@@ -217,9 +247,10 @@ function TOA_radiance(ds::Dataset)
     println("  | Radiance shape: ", size(rhot_red))
     println("  | Solar irradiance shape: ", size(solar_irradiance))
     println("  | Solar zenith angle shape: ", size(solar_zenith_angle))
+    println("  | Earth-sun distance correction: ", earth_sun_correction)
 
     # Calculate TOA radiance
-    Rtoa = rhot_red .* solar_irradiance .* cosd.(solar_zenith_angle) ./ π
+    Rtoa = rhot_red .* solar_irradiance .* cosd.(solar_zenith_angle) ./ π / earth_sun_correction
     
     # Get the non-missing type for NetCDF
     nc_type = Missing <: data_type ? Base.nonmissingtype(data_type) : data_type
@@ -234,7 +265,7 @@ function TOA_radiance(ds::Dataset)
     # Write data
     Rtoa_var[:] = Rtoa
     
-    println(" | TOA radiance variable created with shape: ", size(Rtoa_var[:]))
+    println("  | TOA radiance variable created with shape: ", size(Rtoa_var[:]))
     
     return ds
 end
@@ -278,7 +309,7 @@ println("Dimensions in subsetted L2BGC dataset\n $(ds_subset_L2BGC.dim)")
 # Pixelwise Retrieval
 # ==========================================
 # set parameters
-nflh_threshold = 0.01;           # threshold for valid pixels based on NFLH
+nflh_threshold = 0.05;           # threshold for valid pixels based on NFLH
 DecompositionMethod = :SVD;    # "NMF" or "SVD"
 if_log = true;                 # whether to do log-SVD for transmittance
 n     = 10;
@@ -320,21 +351,44 @@ params = setup_retrieval_parameters(
 );
 
 # apply Retrieval_for_Pixel func.
+
+# subset wavelength range
+wvlen_index = findall(λ_min .<= ds_subset_L1B["red_wavelength"][:] .<= λ_max);
 # collect variables as needed
-R_toa = ds_subset_L1B["Rtoa_red"][:];
+R_toa = ds_subset_L1B["Rtoa_red"][:, :, wvlen_index];
 sza   = ds_subset_L1B["solar_zenith"][:];
 vza   = ds_subset_L1B["sensor_zenith"][:];
 nflh  = ds_subset_L2AOP["nflh"][:];
 chlor_a = ds_subset_L2BGC["chlor_a"][:];
 # flag checks whether nflh is above the threshold and whether chlor_a is valid
-# for invalid pixels, set the flag to missing
-flag = (nflh .> nflh_threshold) .& .!ismissing.(chlor_a);
-flag = map(x -> x ? true : missing, flag);
+flag = Matrix{Bool}( .!ismissing.(chlor_a) .& .!ismissing.(nflh) .& (nflh .> nflh_threshold) );
+
+# try a small subset area
+test_R_toa = R_toa[1:10, 1:10, :];
+test_sza = sza[1:10, 1:10];
+test_vza = vza[1:10, 1:10];
+test_nflh = nflh[1:10, 1:10];
+test_chlor_a = chlor_a[1:10, 1:10];
+test_flag = flag[1:10, 1:10];
+retrieval_result = process_all_pixels(
+    test_R_toa, test_sza, test_vza, test_nflh, test_chlor_a, test_flag, params
+);
+
+# test_pixel_idx = (846, 1470)  # (scan, pixel)
+# test_R_toa = R_toa[test_pixel_idx..., :]
+# test_sza = sza[test_pixel_idx...]
+# test_vza = vza[test_pixel_idx...]
+# test_nflh = nflh[test_pixel_idx...]
+# test_chlor_a = chlor_a[test_pixel_idx...]
+# test_flag = flag[test_pixel_idx...]
+# retrieval_result = retrieve_pixel(
+#     test_R_toa, test_sza, test_vza, test_nflh, test_chlor_a, test_flag, params
+# )
 
 # retrieved state vector
-results = process_all_pixels(
-    R_toa, sza, vza, nflh, chlor_a, flag, params
-)
+# results = process_all_pixels(
+#     R_toa, sza, vza, nflh, chlor_a, flag, params
+# );
 
 # save metadata: configuration and parameters
 # get time

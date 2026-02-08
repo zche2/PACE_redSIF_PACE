@@ -6,6 +6,8 @@
 # all the other components can be recovered from the state vector and the forward model.    
 # =========================================================================================================
 
+using PACE_SIF
+
 function process_all_pixels(
     R_toa,      # 3D array: (n_bands, n_pixels, n_scans)
     sza,        # 2D array: (n_pixels, n_scans)
@@ -16,8 +18,9 @@ function process_all_pixels(
     params::RetrievalParams
     )
 
-    n_bands, n_pixels, n_scans = size(R_toa)
+    n_pixels, n_scans, _ = size(R_toa)
     total_pixels = n_pixels * n_scans
+    println("Total pixels to process: $total_pixels")
 
     # elements in state vector
     # recall that state vector = [x₀, β, γ, SIF_terms]
@@ -70,7 +73,7 @@ function retrieve_pixel(
     )::Union{Missing, Vector{Float64}}
 
     # preprocess: if the flag is false, not doing the retrieval
-    if ismissing(flag)
+    if !flag
         return missing
     end
 
@@ -126,7 +129,7 @@ function retrieve_pixel(
     # Step3: return
     # return if converge
     if abs(MyPixel.ΔRMSE) < thr_Converge
-        return MyPixel.x
+        return MyPixel.x[:]
     else
         return missing
     end
