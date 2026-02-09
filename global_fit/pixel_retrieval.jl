@@ -9,13 +9,13 @@
 using PACE_SIF
 
 function process_all_pixels(
-    R_toa,      # 3D array: (n_bands, n_pixels, n_scans)
-    sza,        # 2D array: (n_pixels, n_scans)
-    vza,        # 2D array: (n_pixels, n_scans)
-    nflh,       # 2D array: (n_pixels, n_scans)
-    chlor_a,    # 2D array: (n_pixels, n_scans)
-    flag,       # 2D array: (n_pixels, n_scans)
-    params::RetrievalParams
+        R_toa,      # 3D array: (n_pixels, n_scans, n_bands)
+        sza,        # 2D array: (n_pixels, n_scans)
+        vza,        # 2D array: (n_pixels, n_scans)
+        nflh,       # 2D array: (n_pixels, n_scans)
+        chlor_a,    # 2D array: (n_pixels, n_scans)
+        flag,       # 2D array: (n_pixels, n_scans)
+        params::RetrievalParams
     )
 
     n_pixels, n_scans, _ = size(R_toa)
@@ -30,34 +30,40 @@ function process_all_pixels(
     results = Array{Union{Missing, Float64}}(undef, n_pixels, n_scans, n_state)
     
     # a shared flag to stop all threads once error are detected
-    stop_flag = Atomic{Bool}(false)
+    # stop_flag = Atomic{Bool}(false)
     
     @threads for idx in 1:total_pixels
-        if stop_flag[]
-            break
-        end
+        # if stop_flag[]
+        #     break
+        # end
 
         # Convert linear index to 2D indices
         j = ((idx - 1) % n_pixels) + 1      # pixel index
         i = ((idx - 1) ÷ n_pixels) + 1      # scan index
 
         try
-            results[j, i, :] = retrieve_pixel(
-                R_toa[:, j, i],    # Extract spectrum for this pixel (all bands)
+            temp_result = retrieve_pixel(
+                R_toa[j, i, :],    # Extract spectrum for this pixel (all bands)
                 sza[j, i],
                 vza[j, i],
                 nflh[j, i],
                 chlor_a[j, i],
                 flag[j, i],
                 params
-            )
+            );
+
+            if !ismissing(temp_result)
+                results[j, i, :] = temp_result
+            else
+                results[j, i, :] .= missing
+            end
+
         catch e
-            @warn "Failed at pixel ($j, $i): $e"
+            @warn "Failed at pixel ($j, $i)"
         end
         
         # Progress reporting
-        if idx % 50 == 0
-            atomic_cas!(stop_flag, false, true)
+        if idx % 20000 == 0
             println("Processed $idx / $total_pixels pixels")
         end
     end
