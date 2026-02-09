@@ -118,9 +118,9 @@ function granule_retrieval(
     close(ds_output)
 
 
-    # delete interim L2 dataset
-    rm(subset_L2AOP)
-    rm(subset_L2BGC)
+    # # delete interim L2 dataset
+    # rm(subset_L2AOP)
+    # rm(subset_L2BGC)
 
 end
 

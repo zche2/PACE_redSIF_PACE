@@ -63,7 +63,7 @@ function process_all_pixels(
         end
         
         # Progress reporting
-        if idx % 20000 == 0
+        if idx % 50000 == 0
             println("Processed $idx / $total_pixels pixels")
         end
     end
