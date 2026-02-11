@@ -93,7 +93,7 @@ println("=== Starting retrieving ===")
 # loop through granules
 len = length(L1B_file_lst)
 println("Number of granules to process: $len")
-for i in 1:len
+for i in 116:len
     start_time = now();
     L1B_file = L1B_file_lst[i];
     L2AOP_file = L2AOP_file_lst[i];

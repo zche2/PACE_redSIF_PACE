@@ -1,8 +1,10 @@
 # particular file forms
 *.jld2
 *.log
+.out
 *.png
 *.gif
+*.nc
 
 # folder
 PACE_proposal_materials/

@@ -1,0 +1,356 @@
+nohup: ignoring input
+┌ Warning: type Main.#10#20{Bool} does not exist in workspace; reconstructing
+└ @ JLD2 ~/.julia/packages/JLD2/wLPAN/src/data/reconstructing_datatypes.jl:620
+┌ Warning: type BlockDiagonals.BlockDiagonal{Float64,Matrix{Float64}} does not exist in workspace; reconstructing
+└ @ JLD2 ~/.julia/packages/JLD2/wLPAN/src/data/reconstructing_datatypes.jl:620
+Processing: SIF_20250927T003134_20260208_232809.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T003134.L1B.V3.nc
+Time taken for SIF_20250927T003134_20260208_232809.nc: 166310 milliseconds
+Processing: SIF_20250927T003634_20260208_232905.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T003634.L1B.V3.nc
+Time taken for SIF_20250927T003634_20260208_232905.nc: 172938 milliseconds
+Processing: SIF_20250927T004134_20260208_233824.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T004134.L1B.V3.nc
+Time taken for SIF_20250927T004134_20260208_233824.nc: 186244 milliseconds
+Processing: SIF_20250927T004634_20260208_234543.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T004634.L1B.V3.nc
+Time taken for SIF_20250927T004634_20260208_234543.nc: 186159 milliseconds
+Processing: SIF_20250927T005134_20260209_000627.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T005134.L1B.V3.nc
+Time taken for SIF_20250927T005134_20260209_000627.nc: 197718 milliseconds
+Processing: SIF_20250927T005634_20260209_001858.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T005634.L1B.V3.nc
+Time taken for SIF_20250927T005634_20260209_001858.nc: 194547 milliseconds
+Processing: SIF_20250927T010134_20260209_002956.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T010134.L1B.V3.nc
+Time taken for SIF_20250927T010134_20260209_002956.nc: 200403 milliseconds
+Processing: SIF_20250927T010634_20260209_003425.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T010634.L1B.V3.nc
+Time taken for SIF_20250927T010634_20260209_003425.nc: 191281 milliseconds
+Processing: SIF_20250927T011134_20260209_003630.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T011134.L1B.V3.nc
+Time taken for SIF_20250927T011134_20260209_003630.nc: 191308 milliseconds
+Processing: SIF_20250927T011634_20260209_003712.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T011634.L1B.V3.nc
+Time taken for SIF_20250927T011634_20260209_003712.nc: 164923 milliseconds
+Processing: SIF_20250927T020954_20260209_003752.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T020954.L1B.V3.nc
+Time taken for SIF_20250927T020954_20260209_003752.nc: 192797 milliseconds
+Processing: SIF_20250927T021454_20260209_003919.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T021454.L1B.V3.nc
+Time taken for SIF_20250927T021454_20260209_003919.nc: 198050 milliseconds
+Processing: SIF_20250927T021954_20260209_005637.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T021954.L1B.V3.nc
+Time taken for SIF_20250927T021954_20260209_005637.nc: 214916 milliseconds
+Processing: SIF_20250927T022454_20260209_010907.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T022454.L1B.V3.nc
+Time taken for SIF_20250927T022454_20260209_010907.nc: 208496 milliseconds
+Processing: SIF_20250927T022954_20260209_012400.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T022954.L1B.V3.nc
+Time taken for SIF_20250927T022954_20260209_012400.nc: 211947 milliseconds
+Processing: SIF_20250927T023454_20260209_013632.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T023454.L1B.V3.nc
+Time taken for SIF_20250927T023454_20260209_013632.nc: 210224 milliseconds
+Processing: SIF_20250927T023954_20260209_014653.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T023954.L1B.V3.nc
+Time taken for SIF_20250927T023954_20260209_014653.nc: 215607 milliseconds
+Processing: SIF_20250927T024454_20260209_020439.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T024454.L1B.V3.nc
+Time taken for SIF_20250927T024454_20260209_020439.nc: 221168 milliseconds
+Processing: SIF_20250927T024954_20260209_020526.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T024954.L1B.V3.nc
+Time taken for SIF_20250927T024954_20260209_020526.nc: 204222 milliseconds
+Processing: SIF_20250927T025454_20260209_020637.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T025454.L1B.V3.nc
+Time taken for SIF_20250927T025454_20260209_020637.nc: 176161 milliseconds
+Processing: SIF_20250927T034814_20260209_020717.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T034814.L1B.V3.nc
+Time taken for SIF_20250927T034814_20260209_020717.nc: 201250 milliseconds
+Processing: SIF_20250927T035314_20260209_020804.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T035314.L1B.V3.nc
+Time taken for SIF_20250927T035314_20260209_020804.nc: 205722 milliseconds
+Processing: SIF_20250927T035814_20260209_021424.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T035814.L1B.V3.nc
+Time taken for SIF_20250927T035814_20260209_021424.nc: 212335 milliseconds
+Processing: SIF_20250927T040314_20260209_021701.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T040314.L1B.V3.nc
+Time taken for SIF_20250927T040314_20260209_021701.nc: 210400 milliseconds
+Processing: SIF_20250927T040814_20260209_022917.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T040814.L1B.V3.nc
+Time taken for SIF_20250927T040814_20260209_022917.nc: 214168 milliseconds
+Processing: SIF_20250927T041314_20260209_024458.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T041314.L1B.V3.nc
+Time taken for SIF_20250927T041314_20260209_024458.nc: 225616 milliseconds
+Processing: SIF_20250927T041814_20260209_025923.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T041814.L1B.V3.nc
+Time taken for SIF_20250927T041814_20260209_025923.nc: 225502 milliseconds
+Processing: SIF_20250927T042314_20260209_030042.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T042314.L1B.V3.nc
+Time taken for SIF_20250927T042314_20260209_030042.nc: 212595 milliseconds
+Processing: SIF_20250927T042814_20260209_030150.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T042814.L1B.V3.nc
+Time taken for SIF_20250927T042814_20260209_030150.nc: 213488 milliseconds
+Processing: SIF_20250927T043314_20260209_030314.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T043314.L1B.V3.nc
+Time taken for SIF_20250927T043314_20260209_030314.nc: 187060 milliseconds
+Processing: SIF_20250927T052634_20260209_030355.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T052634.L1B.V3.nc
+Time taken for SIF_20250927T052634_20260209_030355.nc: 213254 milliseconds
+Processing: SIF_20250927T053134_20260209_030441.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T053134.L1B.V3.nc
+Time taken for SIF_20250927T053134_20260209_030441.nc: 217511 milliseconds
+Processing: SIF_20250927T053634_20260209_030741.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T053634.L1B.V3.nc
+Time taken for SIF_20250927T053634_20260209_030741.nc: 219563 milliseconds
+Processing: SIF_20250927T054134_20260209_031221.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T054134.L1B.V3.nc
+Time taken for SIF_20250927T054134_20260209_031221.nc: 223746 milliseconds
+Processing: SIF_20250927T054634_20260209_032755.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T054634.L1B.V3.nc
+Time taken for SIF_20250927T054634_20260209_032755.nc: 228770 milliseconds
+Processing: SIF_20250927T055134_20260209_033134.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T055134.L1B.V3.nc
+Time taken for SIF_20250927T055134_20260209_033134.nc: 223024 milliseconds
+Processing: SIF_20250927T055634_20260209_033231.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T055634.L1B.V3.nc
+Time taken for SIF_20250927T055634_20260209_033231.nc: 220614 milliseconds
+Processing: SIF_20250927T060134_20260209_033334.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T060134.L1B.V3.nc
+Time taken for SIF_20250927T060134_20260209_033334.nc: 222653 milliseconds
+Processing: SIF_20250927T060634_20260209_033402.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T060634.L1B.V3.nc
+Time taken for SIF_20250927T060634_20260209_033402.nc: 133418 milliseconds
+Processing: SIF_20250927T070454_20260209_033445.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T070454.L1B.V3.nc
+Time taken for SIF_20250927T070454_20260209_033445.nc: 216991 milliseconds
+Processing: SIF_20250927T070954_20260209_033555.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T070954.L1B.V3.nc
+Time taken for SIF_20250927T070954_20260209_033555.nc: 220166 milliseconds
+Processing: SIF_20250927T071454_20260209_033937.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T071454.L1B.V3.nc
+Time taken for SIF_20250927T071454_20260209_033937.nc: 236025 milliseconds
+Processing: SIF_20250927T071954_20260209_034557.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T071954.L1B.V3.nc
+Time taken for SIF_20250927T071954_20260209_034557.nc: 237619 milliseconds
+Processing: SIF_20250927T072454_20260209_040110.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T072454.L1B.V3.nc
+Time taken for SIF_20250927T072454_20260209_040110.nc: 231159 milliseconds
+Processing: SIF_20250927T072954_20260209_041405.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T072954.L1B.V3.nc
+Time taken for SIF_20250927T072954_20260209_041405.nc: 234279 milliseconds
+Processing: SIF_20250927T073454_20260209_041453.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T073454.L1B.V3.nc
+Time taken for SIF_20250927T073454_20260209_041453.nc: 238773 milliseconds
+Processing: SIF_20250927T073954_20260209_041622.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T073954.L1B.V3.nc
+Time taken for SIF_20250927T073954_20260209_041622.nc: 235988 milliseconds
+Processing: SIF_20250927T074454_20260209_041838.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T074454.L1B.V3.nc
+Time taken for SIF_20250927T074454_20260209_041838.nc: 244481 milliseconds
+Processing: SIF_20250927T074954_20260209_041933.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T074954.L1B.V3.nc
+Time taken for SIF_20250927T074954_20260209_041933.nc: 197024 milliseconds
+Processing: SIF_20250927T084314_20260209_042016.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T084314.L1B.V3.nc
+Time taken for SIF_20250927T084314_20260209_042016.nc: 223891 milliseconds
+Processing: SIF_20250927T084814_20260209_042109.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T084814.L1B.V3.nc
+Time taken for SIF_20250927T084814_20260209_042109.nc: 227579 milliseconds
+Processing: SIF_20250927T085314_20260209_042431.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T085314.L1B.V3.nc
+Time taken for SIF_20250927T085314_20260209_042431.nc: 230077 milliseconds
+Processing: SIF_20250927T085814_20260209_043218.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T085814.L1B.V3.nc
+Time taken for SIF_20250927T085814_20260209_043218.nc: 233259 milliseconds
+Processing: SIF_20250927T090314_20260209_045350.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T090314.L1B.V3.nc
+Time taken for SIF_20250927T090314_20260209_045350.nc: 242294 milliseconds
+Processing: SIF_20250927T090814_20260209_050319.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T090814.L1B.V3.nc
+Time taken for SIF_20250927T090814_20260209_050319.nc: 242238 milliseconds
+Processing: SIF_20250927T091314_20260209_050742.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T091314.L1B.V3.nc
+Time taken for SIF_20250927T091314_20260209_050742.nc: 227106 milliseconds
+Processing: SIF_20250927T091814_20260209_051028.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T091814.L1B.V3.nc
+Time taken for SIF_20250927T091814_20260209_051028.nc: 225685 milliseconds
+Processing: SIF_20250927T092314_20260209_051606.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T092314.L1B.V3.nc
+Time taken for SIF_20250927T092314_20260209_051606.nc: 229703 milliseconds
+Processing: SIF_20250927T092814_20260209_051646.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T092814.L1B.V3.nc
+Time taken for SIF_20250927T092814_20260209_051646.nc: 198854 milliseconds
+Processing: SIF_20250927T102134_20260209_051723.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T102134.L1B.V3.nc
+Time taken for SIF_20250927T102134_20260209_051723.nc: 222191 milliseconds
+Processing: SIF_20250927T102634_20260209_051809.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T102634.L1B.V3.nc
+Time taken for SIF_20250927T102634_20260209_051809.nc: 226977 milliseconds
+Processing: SIF_20250927T103134_20260209_052207.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T103134.L1B.V3.nc
+Time taken for SIF_20250927T103134_20260209_052207.nc: 229687 milliseconds
+Processing: SIF_20250927T103634_20260209_053259.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T103634.L1B.V3.nc
+Time taken for SIF_20250927T103634_20260209_053259.nc: 238223 milliseconds
+Processing: SIF_20250927T104134_20260209_053833.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T104134.L1B.V3.nc
+Time taken for SIF_20250927T104134_20260209_053833.nc: 231254 milliseconds
+Processing: SIF_20250927T104634_20260209_053957.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T104634.L1B.V3.nc
+Time taken for SIF_20250927T104634_20260209_053957.nc: 223979 milliseconds
+Processing: SIF_20250927T105134_20260209_054323.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T105134.L1B.V3.nc
+Time taken for SIF_20250927T105134_20260209_054323.nc: 228283 milliseconds
+Processing: SIF_20250927T105634_20260209_054812.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T105634.L1B.V3.nc
+Time taken for SIF_20250927T105634_20260209_054812.nc: 250219 milliseconds
+Processing: SIF_20250927T110134_20260209_055937.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T110134.L1B.V3.nc
+Time taken for SIF_20250927T110134_20260209_055937.nc: 239571 milliseconds
+Processing: SIF_20250927T110634_20260209_060022.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T110634.L1B.V3.nc
+Time taken for SIF_20250927T110634_20260209_060022.nc: 197767 milliseconds
+Processing: SIF_20250927T115954_20260209_060109.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T115954.L1B.V3.nc
+Time taken for SIF_20250927T115954_20260209_060109.nc: 231474 milliseconds
+Processing: SIF_20250927T120454_20260209_060203.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T120454.L1B.V3.nc
+Time taken for SIF_20250927T120454_20260209_060203.nc: 230671 milliseconds
+Processing: SIF_20250927T120954_20260209_060856.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T120954.L1B.V3.nc
+Time taken for SIF_20250927T120954_20260209_060856.nc: 233068 milliseconds
+Processing: SIF_20250927T121454_20260209_061822.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T121454.L1B.V3.nc
+Time taken for SIF_20250927T121454_20260209_061822.nc: 236227 milliseconds
+Processing: SIF_20250927T121954_20260209_061957.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T121954.L1B.V3.nc
+Time taken for SIF_20250927T121954_20260209_061957.nc: 226943 milliseconds
+Processing: SIF_20250927T122454_20260209_062249.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T122454.L1B.V3.nc
+Time taken for SIF_20250927T122454_20260209_062249.nc: 228793 milliseconds
+Processing: SIF_20250927T122954_20260209_062559.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T122954.L1B.V3.nc
+Time taken for SIF_20250927T122954_20260209_062559.nc: 230653 milliseconds
+Processing: SIF_20250927T123454_20260209_063324.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T123454.L1B.V3.nc
+Time taken for SIF_20250927T123454_20260209_063324.nc: 240389 milliseconds
+Processing: SIF_20250927T123954_20260209_064609.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T123954.L1B.V3.nc
+Time taken for SIF_20250927T123954_20260209_064609.nc: 257581 milliseconds
+Processing: SIF_20250927T124454_20260209_064652.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T124454.L1B.V3.nc
+Time taken for SIF_20250927T124454_20260209_064652.nc: 210767 milliseconds
+Processing: SIF_20250927T133814_20260209_064733.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T133814.L1B.V3.nc
+Time taken for SIF_20250927T133814_20260209_064733.nc: 232766 milliseconds
+Processing: SIF_20250927T134314_20260209_064818.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T134314.L1B.V3.nc
+Time taken for SIF_20250927T134314_20260209_064818.nc: 237050 milliseconds
+Processing: SIF_20250927T134814_20260209_065037.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T134814.L1B.V3.nc
+Time taken for SIF_20250927T134814_20260209_065037.nc: 234072 milliseconds
+Processing: SIF_20250927T135314_20260209_065434.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T135314.L1B.V3.nc
+Time taken for SIF_20250927T135314_20260209_065434.nc: 233987 milliseconds
+Processing: SIF_20250927T135814_20260209_071021.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T135814.L1B.V3.nc
+Time taken for SIF_20250927T135814_20260209_071021.nc: 244932 milliseconds
+Processing: SIF_20250927T140314_20260209_072106.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T140314.L1B.V3.nc
+Time taken for SIF_20250927T140314_20260209_072106.nc: 241203 milliseconds
+Processing: SIF_20250927T140814_20260209_072947.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T140814.L1B.V3.nc
+Time taken for SIF_20250927T140814_20260209_072947.nc: 243738 milliseconds
+Processing: SIF_20250927T141314_20260209_073633.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T141314.L1B.V3.nc
+Time taken for SIF_20250927T141314_20260209_073633.nc: 239109 milliseconds
+Processing: SIF_20250927T141814_20260209_074325.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T141814.L1B.V3.nc
+Time taken for SIF_20250927T141814_20260209_074325.nc: 232886 milliseconds
+Processing: SIF_20250927T142314_20260209_074500.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T142314.L1B.V3.nc
+Time taken for SIF_20250927T142314_20260209_074500.nc: 196124 milliseconds
+Processing: SIF_20250927T151634_20260209_074542.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T151634.L1B.V3.nc
+Time taken for SIF_20250927T151634_20260209_074542.nc: 226007 milliseconds
+Processing: SIF_20250927T152134_20260209_074631.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T152134.L1B.V3.nc
+Time taken for SIF_20250927T152134_20260209_074631.nc: 229717 milliseconds
+Processing: SIF_20250927T152634_20260209_075138.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T152634.L1B.V3.nc
+Time taken for SIF_20250927T152634_20260209_075138.nc: 231130 milliseconds
+Processing: SIF_20250927T153134_20260209_075801.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T153134.L1B.V3.nc
+Time taken for SIF_20250927T153134_20260209_075801.nc: 233442 milliseconds
+Processing: SIF_20250927T153634_20260209_080511.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T153634.L1B.V3.nc
+Time taken for SIF_20250927T153634_20260209_080511.nc: 233816 milliseconds
+Processing: SIF_20250927T154134_20260209_082239.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T154134.L1B.V3.nc
+Time taken for SIF_20250927T154134_20260209_082239.nc: 240515 milliseconds
+Processing: SIF_20250927T154634_20260209_083115.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T154634.L1B.V3.nc
+Time taken for SIF_20250927T154634_20260209_083115.nc: 234884 milliseconds
+Processing: SIF_20250927T155134_20260209_084328.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T155134.L1B.V3.nc
+Time taken for SIF_20250927T155134_20260209_084328.nc: 240272 milliseconds
+Processing: SIF_20250927T155634_20260209_084716.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T155634.L1B.V3.nc
+Time taken for SIF_20250927T155634_20260209_084716.nc: 227682 milliseconds
+Processing: SIF_20250927T160134_20260209_084801.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T160134.L1B.V3.nc
+Time taken for SIF_20250927T160134_20260209_084801.nc: 194586 milliseconds
+Processing: SIF_20250927T165454_20260209_084841.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T165454.L1B.V3.nc
+Time taken for SIF_20250927T165454_20260209_084841.nc: 223334 milliseconds
+Processing: SIF_20250927T165954_20260209_084955.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T165954.L1B.V3.nc
+Time taken for SIF_20250927T165954_20260209_084955.nc: 225755 milliseconds
+Processing: SIF_20250927T170454_20260209_085520.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T170454.L1B.V3.nc
+Time taken for SIF_20250927T170454_20260209_085520.nc: 232985 milliseconds
+Processing: SIF_20250927T170954_20260209_085739.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T170954.L1B.V3.nc
+Time taken for SIF_20250927T170954_20260209_085739.nc: 229232 milliseconds
+Processing: SIF_20250927T171454_20260209_085837.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T171454.L1B.V3.nc
+Time taken for SIF_20250927T171454_20260209_085837.nc: 224809 milliseconds
+Processing: SIF_20250927T171954_20260209_091057.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T171954.L1B.V3.nc
+Time taken for SIF_20250927T171954_20260209_091057.nc: 234683 milliseconds
+Processing: SIF_20250927T172454_20260209_092210.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T172454.L1B.V3.nc
+Time taken for SIF_20250927T172454_20260209_092210.nc: 243358 milliseconds
+Processing: SIF_20250927T172954_20260209_092721.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T172954.L1B.V3.nc
+Time taken for SIF_20250927T172954_20260209_092721.nc: 228397 milliseconds
+Processing: SIF_20250927T173454_20260209_092929.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T173454.L1B.V3.nc
+Time taken for SIF_20250927T173454_20260209_092929.nc: 227786 milliseconds
+Processing: SIF_20250927T173954_20260209_093010.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T173954.L1B.V3.nc
+Time taken for SIF_20250927T173954_20260209_093010.nc: 198416 milliseconds
+Processing: SIF_20250927T183314_20260209_093049.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T183314.L1B.V3.nc
+Time taken for SIF_20250927T183314_20260209_093049.nc: 220048 milliseconds
+Processing: SIF_20250927T183814_20260209_093221.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T183814.L1B.V3.nc
+Time taken for SIF_20250927T183814_20260209_093221.nc: 231003 milliseconds
+Processing: SIF_20250927T184314_20260209_093716.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T184314.L1B.V3.nc
+Time taken for SIF_20250927T184314_20260209_093716.nc: 230476 milliseconds
+Processing: SIF_20250927T184814_20260209_095027.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T184814.L1B.V3.nc
+Time taken for SIF_20250927T184814_20260209_095027.nc: 233432 milliseconds
+Processing: SIF_20250927T185314_20260209_095923.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T185314.L1B.V3.nc
+Time taken for SIF_20250927T185314_20260209_095923.nc: 228310 milliseconds
+Processing: SIF_20250927T185814_20260209_100847.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T185814.L1B.V3.nc
+Time taken for SIF_20250927T185814_20260209_100847.nc: 232681 milliseconds
+Processing: SIF_20250927T190314_20260209_101729.nc
+Looking for L1B file: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/retrieval_from_realData/20250927/subset_PACE_OCI.20250927T190314.L1B.V3.nc
+Time taken for SIF_20250927T190314_20260209_101729.nc: 227873 milliseconds
+Saved: /home/zhe2/FraLab/PACE_redSIF_PACE/global_fit/gridded_output/gridded_all_20250927.nc
+Gridding complete!
+  | Total grid cells with data: 832690

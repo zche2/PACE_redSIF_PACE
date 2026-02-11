@@ -34,7 +34,7 @@ import vSmartMOM.Absorption: make_interpolation_model
     UnevenGrid_Pressure::Bool    = false
     MinPressure_Pa::FT           = 1.
     MaxPressure_Pa::FT           = 105000.
-    deltaPressure_Pa::FT         = 1000.
+    deltaPressure_Pa::FT         = 2500.
     PressureGrid_dir::String     = "default"      # if customized grid, need to specify the jld2 file used
 
     UnevenGrid_Temperature::Bool = false
@@ -45,8 +45,8 @@ import vSmartMOM.Absorption: make_interpolation_model
 
     # --- Wavenumber of interest ---
     res::FT      = 0.1
-    ν_min::FT    = 11627
-    ν_max::FT    = 16150
+    ν_min::FT    = 12947   # 770 nm
+    ν_max::FT    = 16433   # 610 nm
     
 end
 
@@ -57,12 +57,12 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
     # Model Params 🌟
     MyModel = ModelParameters{Float64}(
-        simulation_id       = "Finer_Wavenumber_grid_FullRange_NOx_Oct30",
-        res                 = 0.01,
-        ν_min               = 11111,
-        ν_max               = 16600,
-        gas_species         = ["NO2", "NO"],
-        gas_id              = [-1, -1],
+        simulation_id         = "Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange",
+        # res                 = 0.01,
+        # ν_min               = 11111,
+        # ν_max               = 16600,
+        # gas_species         = ["NO2", "NO"],
+        # gas_id              = [-1, -1],
         # deltaTemp_K         = 1.,
         # UnevenGrid_Pressure = true,
         # PressureGrid_dir    = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Pressure_UpperAtm.jld2",
