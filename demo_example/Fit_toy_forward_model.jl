@@ -34,6 +34,7 @@ function rodgers_eq59_fit(
     use_prior::Bool=false,
     prior_sigma::Union{Nothing, AbstractVector{<:Real}}=nothing,
     meas_sigma::Union{Nothing, AbstractVector{<:Real}}=nothing,
+    jacobian_eval::Union{Nothing, Function}=nothing,
     max_iter::Int=12,
     rel_obj_tol::Float64=1e-8,
     rel_step_tol::Float64=1e-8,
@@ -73,7 +74,7 @@ function rodgers_eq59_fit(
 
     for iter in 1:max_iter
         # Evaluate Jacobian at current state xᵢ.
-        J = ForwardDiff.jacobian(fm, x)
+        J = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x) : jacobian_eval(x)
         # Rodgers Eq. 5.9 in explicit x_a form:
         # x_{i+1} = x_a + (S_a^{-1} + K_i' S_e^{-1} K_i)^{-1} K_i' S_e^{-1}
         #           [y - f(x_i) + K_i(x_i - x_a)]
@@ -156,6 +157,7 @@ function rodgers_eq59_one_step(
     use_prior::Bool=false,
     prior_sigma::Union{Nothing, AbstractVector{<:Real}}=nothing,
     meas_sigma::Union{Nothing, AbstractVector{<:Real}}=nothing,
+    jacobian_eval::Union{Nothing, Function}=nothing,
 )
     x = collect(Float64.(x_prior))
     x_a = collect(Float64.(x_a))
@@ -177,7 +179,7 @@ function rodgers_eq59_one_step(
         S_e_inv = spdiagm(0 => @. 1.0 / (meas_sigma^2))
     end
 
-    J = ForwardDiff.jacobian(fm, x)
+    J = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x) : jacobian_eval(x)
     A = S_a_inv + J' * S_e_inv * J
     cond_A = cond(Matrix(A))
     innovation = y_obs .- y_prior .+ J * (x .- x_a)
@@ -227,6 +229,189 @@ function _apply_box_constraints!(x, lower, upper)
 end
 
 """
+    make_jacobian_evaluator(fm, x_template; use_preallocated=false)
+
+Return a callable `jac_eval(x)` used to evaluate Jacobians of `fm`.
+When `use_preallocated=true`, this reuses both a Jacobian output matrix and
+`ForwardDiff.JacobianConfig` for fixed-size `Float64` state vectors.
+"""
+function make_jacobian_evaluator(
+    fm,
+    x_template::AbstractVector{<:Real};
+    use_preallocated::Bool=false,
+)
+    if !use_preallocated
+        return x -> ForwardDiff.jacobian(fm, x)
+    end
+
+    x_ref = collect(Float64.(x_template))
+    y_ref = fm(x_ref)
+    J = zeros(Float64, length(y_ref), length(x_ref))
+    cfg = ForwardDiff.JacobianConfig(fm, x_ref)
+
+    function jac_eval(x::AbstractVector{<:Real})
+        if length(x) != size(J, 2) || eltype(x) != Float64
+            # Conservative fallback for unexpected runtime type/shape changes.
+            return ForwardDiff.jacobian(fm, x)
+        end
+        ForwardDiff.jacobian!(J, fm, x, cfg)
+        return J
+    end
+    return jac_eval
+end
+
+"""
+    make_hybrid_jacobian_evaluator(fm, ctx, solar_hres, layout; n_legendre)
+
+Hybrid Jacobian:
+- Analytic columns: VCD intercept/slope, SIF-path VCDs, continuum scale, SIF coeffs, Legendre coeffs
+- Interpolator-derivative columns: p_o2_hpa, t_o2_k, p_h2o_hpa, t_h2o_k
+
+Pressure/temperature derivatives are obtained directly from dualized LUT calls at
+each spectral sample, avoiding expensive whole-model AD for these columns.
+"""
+function make_hybrid_jacobian_evaluator(
+    fm,
+    ctx,
+    solar_hres::AbstractVector{<:Real},
+    layout;
+    n_legendre::Int,
+)
+    n_state = layout.n_state
+    spectral_axis = collect(Float64.(ctx.spectral_axis))
+    z_hres = _normalized_grid(ctx.λ_hres)
+    z_lres = _normalized_grid(ctx.λ)
+    K = Matrix{Float64}(hasproperty(ctx, :kernel_rsr_out) ? ctx.kernel_rsr_out : ctx.kernel.RSR_out)
+    sif_basis = Matrix{Float64}(ctx.sif_basis_hres)
+    leg_basis = Matrix{Float64}(_legendre_design_matrix(z_lres, n_legendre))
+    solar = collect(Float64.(solar_hres))
+
+    n_hres = length(z_hres)
+    n_lres = size(K, 1)
+    xs_o2 = zeros(Float64, n_hres)
+    xs_h2o = zeros(Float64, n_hres)
+    vcd_o2 = zeros(Float64, n_hres)
+    vcd_h2o = zeros(Float64, n_hres)
+    trans = zeros(Float64, n_hres)
+    trans_sif = zeros(Float64, n_hres)
+    sif_hres = zeros(Float64, n_hres)
+    y_hres = zeros(Float64, n_hres)
+    y_lres = zeros(Float64, n_lres)
+    poly = zeros(Float64, n_lres)
+    dxsdp_o2 = zeros(Float64, n_hres)
+    dxsdt_o2 = zeros(Float64, n_hres)
+    dxsdp_h2o = zeros(Float64, n_hres)
+    dxsdt_h2o = zeros(Float64, n_hres)
+    d_hres = zeros(Float64, n_hres)
+    d_lres = zeros(Float64, n_lres)
+    J = zeros(Float64, n_lres, n_state)
+
+    function apply_hres_column!(col::Int)
+        mul!(d_lres, K, d_hres)
+        @inbounds @simd for i in 1:n_lres
+            J[i, col] = d_lres[i] * poly[i]
+        end
+        return nothing
+    end
+
+    function jac_eval(x::AbstractVector{<:Real})
+        if length(x) != n_state || eltype(x) != Float64
+            return ForwardDiff.jacobian(fm, x)
+        end
+
+        vcd_o2_i = x[layout.idx_vcd_o2_intercept]
+        vcd_o2_s = x[layout.idx_vcd_o2_slope]
+        vcd_h2o_i = x[layout.idx_vcd_h2o_intercept]
+        vcd_h2o_s = x[layout.idx_vcd_h2o_slope]
+        p_o2 = x[layout.idx_p_o2_hpa]
+        t_o2 = x[layout.idx_t_o2_k]
+        p_h2o = x[layout.idx_p_h2o_hpa]
+        t_h2o = x[layout.idx_t_h2o_k]
+        vcd_o2_sif = x[layout.idx_vcd_o2_sif]
+        vcd_h2o_sif = x[layout.idx_vcd_h2o_sif]
+        cont = x[layout.idx_continuum_scale]
+        sif_coeff = @view x[layout.idx_sif]
+        leg_coeff = @view x[layout.idx_legendre]
+
+        o2_pdual = ForwardDiff.Dual{Nothing}(p_o2, ForwardDiff.Partials((1.0, 0.0)))
+        o2_tdual = ForwardDiff.Dual{Nothing}(t_o2, ForwardDiff.Partials((0.0, 1.0)))
+        h2o_pdual = ForwardDiff.Dual{Nothing}(p_h2o, ForwardDiff.Partials((1.0, 0.0)))
+        h2o_tdual = ForwardDiff.Dual{Nothing}(t_h2o, ForwardDiff.Partials((0.0, 1.0)))
+        @inbounds for i in eachindex(spectral_axis)
+            vo2 = ctx.o2_sitp(spectral_axis[i], o2_pdual, o2_tdual)
+            xs_o2[i] = ForwardDiff.value(vo2)
+            po2 = ForwardDiff.partials(vo2)
+            dxsdp_o2[i] = po2[1]
+            dxsdt_o2[i] = po2[2]
+
+            vh2o = ctx.h2o_sitp(spectral_axis[i], h2o_pdual, h2o_tdual)
+            xs_h2o[i] = ForwardDiff.value(vh2o)
+            ph2o = ForwardDiff.partials(vh2o)
+            dxsdp_h2o[i] = ph2o[1]
+            dxsdt_h2o[i] = ph2o[2]
+        end
+
+        @. vcd_o2 = vcd_o2_i + vcd_o2_s * z_hres
+        @. vcd_h2o = vcd_h2o_i + vcd_h2o_s * z_hres
+        @. trans = exp(-(vcd_h2o * xs_h2o + vcd_o2 * xs_o2))
+        @. trans_sif = exp(-(vcd_h2o_sif * xs_h2o + vcd_o2_sif * xs_o2))
+
+        mul!(sif_hres, sif_basis, sif_coeff)
+        @. y_hres = cont * solar * trans + trans_sif * sif_hres
+        mul!(y_lres, K, y_hres)
+        mul!(poly, leg_basis, leg_coeff)
+
+        # Analytic VCD derivatives.
+        @. d_hres = -cont * solar * trans * xs_o2
+        apply_hres_column!(layout.idx_vcd_o2_intercept)
+        @. d_hres = -cont * solar * trans * (z_hres * xs_o2)
+        apply_hres_column!(layout.idx_vcd_o2_slope)
+        @. d_hres = -cont * solar * trans * xs_h2o
+        apply_hres_column!(layout.idx_vcd_h2o_intercept)
+        @. d_hres = -cont * solar * trans * (z_hres * xs_h2o)
+        apply_hres_column!(layout.idx_vcd_h2o_slope)
+
+        # Analytic SIF-path VCD derivatives.
+        @. d_hres = -trans_sif * sif_hres * xs_o2
+        apply_hres_column!(layout.idx_vcd_o2_sif)
+        @. d_hres = -trans_sif * sif_hres * xs_h2o
+        apply_hres_column!(layout.idx_vcd_h2o_sif)
+
+        # Analytic p/T derivatives using LUT derivatives.
+        @. d_hres = -cont * solar * trans * (vcd_o2 * dxsdp_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdp_o2)
+        apply_hres_column!(layout.idx_p_o2_hpa)
+        @. d_hres = -cont * solar * trans * (vcd_o2 * dxsdt_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdt_o2)
+        apply_hres_column!(layout.idx_t_o2_k)
+        @. d_hres = -cont * solar * trans * (vcd_h2o * dxsdp_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdp_h2o)
+        apply_hres_column!(layout.idx_p_h2o_hpa)
+        @. d_hres = -cont * solar * trans * (vcd_h2o * dxsdt_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdt_h2o)
+        apply_hres_column!(layout.idx_t_h2o_k)
+
+        # Analytic continuum derivative.
+        @. d_hres = solar * trans
+        apply_hres_column!(layout.idx_continuum_scale)
+
+        # Analytic SIF coefficients.
+        for iev in 1:layout.n_ev
+            @. d_hres = trans_sif * sif_basis[:, iev]
+            apply_hres_column!(layout.idx_sif[iev])
+        end
+
+        # Analytic Legendre coefficients.
+        for j in 1:layout.n_leg_coeff
+            col = layout.idx_legendre[j]
+            @inbounds @simd for i in 1:n_lres
+                J[i, col] = y_lres[i] * leg_basis[i, j]
+            end
+        end
+
+        return J
+    end
+
+    return jac_eval
+end
+
+"""
 One Rodgers-style LM step for the MAP objective:
 J(x) = 0.5*(y-f)^T S_e^-1 (y-f) + 0.5*(x-x_a)^T S_a^-1 (x-x_a)
 
@@ -250,6 +435,7 @@ function lm_one_step(
     lambda_min::Float64=1e-8,
     lambda_max::Float64=1e8,
     max_inner::Int=8,
+    jacobian_eval::Union{Nothing, Function}=nothing,
     x_scale::Union{Nothing, AbstractVector{<:Real}}=nothing,
     lower_bounds::Union{Nothing, AbstractVector{<:Real}}=nothing,
     upper_bounds::Union{Nothing, AbstractVector{<:Real}}=nothing,
@@ -260,7 +446,7 @@ function lm_one_step(
     ssr0 = 0.5 * dot(r0, r0)
     rmse0 = sqrt(mean(r0 .^ 2))
 
-    J = ForwardDiff.jacobian(fm, x)
+    J = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x) : jacobian_eval(x)
     H_obs = J' * S_e_inv * J
     g_obs = J' * S_e_inv * (y_obs .- y)
     g_pri = S_a_inv * (x_a .- x)
@@ -370,9 +556,14 @@ function main()
     fit_cfg = get(cfg, "fit", Dict{String, Any}())
     data_cfg = get(cfg, "data", Dict{String, Any}())
     pace_cfg = get(cfg, "pace_observation", Dict{String, Any}())
+    state_float_type = parse_float_type(cfg)
     ctx = prepare_mwe_inputs(config_path)
 
     n_legendre = Int(get(fit_cfg, "n_legendre", 2))
+    preallocate_forward = Bool(get(fit_cfg, "preallocate_forward", true))
+    preallocate_ad_forward = Bool(get(fit_cfg, "preallocate_ad_forward", false))
+    preallocate_jacobian = Bool(get(fit_cfg, "preallocate_jacobian", false))
+    use_hybrid_jacobian = Bool(get(fit_cfg, "use_hybrid_jacobian", false))
     max_iter = Int(get(fit_cfg, "max_iter", 12))
     rel_obj_tol = Float64(get(fit_cfg, "rel_obj_tol", 1e-8))
     rel_step_tol = Float64(get(fit_cfg, "rel_step_tol", 1e-8))
@@ -414,6 +605,7 @@ function main()
     solar_file = get(data_cfg, "solar_file", "solar_merged_20200720_600_33300_100.out")
     solar_path = isabspath(solar_file) ? solar_file : joinpath(ctx.paths.base_dir, solar_file)
     solar_hres, _ = load_solar_spectrum_on_grid(solar_path, ctx.λ_hres; header_lines=3)
+    solar_hres = state_float_type.(solar_hres)
 
     pace_file = get(pace_cfg, "pace_file", "sample_granule_20240830T131442_new_chl.nc")
     pace_path = isabspath(pace_file) ? pace_file : joinpath(ctx.paths.base_dir, pace_file)
@@ -429,10 +621,33 @@ function main()
         wavelength_var=wavelength_var,
         spectrum_var=spectrum_var,
     )
+    y_obs = state_float_type.(y_obs)
 
-    fm = make_forward_model_simple(ctx, solar_hres; n_legendre=n_legendre)
+    fm = make_forward_model_simple(
+        ctx,
+        solar_hres;
+        n_legendre=n_legendre,
+        preallocate_float64=preallocate_forward && state_float_type == Float64,
+        preallocate_float32=preallocate_forward && state_float_type == Float32,
+        preallocate_other_types=preallocate_ad_forward,
+    )
     layout = state_layout_simple(ctx; n_legendre=n_legendre)
-    x0 = initial_state_simple(ctx; n_legendre=n_legendre)
+    x0 = initial_state_simple(ctx; n_legendre=n_legendre, T=state_float_type)
+    jacobian_eval = if use_hybrid_jacobian
+        make_hybrid_jacobian_evaluator(
+            fm,
+            ctx,
+            solar_hres,
+            layout;
+            n_legendre=n_legendre,
+        )
+    else
+        make_jacobian_evaluator(
+            fm,
+            x0;
+            use_preallocated=preallocate_jacobian,
+        )
+    end
 
     # Good first guess for scale from linear least-squares.
     y0 = fm(x0)
@@ -492,6 +707,11 @@ function main()
     x_a[layout.idx_vcd_h2o_intercept] = x0[layout.idx_vcd_h2o_intercept]
     prior_sigma[layout.idx_vcd_o2_intercept] = vcd_o2_sigma
     prior_sigma[layout.idx_vcd_h2o_intercept] = vcd_h2o_sigma
+    # SIF-path VCD priors: shorter path than direct solar beam (initially 50%).
+    x_a[layout.idx_vcd_o2_sif] = x0[layout.idx_vcd_o2_sif]
+    x_a[layout.idx_vcd_h2o_sif] = x0[layout.idx_vcd_h2o_sif]
+    prior_sigma[layout.idx_vcd_o2_sif] = vcd_o2_sigma
+    prior_sigma[layout.idx_vcd_h2o_sif] = vcd_h2o_sigma
 
     # VCD slope priors: mean slope = 0.
     if use_vcd_slope_prior
@@ -515,6 +735,8 @@ function main()
     x_scale[layout.idx_vcd_o2_slope] = max(vcd_o2_sigma * vcd_slope_prior_sigma_factor, prior_min_sigma)
     x_scale[layout.idx_vcd_h2o_intercept] = vcd_h2o_sigma
     x_scale[layout.idx_vcd_h2o_slope] = max(vcd_h2o_sigma * vcd_slope_prior_sigma_factor, prior_min_sigma)
+    x_scale[layout.idx_vcd_o2_sif] = vcd_o2_sigma
+    x_scale[layout.idx_vcd_h2o_sif] = vcd_h2o_sigma
     x_scale[layout.idx_p_o2_hpa] = p_sigma_hpa
     x_scale[layout.idx_p_h2o_hpa] = p_sigma_hpa
     x_scale[layout.idx_t_o2_k] = t_sigma_k
@@ -540,6 +762,12 @@ function main()
     println("  config: ", config_path)
     println("  selected pixel/scan: ", (obs_info.pixel_idx, obs_info.scan_idx))
     println("  n_state: ", layout.n_state, " (nEV=", layout.n_ev, ", n_legendre=", layout.n_legendre, ")")
+    println("  state float type: ", state_float_type)
+    println("  LUT interpolation mode: ", getproperty(ctx, :lut_interpolation))
+    println("  forward preallocation: ", preallocate_forward)
+    println("  AD forward preallocation (other numeric types): ", preallocate_ad_forward)
+    println("  Jacobian preallocation (ForwardDiff.jacobian!): ", preallocate_jacobian)
+    println("  Hybrid Jacobian (analytic + AD for p/T): ", use_hybrid_jacobian)
     println("  initial scale: ", x0[layout.idx_continuum_scale])
     println("  measurement sigma (1σ): ", meas_sigma)
     if use_prior
@@ -559,6 +787,14 @@ function main()
             "    x_a[vcd_h2o_intercept] = ", x_a[layout.idx_vcd_h2o_intercept],
             "  sigma = ", prior_sigma[layout.idx_vcd_h2o_intercept],
         )
+        println(
+            "    x_a[vcd_o2_sif] = ", x_a[layout.idx_vcd_o2_sif],
+            "  sigma = ", prior_sigma[layout.idx_vcd_o2_sif],
+        )
+        println(
+            "    x_a[vcd_h2o_sif] = ", x_a[layout.idx_vcd_h2o_sif],
+            "  sigma = ", prior_sigma[layout.idx_vcd_h2o_sif],
+        )
         println("  priors on VCD slopes:")
         println(
             "    x_a[vcd_o2_slope] = ", x_a[layout.idx_vcd_o2_slope],
@@ -576,6 +812,7 @@ function main()
         println("  LM scales:")
         println("    vcd_o2 scale = ", x_scale[layout.idx_vcd_o2_intercept], "  slope scale = ", x_scale[layout.idx_vcd_o2_slope])
         println("    vcd_h2o scale = ", x_scale[layout.idx_vcd_h2o_intercept], "  slope scale = ", x_scale[layout.idx_vcd_h2o_slope])
+        println("    vcd_o2_sif scale = ", x_scale[layout.idx_vcd_o2_sif], "  vcd_h2o_sif scale = ", x_scale[layout.idx_vcd_h2o_sif])
         println("    p scale = ", p_sigma_hpa, "  T scale = ", t_sigma_k, "  continuum scale = ", x_scale[layout.idx_continuum_scale])
         if use_pt_constraints
             println(
@@ -625,6 +862,7 @@ function main()
                 lambda_min=lm_lambda_min,
                 lambda_max=lm_lambda_max,
                 max_inner=lm_max_inner,
+                jacobian_eval=jacobian_eval,
                 x_scale=x_scale,
                 lower_bounds=lower_bounds,
                 upper_bounds=upper_bounds,

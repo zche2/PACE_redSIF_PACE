@@ -18,6 +18,12 @@ o2_file = "wavelength-run_O2.jld2"
 # H2O cross-section lookup file (JLD2) on wavelength grid.
 h2o_file = "wavelength-run_H2O.jld2"
 
+[numerics]
+# Floating-point type for LUT/interpolator context and forward-model state vectors (`Float64` or `Float32`).
+float_type = "Float64"
+# LUT interpolation mode for cross sections (`cubic` or `linear`).
+lut_interpolation = "cubic"
+
 [spectral]
 # Minimum wavelength [nm] for retrieval/convolution working window.
 lambda_min_nm = 640.0
@@ -73,6 +79,14 @@ scan_index = 952
 [fit]
 # Number of Legendre polynomial terms in multiplicative baseline.
 n_legendre = 3
+# If true, preallocate Float32/Float64 forward-model work arrays.
+preallocate_forward = true
+# If true, also cache forward-model work arrays for non-float state types (e.g. ForwardDiff.Dual).
+preallocate_ad_forward = false
+# If true, use cached `ForwardDiff.jacobian!` buffers/config in retrieval iterations.
+preallocate_jacobian = false
+# If true, use hybrid Jacobian (analytic simple terms + AD for p/T terms).
+use_hybrid_jacobian = true
 # Legacy max iteration control (kept for compatibility with other routines).
 max_iter = 12
 # Legacy relative objective tolerance (kept for compatibility).

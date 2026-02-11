@@ -3,6 +3,7 @@
 *.log
 *.png
 *.gif
+*.nc
 
 # folder
 PACE_proposal_materials/

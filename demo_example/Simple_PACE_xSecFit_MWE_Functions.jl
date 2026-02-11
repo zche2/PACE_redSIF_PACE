@@ -8,6 +8,8 @@ using DelimitedFiles
 using PACE_SIF
 
 export read_mwe_config,
+       parse_float_type,
+       parse_lut_interpolation_mode,
        resolve_paths,
        load_sif_basis,
        load_solar_spectrum_on_grid,
@@ -52,6 +54,150 @@ Read and parse the TOML config file for the MWE.
 """
 function read_mwe_config(config_path::AbstractString)
     return TOML.parsefile(config_path)
+end
+
+"""
+    parse_float_type(cfg)
+
+Parse `[numerics].float_type` from TOML and return either `Float64` or `Float32`.
+Accepted values: `Float64`, `Float32`, `f64`, `f32` (case-insensitive).
+"""
+function parse_float_type(cfg::Dict)
+    raw = String(cfg_get(cfg, "numerics", "float_type", "Float64"))
+    key = lowercase(strip(raw))
+    if key in ("float64", "f64")
+        return Float64
+    elseif key in ("float32", "f32")
+        return Float32
+    end
+    error("Unsupported numerics.float_type='$raw'. Use Float64 or Float32.")
+end
+
+"""
+    parse_lut_interpolation_mode(cfg)
+
+Parse `[numerics].lut_interpolation` and return `:cubic` or `:linear`.
+Accepted values: `cubic`, `linear` (case-insensitive).
+Defaults to `:cubic` when missing.
+"""
+function parse_lut_interpolation_mode(cfg::Dict)
+    raw = String(cfg_get(cfg, "numerics", "lut_interpolation", "cubic"))
+    key = lowercase(strip(raw))
+    if key == "cubic"
+        return :cubic
+    elseif key == "linear"
+        return :linear
+    end
+    error("Unsupported numerics.lut_interpolation='$raw'. Use cubic or linear.")
+end
+
+@inline function _typed_range(r::AbstractRange, ::Type{T}) where {T<:AbstractFloat}
+    return range(T(first(r)), step=T(step(r)), length=length(r))
+end
+
+"""
+    cast_lut_interpolator_type(sitp, T)
+
+Rebuild a scaled BSpline lookup-table interpolator at floating type `T`.
+This is used to keep cross-section LUT calls type-stable in Float32 workflows.
+"""
+function cast_lut_interpolator_type(sitp, ::Type{Float64})
+    return sitp
+end
+
+function cast_lut_interpolator_type(sitp, ::Type{T}) where {T<:AbstractFloat}
+    hasproperty(sitp, :itp) || error("LUT interpolator does not expose .itp")
+    hasproperty(sitp, :ranges) || error("LUT interpolator does not expose .ranges")
+    hasproperty(sitp.itp, :coefs) || error("LUT base interpolator does not expose .coefs")
+    hasproperty(sitp.itp, :parentaxes) || error("LUT base interpolator does not expose .parentaxes")
+    hasproperty(sitp.itp, :it) || error("LUT base interpolator does not expose interpolation mode .it")
+
+    coefs_t = T.(sitp.itp.coefs)
+    itp_t = Interpolations.BSplineInterpolation(coefs_t, sitp.itp.it, sitp.itp.parentaxes)
+    ranges_t = ntuple(i -> _typed_range(sitp.ranges[i], T), length(sitp.ranges))
+    return scale(itp_t, ranges_t...)
+end
+
+@inline function _lut_range_value(r, i)
+    return first(r) + (i - 1) * step(r)
+end
+
+"""
+    _materialize_lut_values(sitp, spec_grid, p_grid, t_grid, T)
+
+Sample a scaled 3-D LUT interpolator on its knot grid and return dense values
+with element type `T`. Used to rebuild interpolation mode (e.g. linear).
+"""
+function _materialize_lut_values(
+    sitp,
+    spec_grid::AbstractRange,
+    p_grid::AbstractRange,
+    t_grid::AbstractRange,
+    ::Type{T},
+) where {T<:AbstractFloat}
+    vals = Array{T}(undef, length(spec_grid), length(p_grid), length(t_grid))
+    @inbounds for k in eachindex(t_grid)
+        t = _lut_range_value(t_grid, k)
+        for j in eachindex(p_grid)
+            p = _lut_range_value(p_grid, j)
+            for i in eachindex(spec_grid)
+                s = _lut_range_value(spec_grid, i)
+                vals[i, j, k] = T(sitp(s, p, t))
+            end
+        end
+    end
+    return vals
+end
+
+"""
+    build_lut_interpolator(sitp, mode, T)
+
+Create a type-stable LUT interpolator in floating type `T`.
+
+- `mode = :cubic`: keep current cubic spline mode (fast path, no resampling).
+- `mode = :linear`: rebuild as trilinear interpolation on knot values.
+"""
+function build_lut_interpolator(
+    sitp,
+    mode::Symbol,
+    ::Type{T},
+) where {T<:AbstractFloat}
+    return build_lut_interpolator(sitp, Val(mode), T)
+end
+
+function build_lut_interpolator(
+    sitp,
+    ::Val{:cubic},
+    ::Type{T},
+) where {T<:AbstractFloat}
+    return cast_lut_interpolator_type(sitp, T)
+end
+
+function build_lut_interpolator(
+    sitp,
+    ::Val{:linear},
+    ::Type{T},
+) where {T<:AbstractFloat}
+    spec_grid_t = _typed_range(sitp.ranges[1], T)
+    p_grid_t = _typed_range(sitp.ranges[2], T)
+    t_grid_t = _typed_range(sitp.ranges[3], T)
+    vals_t = _materialize_lut_values(
+        sitp,
+        sitp.ranges[1],
+        sitp.ranges[2],
+        sitp.ranges[3],
+        T,
+    )
+    itp_t = interpolate(vals_t, BSpline(Linear()))
+    return scale(itp_t, spec_grid_t, p_grid_t, t_grid_t)
+end
+
+function build_lut_interpolator(
+    sitp,
+    mode::Val,
+    ::Type{T},
+) where {T<:AbstractFloat}
+    error("Unsupported LUT interpolation mode: $(mode).")
 end
 
 """
@@ -599,6 +745,8 @@ Kernel flow:
 function prepare_mwe_inputs(config_path::AbstractString)
     cfg = read_mwe_config(config_path)
     paths = resolve_paths(cfg)
+    float_type = parse_float_type(cfg)
+    lut_mode = Symbol(get(ENV, "PACE_LUT_INTERPOLATION", String(parse_lut_interpolation_mode(cfg))))
 
     λ_min = Float64(cfg_get(cfg, "spectral", "lambda_min_nm", 680.0))
     λ_max = Float64(cfg_get(cfg, "spectral", "lambda_max_nm", 770.0))
@@ -612,8 +760,16 @@ function prepare_mwe_inputs(config_path::AbstractString)
     save_regenerated = Bool(cfg_get(cfg, "kernel", "save_regenerated", false))
     use_effective_centers = Bool(cfg_get(cfg, "kernel", "use_effective_band_centers", false))
 
-    o2_sitp = PACE_SIF.read_rescale(must_exist(paths.o2_path))
-    h2o_sitp = PACE_SIF.read_rescale(must_exist(paths.h2o_path))
+    o2_sitp = build_lut_interpolator(
+        PACE_SIF.read_rescale(must_exist(paths.o2_path)),
+        lut_mode,
+        float_type,
+    )
+    h2o_sitp = build_lut_interpolator(
+        PACE_SIF.read_rescale(must_exist(paths.h2o_path)),
+        lut_mode,
+        float_type,
+    )
     _, λ_lut, axis_unit = infer_lut_spectral_axis(o2_sitp)
     λ_hres = build_highres_wavelength_grid(
         λ_lut;
@@ -690,10 +846,13 @@ function prepare_mwe_inputs(config_path::AbstractString)
     return (
         cfg = cfg,
         paths = paths,
-        λ = λ,
-        λc = λc,
+        float_type = float_type,
+        lut_interpolation = lut_mode,
+        λ = float_type.(λ),
+        λc = float_type.(λc),
         kernel = regenerated_kernel,
         regenerated_kernel = regenerated_kernel,
+        kernel_rsr_out = float_type.(regenerated_kernel.RSR_out),
         regenerated_kernel_quality = regenerated_quality,
         generation_info = generation_info,
         kernel_comparison = comparison,
@@ -701,11 +860,11 @@ function prepare_mwe_inputs(config_path::AbstractString)
         delta_lambda_nm = delta_λ,
         o2_sitp = o2_sitp,
         h2o_sitp = h2o_sitp,
-        sif_basis_hres = sif_basis_hres,
-        sif_basis = sif_basis_lres,
+        sif_basis_hres = float_type.(sif_basis_hres),
+        sif_basis = float_type.(sif_basis_lres),
         axis_unit = axis_unit,
-        spectral_axis = spectral_axis,
-        λ_hres = λ_hres,
+        spectral_axis = float_type.(spectral_axis),
+        λ_hres = float_type.(λ_hres),
     )
 end
 
