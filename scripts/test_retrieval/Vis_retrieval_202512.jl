@@ -100,8 +100,8 @@ begin
 	histogram2d(
 		ref_nflh, peak_SIF,
 	    bins=200,
-	    xlabel="nfLH (W/m²/nm/sr)",
-		ylabel="Retrieved SIF (W/m²/nm/sr)",
+	    xlabel="nfLH (W/m²/µm/sr)",
+		ylabel="Retrieved SIF (W/m²/µm/sr)",
 	    # title="Retrieved SIF @ peak wavelength (~$(λ[ind]) nm)",
 	    colorbar_title="\n Count",
 		titlefontsize = 8,    # Title
