@@ -22,7 +22,7 @@ println("=" ^ 80)
 # ============================================================================
 const DATA_DIR = "/Users/cfranken/data"
 const PACE_DATA_DIR = DATA_DIR
-const XSECTION_DIR = DATA_DIR
+const XSECTION_DIR = joinpath(DATA_DIR, "default_run")
 const REFERENCE_DIR = DATA_DIR
 const KERNEL_DIR = DATA_DIR
 
@@ -30,7 +30,7 @@ const KERNEL_DIR = DATA_DIR
 # Parameters
 # ============================================================================
 λ_min = 630.
-λ_max = 757.
+λ_max = 750.
 
 # ============================================================================
 # Load Transmittance and PACE Data
@@ -367,12 +367,12 @@ println("\n[7/8] Setting up retrieval parameters...")
 @time begin
     println("  Loading LUT for cross sections...")
     
-    o2_jld2 = joinpath(XSECTION_DIR, "Finer_Wavenumber_grid_FullRange_Aug01_O2.jld2")
+    o2_jld2 = joinpath(XSECTION_DIR, "default_run_O2.jld2")
     if !isfile(o2_jld2)
         error("O2 cross section file not found: $o2_jld2")
     end
     o2_sitp = read_rescale(o2_jld2)
-    h2o_jld2 = joinpath(XSECTION_DIR, "Finer_Wavenumber_grid_FullRange_Aug01_H2O.jld2")
+    h2o_jld2 = joinpath(XSECTION_DIR, "default_run_H2O.jld2")
     if !isfile(h2o_jld2)
         error("H2O cross section file not found: $h2o_jld2")
     end
@@ -381,13 +381,30 @@ println("\n[7/8] Setting up retrieval parameters...")
     ν_grid_o2, p_grid_hPa, t_grid = o2_sitp.ranges
     println("  LUT loaded.")
 
-    kernel_path = joinpath(KERNEL_DIR, "KernelInstrument.jld2")
-    if !isfile(kernel_path)
-        error("Kernel file not found: $kernel_path")
-    end
-    @load kernel_path MyKernel
-    println("  Kernel instrument loaded.")
+    
 end
+
+filename = "/Users/cfranken/data/PACE_OCI_RSRs.nc"
+pace = Dataset(filename, "r")
+
+wavlen = convert.(Float64, pace["wavelength"][:])
+RSR_    = convert.(Float64, pace["RSR"][:])
+band    = convert.(Float64, pace["bands"][:])
+indiB   = findall(λ_min .< band .< λ_max)
+indiW   = findall(λ_min .- 5 .< wavlen .< λ_max .+ 5)
+
+# Create the wavenumber grid
+ν_grid = λ_to_ν.(band[indiB])  # Convert your wavelength grid to wavenumber
+
+MyKernel = KernelInstrument(
+    band[indiB],           # band central wavelengths
+    wavlen[indiW],         # fine wavelength grid for RSR
+    RSR_[indiW, indiB],    # RSR matrix subset
+    λ,                     # output wavelength grid (your main spectrum grid)
+    ν_grid                 # wavenumber grid
+)
+
+close(pace)
 
 # Setup retrieval parameters
 println("  Setting up retrieval parameters...")
@@ -494,9 +511,9 @@ MyReconModel = (x, px) -> forward_model(
 _, ρ, T₁, T₂, SIF = MyReconModel(SinglePixel.x, SinglePixel)
 
 # Manual reconstruction check
-xᵨ    = SinglePixel.x[1 : SinglePixel.nPoly+1]
-v     = collectPl.(SinglePixel.λc, lmax=SinglePixel.nPoly)
-thisρ = hcat(v...)' * xᵨ
+xᵨ    = SinglePixel.x[1 : SinglePixel.nPoly+1];
+v     = collectPl.(SinglePixel.λc, lmax=SinglePixel.nPoly);
+thisρ = hcat(v...)' * xᵨ;
 
 # ============================================================================
 # Visualization of Results

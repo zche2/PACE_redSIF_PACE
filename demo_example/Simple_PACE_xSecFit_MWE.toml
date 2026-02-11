@@ -1,0 +1,141 @@
+[data]
+# Base directory that contains all external data files used by this MWE.
+base_dir = "/Users/cfranken/data"
+# Name of the cross-section processing run (used to build default filenames).
+xsec_run = "wavelength-run"
+# Optional explicit cross-section directory; leave empty to auto-resolve from `base_dir` and `xsec_run`.
+xsec_dir = ""
+# Stored instrument kernel file (JLD2) used as reference.
+kernel_file = "KernelInstrument.jld2"
+# PACE OCI relative spectral response NetCDF used to regenerate kernels.
+pace_rsr_file = "PACE_OCI_RSRs.nc"
+# Output filename for regenerated kernel diagnostics.
+regenerated_kernel_file = "KernelInstrument_regenerated.jld2"
+# SIF singular-vector basis file (JLD2).
+sif_file = "SIF_singular_vector.jld2"
+# O2 cross-section lookup file (JLD2) on wavelength grid.
+o2_file = "wavelength-run_O2.jld2"
+# H2O cross-section lookup file (JLD2) on wavelength grid.
+h2o_file = "wavelength-run_H2O.jld2"
+
+[spectral]
+# Minimum wavelength [nm] for retrieval/convolution working window.
+lambda_min_nm = 640.0
+# Maximum wavelength [nm] for retrieval/convolution working window.
+lambda_max_nm = 756.0
+# High-resolution wavelength spacing [nm] for forward model grid.
+delta_lambda_nm = 0.005
+# Number of SIF eigenvectors to load and include in the model.
+sif_nev = 2
+# If true, normalize SIF EV1 by its absolute maximum.
+normalize_sif_first_ev = true
+
+[kernel]
+# If true, clip negative RSR values to zero before normalization.
+clip_negative_rsr = true
+# If true, compare regenerated kernel against stored kernel.
+compare_with_stored = true
+# Tolerance [nm] used for matching kernel bands by center wavelength.
+band_match_tol_nm = 0.01
+# If true, save regenerated kernel to `regenerated_kernel_file`.
+save_regenerated = false
+# If true, use effective band centers derived from RSR weights.
+use_effective_band_centers = true
+
+[test_convolution]
+# O2 pressure prior/value [hPa] used in simple convolution test snippet.
+p_o2_hpa = 800.0
+# O2 effective temperature [K] used in simple convolution test snippet.
+t_o2_k = 250.0
+# O2 vertical column density used in simple convolution test snippet.
+vcd_o2 = 3.981071705534985e24
+# H2O pressure [hPa] used in simple convolution test snippet.
+p_h2o_hpa = 780.0
+# H2O effective temperature [K] used in simple convolution test snippet.
+t_h2o_k = 285.0
+# H2O vertical column density used in simple convolution test snippet.
+vcd_h2o = 3.981071705534969e22
+
+[pace_observation]
+# If true, read a measured PACE spectrum from NetCDF.
+enabled = true
+# PACE NetCDF file containing radiances and geolocation.
+pace_file = "sample_granule_20240830T131442_new_chl.nc"
+# Name of wavelength variable in PACE file.
+wavelength_var = "red_wavelength"
+# Name of spectral radiance cube variable in PACE file.
+spectrum_var = "radiance_red"
+# Pixel index in PACE swath to retrieve (first spatial dimension).
+pixel_index = 633
+# Scan index in PACE swath to retrieve (second spatial dimension).
+scan_index = 952
+
+[fit]
+# Number of Legendre polynomial terms in multiplicative baseline.
+n_legendre = 3
+# Legacy max iteration control (kept for compatibility with other routines).
+max_iter = 12
+# Legacy relative objective tolerance (kept for compatibility).
+rel_obj_tol = 1e-8
+# Legacy relative step tolerance (kept for compatibility).
+rel_step_tol = 1e-8
+# Convergence threshold: relative state update norm.
+conv_dx_rel_tol = 1e-6
+# Convergence threshold: relative RMSE change.
+conv_rmse_rel_tol = 1e-6
+# Convergence threshold: absolute RMSE change.
+conv_rmse_abs_tol = 1e-6
+# If true, set priors for Legendre P0/P1 from envelope-like ratio fit.
+use_legendre01_prior = true
+# Fraction of fitted P0/P1 magnitude used as sigma for those priors.
+legendre01_prior_sigma_fraction = 1.0
+# If true, apply moderate priors to higher Legendre terms (P2+).
+use_legendre_higher_prior = true
+# Sigma used for higher-order Legendre priors (P2+).
+legendre_higher_sigma = 1.0
+# If true, apply explicit prior on VCD slope terms.
+use_vcd_slope_prior = true
+# Multiplier mapping VCD intercept sigma to VCD slope sigma.
+vcd_slope_prior_sigma_factor = 1.0
+# Prior sigma for all SIF coefficients (prior mean is fixed to 0).
+sif_sigma = 1e12
+# Minimum allowed prior sigma to avoid singular inverse covariance.
+prior_min_sigma = 0.001
+# Default sigma assigned to unconstrained parameters.
+prior_sigma_default = 1e12
+# Prior mean for pressure states [hPa].
+p_prior_hpa = 700.0
+# Prior sigma for pressure states [hPa].
+p_sigma_hpa = 200.0
+# Prior mean for temperature states [K].
+t_prior_k = 280.0
+# Prior sigma for temperature states [K].
+t_sigma_k = 20.0
+# Prior sigma for O2 VCD intercept.
+vcd_o2_sigma = 1e23
+# Prior sigma for H2O VCD intercept.
+vcd_h2o_sigma = 3e22
+# If true, enforce box constraints on p/T around prior mean.
+use_pt_constraints = true
+# Constraint width multiplier for p/T bounds: prior ± multiplier*sigma.
+pt_constraint_sigma_mult = 3.0
+# Initial LM damping parameter (gamma).
+lm_lambda0 = 1.0
+# LM multiplier applied to gamma after rejected trial step.
+lm_lambda_up = 5.0
+# LM multiplier applied to gamma after accepted trial step.
+lm_lambda_down = 0.7
+# Lower bound for LM gamma.
+lm_lambda_min = 1e-8
+# Upper bound for LM gamma.
+lm_lambda_max = 1e8
+# Maximum inner LM gamma trials per outer iteration.
+lm_max_inner = 24
+# Measurement 1-sigma noise per spectral channel (used for S_e diagonal).
+meas_sigma = 0.01
+# Number of outer LM steps to attempt for logging/plotting.
+n_plot_steps = 20
+# Output plot filename for spectral fit and residual diagnostics.
+iter_plot_file = "toy_fit_iter_spectral.png"
+# Output CSV filename for per-iteration diagnostics/state vector.
+iter_log_file = "toy_fit_iter_log.csv"

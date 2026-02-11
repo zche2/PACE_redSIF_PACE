@@ -1,0 +1,76 @@
+[test_convolution]
+p_h2o_hpa = 780.0
+t_o2_k = 250.0
+vcd_h2o = 3.981071705534969e22
+t_h2o_k = 285.0
+vcd_o2 = 3.981071705534985e24
+p_o2_hpa = 800.0
+
+[spectral]
+lambda_max_nm = 756.0
+lambda_min_nm = 640.0
+normalize_sif_first_ev = true
+delta_lambda_nm = 0.005
+sif_nev = 2
+
+[kernel]
+compare_with_stored = true
+band_match_tol_nm = 0.01
+use_effective_band_centers = true
+clip_negative_rsr = true
+save_regenerated = false
+
+[data]
+pace_rsr_file = "PACE_OCI_RSRs.nc"
+o2_file = "wavelength-run_O2.jld2"
+h2o_file = "wavelength-run_H2O.jld2"
+regenerated_kernel_file = "KernelInstrument_regenerated.jld2"
+xsec_run = "wavelength-run"
+kernel_file = "KernelInstrument.jld2"
+sif_file = "SIF_singular_vector.jld2"
+base_dir = "/Users/cfranken/data"
+xsec_dir = ""
+
+[fit]
+sif_sigma = 1.0e-12
+vcd_o2_sigma = 1.0e23
+iter_plot_file = "toy_fit_iter_spectral_sif_fixed.png"
+vcd_slope_prior_sigma_factor = 1.0
+n_plot_steps = 20
+lm_max_inner = 24
+lm_lambda0 = 1.0
+legendre01_prior_sigma_fraction = 1.0
+max_iter = 12
+use_legendre_higher_prior = true
+conv_rmse_abs_tol = 1.0e-6
+t_prior_k = 280.0
+p_prior_hpa = 700.0
+iter_log_file = "toy_fit_iter_log_sif_fixed.csv"
+vcd_h2o_sigma = 3.0e22
+use_vcd_slope_prior = true
+prior_min_sigma = 0.001
+rel_obj_tol = 1.0e-8
+conv_dx_rel_tol = 1.0e-6
+use_legendre01_prior = true
+use_pt_constraints = true
+n_legendre = 3
+t_sigma_k = 20.0
+prior_sigma_default = 1.0e12
+rel_step_tol = 1.0e-8
+pt_constraint_sigma_mult = 3.0
+lm_lambda_down = 0.7
+lm_lambda_max = 1.0e8
+meas_sigma = 0.01
+conv_rmse_rel_tol = 1.0e-6
+legendre_higher_sigma = 1.0
+lm_lambda_up = 5.0
+p_sigma_hpa = 200.0
+lm_lambda_min = 1.0e-8
+
+[pace_observation]
+wavelength_var = "red_wavelength"
+enabled = true
+pace_file = "sample_granule_20240830T131442_new_chl.nc"
+spectrum_var = "radiance_red"
+scan_index = 952
+pixel_index = 633

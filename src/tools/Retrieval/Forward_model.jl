@@ -237,7 +237,16 @@ function compute_transmittance(
     # High-resolution transmittance
     t_trans = @elapsed begin
         T_highres       = exp.(-τ_total)
-        T_highres_wvlen = reverse(T_highres)
+
+        # Align to kernel wavelength ordering.
+        # Kernel spectral axis can be native wavenumber or wavelength, depending on LUT build.
+        spec_grid = collect(MyKernel.ν_grid)
+        λ_from_spec = maximum(spec_grid) > 3000.0 ? ν_to_λ.(spec_grid) : spec_grid
+        wvlen_out = collect(MyKernel.wvlen_out)
+
+        err_direct = abs(λ_from_spec[1] - wvlen_out[1]) + abs(λ_from_spec[end] - wvlen_out[end])
+        err_reverse = abs(λ_from_spec[end] - wvlen_out[1]) + abs(λ_from_spec[1] - wvlen_out[end])
+        T_highres_wvlen = err_direct <= err_reverse ? T_highres : reverse(T_highres)
     end
     println("    [CompTrans] Transmittance calc: $(round(t_trans*1e6, digits=1)) μs")
     

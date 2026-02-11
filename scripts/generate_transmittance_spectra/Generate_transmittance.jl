@@ -9,11 +9,17 @@ using Parameters, ProgressMeter, ProgressLogging
 
 function read_rescale(itp_filename::String)
 	model = load_interpolation_model(itp_filename);
-	ν_grid = model.ν_grid;
+	spec_grid = if hasproperty(model, :ν_grid)
+		model.ν_grid
+	elseif hasproperty(model, :λ_grid)
+		model.λ_grid
+	else
+		error("Interpolation model must contain either :ν_grid or :λ_grid")
+	end
 	p_grid = model.p_grid;
 	t_grid = model.t_grid;
 	itp    = model.itp;
-	sitp = scale(itp, ν_grid, p_grid, t_grid);
+	sitp = scale(itp, spec_grid, p_grid, t_grid);
 	println("scaled! $itp_filename")
 	return sitp
 end
@@ -28,14 +34,37 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	# --- specify the output NetCDF filename ---
 	output_filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/transmittance_summer_FineWvResModel_FullRange_Aug01.nc";
 
-	o2_jld2 = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01/Finer_Wavenumber_grid_FullRange_Aug01_O2.jld2";
+	xsec_subdir = "wavelength-run";
+	xsec_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/$xsec_subdir";
+	o2_jld2 = joinpath(xsec_dir, "$(xsec_subdir)_O2.jld2");
 	o2_sitp = read_rescale(o2_jld2);
-	h2o_jld2 = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01/Finer_Wavenumber_grid_FullRange_Aug01_H2O.jld2";
+	h2o_jld2 = joinpath(xsec_dir, "$(xsec_subdir)_H2O.jld2");
 	h2o_sitp = read_rescale(h2o_jld2);
 
-	metadata = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Finer_Wavenumber_grid_FullRange_Aug01/Finer_Wavenumber_grid_FullRange_Aug01.log"
+	metadata = joinpath(xsec_dir, "$(xsec_subdir).log")
 
-	ν_grid, p_grid_hPa, t_grid = o2_sitp.ranges;
+	spec_grid_raw, p_grid_hPa, t_grid = o2_sitp.ranges;
+	spec_grid_raw = collect(spec_grid_raw);
+
+	# Detect spectral axis unit and reorder to increasing wavelength for high-res forward runs.
+	# Note: For wavelength-run LUTs, the first axis is wavelength even if field name is ν_grid.
+	is_wavenumber_axis = maximum(spec_grid_raw) > 3000.0;
+	if is_wavenumber_axis
+		λ_from_raw = PACE_SIF.ν_to_λ.(spec_grid_raw);
+		axis_unit = "wavenumber_cm^-1";
+	else
+		λ_from_raw = spec_grid_raw;
+		axis_unit = "wavelength_nm";
+	end
+
+	if λ_from_raw[1] <= λ_from_raw[end]
+		spec_eval_grid = spec_grid_raw;
+		λ_hres = λ_from_raw;
+	else
+		spec_eval_grid = reverse(spec_grid_raw);
+		λ_hres = reverse(λ_from_raw);
+	end
+	println("high-res axis unit: $axis_unit, n=$(length(spec_eval_grid))")
 
 	# --- Here it get automated! ---
 
@@ -98,21 +127,19 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	RSR = pace["RSR"];
 	band = pace["bands"];
 
-	if_wavenumber = true;
-
-	λ = if_wavenumber ? reverse(1 ./ collect(ν_grid) .* 1E7) : (1 ./ collect(ν_grid) .* 1E7);
-
-	ind₁   = findall( λ[1] .< wavlen .< λ[end]);
-	ind₂   = findall( λ[1] .< band   .< λ[end]);
+	ind₁   = findall( λ_hres[1] .< wavlen .< λ_hres[end]);
+	ind₂   = findall( λ_hres[1] .< band   .< λ_hres[end]);
 	λ_msr  = wavlen[ind₁];
 	MyRSR  = RSR[ind₁, ind₂];
 
 	MyKernel = PACE_SIF.KernelInstrument(
-		band=band[ind₂],
-		wvlen=λ_msr,
-		RSR=RSR[ind₁, ind₂],
-		wvlen_out=λ
+		band[ind₂],
+		λ_msr,
+		MyRSR,
+		λ_hres,
+		spec_eval_grid,
 	);
+	close(pace)
 	println(size(MyKernel.RSR_out));
 
 
@@ -123,7 +150,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	vmr_h2o = zeros(Float64, size(temp))
 	vcd_dry = zeros(Float64, size(temp))
 	vcd_h2o = zeros(Float64, size(temp))
-	τ       = zeros(Float64, (len, length(ν_grid)))
+	τ       = zeros(Float64, (len, length(λ_hres)))
 
 	@info "Starting"
 	@showprogress 5 "Processing data..." for i in 1:len
@@ -138,12 +165,12 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
 		if(length(p_full_slice)==length(T_slice))
 			# get spectra & optical depth
-			xSec_slice_o2 = [o2_sitp(ν_grid, j, k) for (j, k) in zip(p_full_slice, T_slice)];
+			xSec_slice_o2 = [o2_sitp(spec_eval_grid, j, k) for (j, k) in zip(p_full_slice, T_slice)];
 			xSec_tmp_o2 = hcat(xSec_slice_o2...)
 			τ_o2_tmp    = xSec_tmp_o2 * vcd_dry_tmp * vmr_o2;
 
 			
-			xSec_slice_h2o = [h2o_sitp(ν_grid, j, k) for (j, k) in zip(p_full_slice, T_slice)];
+			xSec_slice_h2o = [h2o_sitp(spec_eval_grid, j, k) for (j, k) in zip(p_full_slice, T_slice)];
 			xSec_tmp_h2o = hcat(xSec_slice_h2o...)
 			τ_h2o_tmp    = xSec_tmp_h2o * vcd_h2o_tmp;
 			
@@ -169,18 +196,11 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	AMF_bc  = repeat(AMF, num_rep)[1:len];
 	# multiply to get a slant optical depth => transmission
 	trans_hres = exp.(- AMF_bc .* τ );
-	# reverse if if_wavenumber is true
-	if if_wavenumber
-		trans_anly = reverse(trans_hres, dims=2);
-		println("reversed!");
-	else
-		trans_anly = trans_hres;
-	end
 
 
 	trans = zeros(Float64, (len, length(MyKernel.band)));
 	for i in 1:len
-		trans[i,:] = MyKernel.RSR_out * trans_anly[i,:];
+		trans[i,:] = MyKernel.RSR_out * trans_hres[i,:];
 	end
 
 
@@ -197,10 +217,12 @@ if abspath(PROGRAM_FILE) == @__FILE__
 		ds.attrib["ak"]     = ak;
 		ds.attrib["bk"]     = bk;
 
-		ds.attrib["ν_grid (cm^-1)"] = "Min=$(ν_grid[1]), Max=$(ν_grid[end]), res=$(ν_grid[2]-ν_grid[1])";
-		ds.attrib["p_grid (hPa)"]   = p_grid_hPa;
-		ds.attrib["T_grid (K)"]     = t_grid;
-		ds.attrib["vza (˚)"]        = vza;
+		ds.attrib["highres_axis_unit"] = axis_unit;
+		ds.attrib["highres_axis"]      = "Min=$(spec_eval_grid[1]), Max=$(spec_eval_grid[end]), n=$(length(spec_eval_grid))";
+		ds.attrib["λ_hres (nm)"]       = "Min=$(λ_hres[1]), Max=$(λ_hres[end]), n=$(length(λ_hres))";
+		ds.attrib["p_grid (hPa)"]      = p_grid_hPa;
+		ds.attrib["T_grid (K)"]        = t_grid;
+		ds.attrib["vza (˚)"]           = vza;
 
 		# --- Define Dimensions ---
 		# defDim(dataset_object, dimension_name_string, length)
