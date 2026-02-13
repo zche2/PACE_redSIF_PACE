@@ -201,6 +201,8 @@ function make_forward_model_simple(
     λ_hres = collect(ctx.λ_hres)
     λ_lres = collect(ctx.λ)
     spectral_axis = collect(ctx.spectral_axis)
+    # check spectral_axis
+    println("extrema of spectral_axis: $(spectral_axis[1]), $(spectral_axis[end])")
     K = hasproperty(ctx, :kernel_rsr_out) ? ctx.kernel_rsr_out : ctx.kernel.RSR_out
     sif_basis_hres = ctx.sif_basis_hres
 

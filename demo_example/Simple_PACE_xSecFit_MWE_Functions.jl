@@ -460,16 +460,19 @@ function infer_lut_spectral_axis(o2_sitp)
     spec_raw = collect(o2_sitp.ranges[1])
     is_wavenumber_axis = maximum(spec_raw) > 3000.0
     λ_raw = is_wavenumber_axis ? PACE_SIF.ν_to_λ.(spec_raw) : spec_raw
-    axis_unit = is_wavenumber_axis ? "wavenumber_cm^-1" : "wavelength_nm"
+    axis_unit  = is_wavenumber_axis ? "wavenumber_cm^-1" : "wavelength_nm"
+    keep_order = (λ_raw[1] <= λ_raw[end])
 
-    if λ_raw[1] <= λ_raw[end]
+    if keep_order
         spectral_axis = spec_raw
         λ_hres = λ_raw
     else
         spectral_axis = reverse(spec_raw)
         λ_hres = reverse(λ_raw)
     end
-
+    println("Inferred LUT spectral axis unit: $axis_unit")
+    println("  | λ range: [$(minimum(λ_hres)), $(maximum(λ_hres))] nm")
+    println("  | LUT spectral axis: [$(minimum(spectral_axis)), $(maximum(spectral_axis))] $axis_unit")
     return spectral_axis, λ_hres, axis_unit
 end
 
@@ -505,6 +508,7 @@ function build_highres_wavelength_grid(
     if λ_hres[end] < hi_req - 1e-10
         push!(λ_hres, hi_req)
     end
+    println("Wavelength grid constructed with $(length(λ_hres)) samples, range [$(minimum(λ_hres)), $(maximum(λ_hres))] nm, delta_lambda_nm=$delta_lambda_nm")
     return λ_hres
 end
 
@@ -534,6 +538,8 @@ function make_kernel_spectral_axis(
     if (spec_grid_raw[1] <= spec_grid_raw[end]) != (spec_eval[1] <= spec_eval[end])
         spec_eval = reverse(spec_eval)
     end
+    println("Kernel spectral axis aligned to high-res wavelength grid with unit: $axis_unit")
+    println("  | LUT spectral axis range: [$(minimum(spec_grid_raw)), $(maximum(spec_grid_raw))] $axis_unit")
     return spec_eval, axis_unit
 end
 
@@ -581,6 +587,13 @@ function build_kernel_from_rsr_nc(
     rsr_all = collect(Float64.(ds["RSR"][:, :]))
     close(ds)
 
+    # print info about the RSR wavelength and band ranges
+    println("Loaded PACE RSR from '$pace_rsr_path':")
+    println("  | PACE RSR wavelength range: [$(minimum(wavlen)), $(maximum(wavlen))] nm")
+    println("  | PACE RSR band range: [$(minimum(band)), $(maximum(band))] nm")
+    println("  | Wavelength Δλ: [$(minimum(diff(wavlen))), $(maximum(diff(wavlen)))] nm")
+    println("  | PACE RSR dimensions: $(size(rsr_all)) (wavelength samples x bands)")
+
     λ_lo = max(λ_min, minimum(λ_hres))
     λ_hi = min(λ_max, maximum(λ_hres))
 
@@ -608,6 +621,7 @@ function build_kernel_from_rsr_nc(
         n_wavelength_samples = length(wavlen_sub),
         n_bands = length(band_sub),
         λ_range_nm = (minimum(band_sub), maximum(band_sub)),
+        RSR_out_sz = size(kernel.RSR_out),
     )
 end
 
@@ -788,6 +802,8 @@ function prepare_mwe_inputs(config_path::AbstractString)
         λ_max=λ_max,
         clip_negative=clip_negative_rsr,
     )
+    println("Regenerated kernel from PACE RSR NetCDF with size: $(generation_info.RSR_out_sz)) (bands x wavelength samples)")
+    
     regenerated_quality = kernel_quality_metrics(regenerated_kernel)
 
     if save_regenerated
@@ -842,6 +858,11 @@ function prepare_mwe_inputs(config_path::AbstractString)
     end
 
     λc = PACE_SIF.center_wavelength(collect(Union{Missing, Float64}, λ))
+
+    # check spectral_axis: if in ascending order, keep as is; if in descending order, reverse to match λ_hres
+    if spectral_axis[1] <= spectral_axis[end]
+        spectral_axis = reverse(spectral_axis)
+    end
 
     return (
         cfg = cfg,

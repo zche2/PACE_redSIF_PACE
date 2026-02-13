@@ -2,9 +2,9 @@
 # Base directory that contains all external data files used by this MWE.
 base_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use"
 # Optional explicit cross-section directory; leave empty to auto-resolve from `base_dir` and `xsec_run`.
-xsec_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/wavelength-run"
+xsec_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange/"
 # Name of the cross-section processing run (used to build default filenames).
-xsec_run = "wavelength-run"
+xsec_run = "Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange"
 # Stored instrument kernel file (JLD2) used as reference.
 kernel_file = "KernelInstrument.jld2"
 # PACE OCI relative spectral response NetCDF used to regenerate kernels.
@@ -14,9 +14,9 @@ regenerated_kernel_file = "KernelInstrument_regenerated.jld2"
 # SIF singular-vector basis file (JLD2).
 sif_file = "SIF_singular_vector.jld2"
 # O2 cross-section lookup file (JLD2) on wavelength grid.
-o2_file = "wavelength-run_O2.jld2"
+o2_file = "Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange_O2.jld2"
 # H2O cross-section lookup file (JLD2) on wavelength grid.
-h2o_file = "wavelength-run_H2O.jld2"
+h2o_file = "Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange_H2O.jld2"
 
 [numerics]
 # Floating-point type for LUT/interpolator context and forward-model state vectors (`Float64` or `Float32`).
