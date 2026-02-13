@@ -24,7 +24,7 @@ import vSmartMOM.Absorption: make_interpolation_model
     simulation_id::String    = "wavelength-run" # Unique ID for the simulation
     
     # Paths relative to the script's execution directory
-    results_base_dir::String = "/Users/cfranken/data"
+    results_base_dir::String = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection"
 
     # --- Species to be considered ---
     gas_species::Vector{String}  = ["H2O", "O2"]
@@ -34,7 +34,7 @@ import vSmartMOM.Absorption: make_interpolation_model
     UnevenGrid_Pressure::Bool    = false
     MinPressure_Pa::FT           = 1.
     MaxPressure_Pa::FT           = 105000.
-    deltaPressure_Pa::FT         = 25000.
+    deltaPressure_Pa::FT         = 2500.
     PressureGrid_dir::String     = "default"      # if customized grid, need to specify the jld2 file used
 
     UnevenGrid_Temperature::Bool = false
@@ -46,7 +46,7 @@ import vSmartMOM.Absorption: make_interpolation_model
     # --- Wavenumber of interest ---
     res::FT      = 0.005
     ν_min::FT    = 610.0
-    ν_max::FT    = 765.0
+    ν_max::FT    = 770.0
     
 end
 
@@ -120,61 +120,5 @@ MyModel = ModelParameters{Float32}()
 
     end
 
-
-if abspath(PROGRAM_FILE) == @__FILE__
-    
-    # ================== specify the model =====================
-    println("--- make interpolation model ---")
-
-    # Model Params 🌟
-    MyModel = ModelParameters{Float64}(
-        simulation_id       = "Finer_Wavenumber_grid_FullRange_NOx_Oct30",
-        res                 = 0.01,
-        ν_min               = 11111,
-        ν_max               = 16600,
-        gas_species         = ["NO2", "NO"],
-        gas_id              = [-1, -1],
-        # deltaTemp_K         = 1.,
-        # UnevenGrid_Pressure = true,
-        # PressureGrid_dir    = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Pressure_UpperAtm.jld2",
-    )
-    println(MyModel)
-
-    # 🌟
-
-    # ==================== generate grids ======================
-
-    
-end
-
-
-
-#=
-function generate_config_file(params::ModelParameters)
-    filedir     = params.results_base_dir
-    output_dir  = joinpath(filedir, "$(params.simulation_id)")
-    # Ensure the output directory exists
-    mkpath(output_dir)
-    config_path = joinpath(output_dir, "$(params.simulation_id)_config.yaml")
-
-    # generate grids
-    ν_grid = ν_min:res:ν_max
-
-    if MyModel.UnevenGrid_Temperature
-        @load MyModel.TempGrid_dir t_grid
-    else
-        t_grid = MyModel.MinTemp_K : MyModel.deltaTemp_K : MyModel.MaxTemp_K
-    end
-
-    if MyModel.UnevenGrid_Pressure
-        @load MyModel.PressureGrid_dir p_grid
-    else
-        p_grid = MyModel.MinPressure_Pa : MyModel.deltaPressure_Pa : MyModel.MaxPressure_Pa
-    end
-    # convert to hPa 
-    p_grid /= 100.
-
-end
-=#
 
 

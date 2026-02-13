@@ -21,7 +21,7 @@ function main()
     config_path = get(
         ENV,
         "PACE_MWE_CONFIG",
-        joinpath(@__DIR__, "Simple_PACE_xSecFit_MWE.toml"),
+        joinpath(@__DIR__, "Simple_PACE_xSecFit_MWE_zcheVer.toml"),
     )
     cfg = TOML.parsefile(config_path)
     ctx = prepare_mwe_inputs(config_path)
