@@ -602,7 +602,7 @@ function main()
     pt_constraint_sigma_mult = Float64(get(fit_cfg, "pt_constraint_sigma_mult", 3.0))
     meas_sigma > 0.0 || error("fit.meas_sigma must be > 0")
 
-    solar_file = get(data_cfg, "solar_file", "solar_merged_20200720_600_33300_100.out")
+    solar_file = get(data_cfg, "solar_file", "solar_merged_20240731_600_33300_100.out")
     solar_path = isabspath(solar_file) ? solar_file : joinpath(ctx.paths.base_dir, solar_file)
     solar_hres, _ = load_solar_spectrum_on_grid(solar_path, ctx.λ_hres; header_lines=3)
     solar_hres = state_float_type.(solar_hres)
