@@ -305,7 +305,7 @@ end
     make_hybrid_jacobian_evaluator(fm, ctx, solar_hres, layout; n_legendre)
 
 Hybrid Jacobian:
-- Analytic columns: VCD intercept/slope, SIF-path VCDs, continuum scale, SIF coeffs, Legendre coeffs
+- Analytic columns: VCD intercept/slope, SIF-path VCDs, SIF coeffs, Legendre coeffs
 - Interpolator-derivative columns: p_o2_hpa, t_o2_k, p_h2o_hpa, t_h2o_k
 
 Pressure/temperature derivatives are obtained directly from dualized LUT calls at
@@ -370,7 +370,6 @@ function make_hybrid_jacobian_evaluator(
         t_h2o = x[layout.idx_t_h2o_k]
         vcd_o2_sif = x[layout.idx_vcd_o2_sif]
         vcd_h2o_sif = x[layout.idx_vcd_h2o_sif]
-        cont = x[layout.idx_continuum_scale]
         sif_coeff = @view x[layout.idx_sif]
         leg_coeff = @view x[layout.idx_legendre]
 
@@ -398,18 +397,18 @@ function make_hybrid_jacobian_evaluator(
         @. trans_sif = exp(-(vcd_h2o_sif * xs_h2o + vcd_o2_sif * xs_o2))
 
         mul!(sif_hres, sif_basis, sif_coeff)
-        @. y_hres = cont * solar * trans + trans_sif * sif_hres
+        @. y_hres = solar * trans + trans_sif * sif_hres
         mul!(y_lres, K, y_hres)
         mul!(poly, leg_basis, leg_coeff)
 
         # Analytic VCD derivatives.
-        @. d_hres = -cont * solar * trans * xs_o2
+        @. d_hres = -solar * trans * xs_o2
         apply_hres_column!(layout.idx_vcd_o2_intercept)
-        @. d_hres = -cont * solar * trans * (z_hres * xs_o2)
+        @. d_hres = -solar * trans * (z_hres * xs_o2)
         apply_hres_column!(layout.idx_vcd_o2_slope)
-        @. d_hres = -cont * solar * trans * xs_h2o
+        @. d_hres = -solar * trans * xs_h2o
         apply_hres_column!(layout.idx_vcd_h2o_intercept)
-        @. d_hres = -cont * solar * trans * (z_hres * xs_h2o)
+        @. d_hres = -solar * trans * (z_hres * xs_h2o)
         apply_hres_column!(layout.idx_vcd_h2o_slope)
 
         # Analytic SIF-path VCD derivatives.
@@ -419,18 +418,14 @@ function make_hybrid_jacobian_evaluator(
         apply_hres_column!(layout.idx_vcd_h2o_sif)
 
         # Analytic p/T derivatives using LUT derivatives.
-        @. d_hres = -cont * solar * trans * (vcd_o2 * dxsdp_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdp_o2)
+        @. d_hres = -solar * trans * (vcd_o2 * dxsdp_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdp_o2)
         apply_hres_column!(layout.idx_p_o2_hpa)
-        @. d_hres = -cont * solar * trans * (vcd_o2 * dxsdt_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdt_o2)
+        @. d_hres = -solar * trans * (vcd_o2 * dxsdt_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdt_o2)
         apply_hres_column!(layout.idx_t_o2_k)
-        @. d_hres = -cont * solar * trans * (vcd_h2o * dxsdp_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdp_h2o)
+        @. d_hres = -solar * trans * (vcd_h2o * dxsdp_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdp_h2o)
         apply_hres_column!(layout.idx_p_h2o_hpa)
-        @. d_hres = -cont * solar * trans * (vcd_h2o * dxsdt_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdt_h2o)
+        @. d_hres = -solar * trans * (vcd_h2o * dxsdt_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdt_h2o)
         apply_hres_column!(layout.idx_t_h2o_k)
-
-        # Analytic continuum derivative.
-        @. d_hres = solar * trans
-        apply_hres_column!(layout.idx_continuum_scale)
 
         # Analytic SIF coefficients.
         for iev in 1:layout.n_ev
@@ -696,10 +691,6 @@ function main()
         )
     end
 
-    # Good first guess for scale from linear least-squares.
-    y0 = fm(x0)
-    x0[layout.idx_continuum_scale] = dot(y_obs, y0) / dot(y0, y0)
-
     # Prior setup (Rodgers Eq. 5.9):
     # Set priors for first two Legendre terms (P0,P1) from an envelope-like fit.
     x_a = copy(x0)
@@ -788,7 +779,6 @@ function main()
     x_scale[layout.idx_p_h2o_hpa] = p_sigma_hpa
     x_scale[layout.idx_t_o2_k] = t_sigma_k
     x_scale[layout.idx_t_h2o_k] = t_sigma_k
-    x_scale[layout.idx_continuum_scale] = max(abs(x0[layout.idx_continuum_scale]), 10.0)
     x_scale[layout.idx_sif] .= 1.0
     x_scale[layout.idx_legendre] .= 1.0
 
@@ -815,7 +805,6 @@ function main()
     println("  AD forward preallocation (other numeric types): ", preallocate_ad_forward)
     println("  Jacobian preallocation (ForwardDiff.jacobian!): ", preallocate_jacobian)
     println("  Hybrid Jacobian (analytic + AD for p/T): ", use_hybrid_jacobian)
-    println("  initial scale: ", x0[layout.idx_continuum_scale])
     println("  measurement sigma (1σ): ", meas_sigma)
     println(
         "  stalled-convergence check: ",
@@ -870,7 +859,7 @@ function main()
         println("    vcd_o2 scale = ", x_scale[layout.idx_vcd_o2_intercept], "  slope scale = ", x_scale[layout.idx_vcd_o2_slope])
         println("    vcd_h2o scale = ", x_scale[layout.idx_vcd_h2o_intercept], "  slope scale = ", x_scale[layout.idx_vcd_h2o_slope])
         println("    vcd_o2_sif scale = ", x_scale[layout.idx_vcd_o2_sif], "  vcd_h2o_sif scale = ", x_scale[layout.idx_vcd_h2o_sif])
-        println("    p scale = ", p_sigma_hpa, "  T scale = ", t_sigma_k, "  continuum scale = ", x_scale[layout.idx_continuum_scale])
+        println("    p scale = ", p_sigma_hpa, "  T scale = ", t_sigma_k)
         if use_pt_constraints
             println(
                 "  p/T box constraints: ±", pt_constraint_sigma_mult, "σ ",

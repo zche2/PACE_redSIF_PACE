@@ -82,7 +82,6 @@ function _forward_generic(
     t_h2o_k,
     vcd_o2_sif,
     vcd_h2o_sif,
-    continuum_scale,
     sif_coeff,
     leg_coeff,
 )
@@ -94,7 +93,7 @@ function _forward_generic(
     trans = @. exp(-(vcd_h2o_λ * xs_h2o + vcd_o2_λ * xs_o2))
     trans_sif = @. exp(-(vcd_h2o_sif * xs_h2o + vcd_o2_sif * xs_o2))
     sif_hres = sif_basis_hres * sif_coeff
-    y_hres = @. continuum_scale * solar_hres * trans + trans_sif * sif_hres
+    y_hres = @. solar_hres * trans + trans_sif * sif_hres
 
     y_lres = K * y_hres
     poly = leg_basis * leg_coeff
@@ -114,7 +113,6 @@ function _forward_prealloc!(
     t_h2o_k,
     vcd_o2_sif,
     vcd_h2o_sif,
-    continuum_scale,
     sif_coeff,
     leg_coeff,
 ) where {T<:Real}
@@ -128,8 +126,6 @@ function _forward_prealloc!(
     vcd_o2_s = T(vcd_o2_slope)
     vcd_h2o_i = T(vcd_h2o_intercept)
     vcd_h2o_s = T(vcd_h2o_slope)
-    cont = T(continuum_scale)
-
     _eval_xs!(sc.xs_o2, ctx.o2_sitp, sc.spectral_axis, p_o2, t_o2)
     _eval_xs!(sc.xs_h2o, ctx.h2o_sitp, sc.spectral_axis, p_h2o, t_h2o)
 
@@ -139,7 +135,7 @@ function _forward_prealloc!(
     @. sc.trans_sif = exp(-(vcd_h2o_sif_t * sc.xs_h2o + vcd_o2_sif_t * sc.xs_o2))
 
     mul!(sc.sif_hres, sc.sif_basis, sif_coeff)
-    @. sc.y_hres = cont * sc.solar_hres * sc.trans + sc.trans_sif * sc.sif_hres
+    @. sc.y_hres = sc.solar_hres * sc.trans + sc.trans_sif * sc.sif_hres
 
     mul!(sc.y_lres, sc.K, sc.y_hres)
     mul!(sc.poly, sc.leg_basis, leg_coeff)
@@ -181,9 +177,8 @@ State vector layout for `x`:
 8. `t_h2o_k`
 9. `vcd_o2_sif` (SIF-path O2 VCD)
 10. `vcd_h2o_sif` (SIF-path H2O VCD)
-11. `continuum_scale`
-12..`11+nEV`: SIF EV coefficients (on high-res grid)
-`(12+nEV)`..end: Legendre coefficients `a0..aN` with `N=n_legendre`
+11..`10+nEV`: SIF EV coefficients (on high-res grid)
+`(11+nEV)`..end: Legendre coefficients `a0..aN` with `N=n_legendre`
 
 Low-res multiplicative polynomial:
 `poly(λ) = Σ a_n P_n(z(λ))`, where `z` is λ mapped to [-1, 1].
@@ -258,7 +253,6 @@ function make_forward_model_simple(
         t_h2o_k = x[layout.idx_t_h2o_k]
         vcd_o2_sif = x[layout.idx_vcd_o2_sif]
         vcd_h2o_sif = x[layout.idx_vcd_h2o_sif]
-        continuum_scale = x[layout.idx_continuum_scale]
         sif_coeff = @view x[layout.idx_sif]
         leg_coeff = @view x[layout.idx_legendre]
 
@@ -282,7 +276,6 @@ function make_forward_model_simple(
                 t_h2o_k,
                 vcd_o2_sif,
                 vcd_h2o_sif,
-                continuum_scale,
                 sif_coeff,
                 leg_coeff,
             )
@@ -300,7 +293,6 @@ function make_forward_model_simple(
             t_h2o_k,
             vcd_o2_sif,
             vcd_h2o_sif,
-            continuum_scale,
             sif_coeff,
             leg_coeff,
         )
@@ -340,7 +332,7 @@ function state_layout_simple(ctx; n_legendre::Int=2)
     n_legendre >= 0 || error("n_legendre must be >= 0")
     n_ev = size(ctx.sif_basis_hres, 2)
     n_leg_coeff = n_legendre + 1
-    n_state = 11 + n_ev + n_leg_coeff
+    n_state = 10 + n_ev + n_leg_coeff
     return (
         n_ev = n_ev,
         n_legendre = n_legendre,
@@ -356,9 +348,8 @@ function state_layout_simple(ctx; n_legendre::Int=2)
         idx_t_h2o_k = 8,
         idx_vcd_o2_sif = 9,
         idx_vcd_h2o_sif = 10,
-        idx_continuum_scale = 11,
-        idx_sif = 12:(11 + n_ev),
-        idx_legendre = (12 + n_ev):(11 + n_ev + n_leg_coeff),
+        idx_sif = 11:(10 + n_ev),
+        idx_legendre = (11 + n_ev):(10 + n_ev + n_leg_coeff),
     )
 end
 
@@ -389,7 +380,6 @@ function state_names_simple(ctx; n_legendre::Int=2)
         "t_h2o_k",
         "vcd_o2_sif",
         "vcd_h2o_sif",
-        "continuum_scale",
     ]
     append!(names, ["sif_ev$(i)" for i in 1:layout.n_ev])
     append!(names, ["legendre_p$(i - 1)" for i in 1:layout.n_leg_coeff])
@@ -419,7 +409,6 @@ function initial_state_simple(
     # Shorter effective light path for emitted SIF than for incoming solar.
     x0[layout.idx_vcd_o2_sif] = T(0.5) * x0[layout.idx_vcd_o2_intercept]
     x0[layout.idx_vcd_h2o_sif] = T(0.5) * x0[layout.idx_vcd_h2o_intercept]
-    x0[layout.idx_continuum_scale] = T(1.0) # continuum_scale
     # SIF coeffs default to zero.
     # For multiplicative Legendre polynomial without +1 term, set P0 coeff = 1
     # so the default polynomial factor is unity.

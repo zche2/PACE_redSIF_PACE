@@ -347,7 +347,6 @@ function build_retrieval_core(config_path::AbstractString)
     x_scale_base[layout.idx_p_h2o_hpa] = p_sigma_hpa
     x_scale_base[layout.idx_t_o2_k] = t_sigma_k
     x_scale_base[layout.idx_t_h2o_k] = t_sigma_k
-    x_scale_base[layout.idx_continuum_scale] = 10.0
     x_scale_base[layout.idx_sif] .= 1.0
     x_scale_base[layout.idx_legendre] .= 1.0
 
@@ -416,16 +415,11 @@ function run_one_retrieval!(
     max_outer_steps::Int,
 )
     # Match single-spectrum bootstrap exactly:
-    # 1) build scaled x0 from forward model at initial state,
-    # 2) set x_a from static priors but preserve that continuum scale,
-    # 3) derive Legendre P0/P1 priors from ratio against f(x0_scaled).
+    # 1) start from base x0 and static priors,
+    # 2) derive Legendre P0/P1 priors from ratio against f(x0).
     x0 = copy(core.x0_base)
-    y0 = core.fm(x0)
-    den0 = dot(y0, y0)
-    x0[core.layout.idx_continuum_scale] = den0 > 0 ? dot(y_obs, y0) / den0 : 1.0
 
     x_a = copy(core.x_a_base)
-    x_a[core.layout.idx_continuum_scale] = x0[core.layout.idx_continuum_scale]
     prior_sigma = copy(core.prior_sigma_base)
     layout = core.layout
 
@@ -452,7 +446,6 @@ function run_one_retrieval!(
     x_curr = copy(x_a)
     S_a_inv = _spdiag_invvar(prior_sigma)
     x_scale = copy(core.x_scale_base)
-    x_scale[layout.idx_continuum_scale] = max(abs(x_curr[layout.idx_continuum_scale]), 10.0)
 
     y_curr = copy(core.fm(x_curr))
     rmse_prev = sqrt(mean((y_obs .- y_curr) .^ 2))
