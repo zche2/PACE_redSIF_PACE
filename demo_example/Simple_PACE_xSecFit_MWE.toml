@@ -99,6 +99,18 @@ conv_dx_rel_tol = 1e-6
 conv_rmse_rel_tol = 1e-6
 # Convergence threshold: absolute RMSE change.
 conv_rmse_abs_tol = 1e-6
+# If true, treat "no accepted LM step" as converged when fit is already near-stationary.
+conv_stall_enable = true
+# Number of accepted-step history points used for stalled-convergence trend test.
+conv_stall_window = 3
+# Stalled-convergence condition: current reduced chi2 must be <= this value.
+conv_stall_redchi2_target = 5.0
+# Stalled-convergence condition: absolute reduced chi2 change over `conv_stall_window` <= this value.
+conv_stall_redchi2_abs_tol = 0.1
+# Stalled-convergence condition: relative reduced chi2 change over `conv_stall_window` <= this value.
+conv_stall_redchi2_rel_tol = 0.03
+# Stalled-convergence condition: last accepted normalized state update (`|dx|/|x|`) <= this value.
+conv_stall_dx_rel_tol = 0.005
 # If true, set priors for Legendre P0/P1 from envelope-like ratio fit.
 use_legendre01_prior = true
 # Fraction of fitted P0/P1 magnitude used as sigma for those priors.
@@ -153,3 +165,31 @@ n_plot_steps = 20
 iter_plot_file = "toy_fit_iter_spectral.png"
 # Output CSV filename for per-iteration diagnostics/state vector.
 iter_log_file = "toy_fit_iter_log.csv"
+
+[batch_fit]
+# Output directory (relative to `demo_example/` when not absolute) for swath retrieval NetCDF files.
+output_dir = "batch_output"
+# Suffix appended to each input orbit stem for output naming: `<orbit_stem><output_suffix>`.
+output_suffix = "_retrieval.nc"
+# Optional list of multiple PACE orbit files; if empty, `pace_observation.pace_file` is used.
+pace_files = []
+# 1-based pixel index start for batch processing window.
+pixel_start = 1
+# 1-based pixel index end; use 0 for full swath extent.
+pixel_end = 0
+# 1-based scan index start for batch processing window.
+scan_start = 1
+# 1-based scan index end; use 0 for full swath extent.
+scan_end = 0
+# Maximum accepted LM outer steps per spectrum.
+max_outer_steps = 10
+# If true, only spectra with `max(radiance)` <= `dark_max_radiance` are fitted.
+dark_filter_enabled = false
+# Darkness threshold applied on low-resolution observed radiance spectrum.
+dark_max_radiance = 20.0
+# If true, only spectra with accepted ocean-mask values are fitted.
+ocean_filter_enabled = false
+# Name of 2D land/water mask variable in the PACE file.
+watermask_var = "watermask"
+# Integer mask codes treated as ocean (for this sample granule `1` = ocean).
+ocean_mask_values = [1]

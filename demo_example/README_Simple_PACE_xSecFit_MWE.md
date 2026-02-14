@@ -13,6 +13,9 @@ It does **not** run retrieval or optimization.
 - `demo_example/Simple_PACE_xSecFit_MWE.toml`
   - All path and processing settings.
   - Includes high-res spectral grid controls (`lambda_min_nm`, `lambda_max_nm`, `delta_lambda_nm`).
+- `demo_example/Run_batch_PACE_fit.jl`
+  - Swath/orbit batch retrieval driver.
+  - Fits all configured spectra and writes NetCDF output with state vectors + diagnostics.
 
 ## Run
 
@@ -65,3 +68,23 @@ Use prepared context from the driver:
 - `ctx.sif_basis` (low-res convolved SIF EVs aligned with `ctx.λ`)
 
 Then implement your own forward model and inversion routine on top of this.
+
+## Batch Retrieval Output
+
+Run:
+
+```bash
+julia --project=. demo_example/Run_batch_PACE_fit.jl
+```
+
+Outputs one NetCDF file per orbit in `batch_fit.output_dir`, containing:
+
+- `x_hat[pixels,scans,state]`
+- `converged[pixels,scans]`
+- `status_code[pixels,scans]`
+- `n_steps[pixels,scans]`
+- `rmse[pixels,scans]`
+- `reduced_chi2[pixels,scans]`
+- `objective[pixels,scans]`
+- `latitude[pixels,scans]`
+- `longitude[pixels,scans]`
