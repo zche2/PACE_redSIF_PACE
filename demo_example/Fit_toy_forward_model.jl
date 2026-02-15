@@ -229,6 +229,47 @@ function _apply_box_constraints!(x, lower, upper)
 end
 
 """
+    _stalled_convergence(dx_rel_hist, redchi2_hist; kwargs...)
+
+Heuristic convergence check for cases where LM cannot find a new accepted step,
+but the solution is already near-stationary.
+
+Returns `(is_converged, message)`.
+"""
+function _stalled_convergence(
+    dx_rel_hist::AbstractVector{<:Real},
+    redchi2_hist::AbstractVector{<:Real};
+    enabled::Bool=true,
+    window::Int=3,
+    redchi2_target::Float64=5.0,
+    redchi2_abs_tol::Float64=0.1,
+    redchi2_rel_tol::Float64=0.03,
+    dx_rel_tol::Float64=5e-3,
+)
+    enabled || return (false, "stall criterion disabled")
+    n = length(redchi2_hist)
+    n >= 2 || return (false, "insufficient iteration history")
+
+    k = min(window, n - 1)
+    r_old = Float64(redchi2_hist[n - k])
+    r_new = Float64(redchi2_hist[n])
+    abs_change = abs(r_new - r_old)
+    rel_change = abs_change / max(abs(r_old), eps(Float64))
+    dx_last = isempty(dx_rel_hist) ? Inf : Float64(dx_rel_hist[end])
+
+    is_good_chi2 = r_new <= redchi2_target
+    is_stable_chi2 = (abs_change <= redchi2_abs_tol) || (rel_change <= redchi2_rel_tol)
+    is_small_step = dx_last <= dx_rel_tol
+
+    if is_good_chi2 && (is_stable_chi2 || is_small_step)
+        msg = "stalled accepted-step search with near-stationary fit " *
+              "(red_chi2=$(r_new), Δred_chi2_abs=$(abs_change), Δred_chi2_rel=$(rel_change), dx_rel_last=$(dx_last))"
+        return (true, msg)
+    end
+    return (false, "stall criterion not met")
+end
+
+"""
     make_jacobian_evaluator(fm, x_template; use_preallocated=false)
 
 Return a callable `jac_eval(x)` used to evaluate Jacobians of `fm`.
@@ -264,7 +305,7 @@ end
     make_hybrid_jacobian_evaluator(fm, ctx, solar_hres, layout; n_legendre)
 
 Hybrid Jacobian:
-- Analytic columns: VCD intercept/slope, SIF-path VCDs, continuum scale, SIF coeffs, Legendre coeffs
+- Analytic columns: VCD intercept/slope, SIF-path VCDs, SIF coeffs, Legendre coeffs
 - Interpolator-derivative columns: p_o2_hpa, t_o2_k, p_h2o_hpa, t_h2o_k
 
 Pressure/temperature derivatives are obtained directly from dualized LUT calls at
@@ -329,7 +370,6 @@ function make_hybrid_jacobian_evaluator(
         t_h2o = x[layout.idx_t_h2o_k]
         vcd_o2_sif = x[layout.idx_vcd_o2_sif]
         vcd_h2o_sif = x[layout.idx_vcd_h2o_sif]
-        cont = x[layout.idx_continuum_scale]
         sif_coeff = @view x[layout.idx_sif]
         leg_coeff = @view x[layout.idx_legendre]
 
@@ -357,18 +397,18 @@ function make_hybrid_jacobian_evaluator(
         @. trans_sif = exp(-(vcd_h2o_sif * xs_h2o + vcd_o2_sif * xs_o2))
 
         mul!(sif_hres, sif_basis, sif_coeff)
-        @. y_hres = cont * solar * trans + trans_sif * sif_hres
+        @. y_hres = solar * trans + trans_sif * sif_hres
         mul!(y_lres, K, y_hres)
         mul!(poly, leg_basis, leg_coeff)
 
         # Analytic VCD derivatives.
-        @. d_hres = -cont * solar * trans * xs_o2
+        @. d_hres = -solar * trans * xs_o2
         apply_hres_column!(layout.idx_vcd_o2_intercept)
-        @. d_hres = -cont * solar * trans * (z_hres * xs_o2)
+        @. d_hres = -solar * trans * (z_hres * xs_o2)
         apply_hres_column!(layout.idx_vcd_o2_slope)
-        @. d_hres = -cont * solar * trans * xs_h2o
+        @. d_hres = -solar * trans * xs_h2o
         apply_hres_column!(layout.idx_vcd_h2o_intercept)
-        @. d_hres = -cont * solar * trans * (z_hres * xs_h2o)
+        @. d_hres = -solar * trans * (z_hres * xs_h2o)
         apply_hres_column!(layout.idx_vcd_h2o_slope)
 
         # Analytic SIF-path VCD derivatives.
@@ -378,18 +418,14 @@ function make_hybrid_jacobian_evaluator(
         apply_hres_column!(layout.idx_vcd_h2o_sif)
 
         # Analytic p/T derivatives using LUT derivatives.
-        @. d_hres = -cont * solar * trans * (vcd_o2 * dxsdp_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdp_o2)
+        @. d_hres = -solar * trans * (vcd_o2 * dxsdp_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdp_o2)
         apply_hres_column!(layout.idx_p_o2_hpa)
-        @. d_hres = -cont * solar * trans * (vcd_o2 * dxsdt_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdt_o2)
+        @. d_hres = -solar * trans * (vcd_o2 * dxsdt_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdt_o2)
         apply_hres_column!(layout.idx_t_o2_k)
-        @. d_hres = -cont * solar * trans * (vcd_h2o * dxsdp_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdp_h2o)
+        @. d_hres = -solar * trans * (vcd_h2o * dxsdp_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdp_h2o)
         apply_hres_column!(layout.idx_p_h2o_hpa)
-        @. d_hres = -cont * solar * trans * (vcd_h2o * dxsdt_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdt_h2o)
+        @. d_hres = -solar * trans * (vcd_h2o * dxsdt_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdt_h2o)
         apply_hres_column!(layout.idx_t_h2o_k)
-
-        # Analytic continuum derivative.
-        @. d_hres = solar * trans
-        apply_hres_column!(layout.idx_continuum_scale)
 
         # Analytic SIF coefficients.
         for iev in 1:layout.n_ev
@@ -570,6 +606,12 @@ function main()
     conv_dx_rel_tol = Float64(get(fit_cfg, "conv_dx_rel_tol", 1e-6))
     conv_rmse_rel_tol = Float64(get(fit_cfg, "conv_rmse_rel_tol", 1e-6))
     conv_rmse_abs_tol = Float64(get(fit_cfg, "conv_rmse_abs_tol", 1e-6))
+    conv_stall_enable = Bool(get(fit_cfg, "conv_stall_enable", true))
+    conv_stall_window = Int(get(fit_cfg, "conv_stall_window", 3))
+    conv_stall_redchi2_target = Float64(get(fit_cfg, "conv_stall_redchi2_target", 5.0))
+    conv_stall_redchi2_abs_tol = Float64(get(fit_cfg, "conv_stall_redchi2_abs_tol", 0.1))
+    conv_stall_redchi2_rel_tol = Float64(get(fit_cfg, "conv_stall_redchi2_rel_tol", 0.03))
+    conv_stall_dx_rel_tol = Float64(get(fit_cfg, "conv_stall_dx_rel_tol", 5e-3))
     use_legendre01_prior = Bool(get(fit_cfg, "use_legendre01_prior", true))
     legendre01_prior_sigma_fraction = Float64(get(fit_cfg, "legendre01_prior_sigma_fraction", 0.2))
     use_legendre_higher_prior = Bool(get(fit_cfg, "use_legendre_higher_prior", true))
@@ -648,10 +690,6 @@ function main()
             use_preallocated=preallocate_jacobian,
         )
     end
-
-    # Good first guess for scale from linear least-squares.
-    y0 = fm(x0)
-    x0[layout.idx_continuum_scale] = dot(y_obs, y0) / dot(y0, y0)
 
     # Prior setup (Rodgers Eq. 5.9):
     # Set priors for first two Legendre terms (P0,P1) from an envelope-like fit.
@@ -741,7 +779,6 @@ function main()
     x_scale[layout.idx_p_h2o_hpa] = p_sigma_hpa
     x_scale[layout.idx_t_o2_k] = t_sigma_k
     x_scale[layout.idx_t_h2o_k] = t_sigma_k
-    x_scale[layout.idx_continuum_scale] = max(abs(x0[layout.idx_continuum_scale]), 10.0)
     x_scale[layout.idx_sif] .= 1.0
     x_scale[layout.idx_legendre] .= 1.0
 
@@ -768,8 +805,17 @@ function main()
     println("  AD forward preallocation (other numeric types): ", preallocate_ad_forward)
     println("  Jacobian preallocation (ForwardDiff.jacobian!): ", preallocate_jacobian)
     println("  Hybrid Jacobian (analytic + AD for p/T): ", use_hybrid_jacobian)
-    println("  initial scale: ", x0[layout.idx_continuum_scale])
     println("  measurement sigma (1σ): ", meas_sigma)
+    println(
+        "  stalled-convergence check: ",
+        conv_stall_enable,
+        " (window=", conv_stall_window,
+        ", red_chi2_target=", conv_stall_redchi2_target,
+        ", red_chi2_abs_tol=", conv_stall_redchi2_abs_tol,
+        ", red_chi2_rel_tol=", conv_stall_redchi2_rel_tol,
+        ", dx_rel_tol=", conv_stall_dx_rel_tol,
+        ")",
+    )
     if use_prior
         leg0_idx = first(layout.idx_legendre)
         println("  priors on Legendre coeffs:")
@@ -813,7 +859,7 @@ function main()
         println("    vcd_o2 scale = ", x_scale[layout.idx_vcd_o2_intercept], "  slope scale = ", x_scale[layout.idx_vcd_o2_slope])
         println("    vcd_h2o scale = ", x_scale[layout.idx_vcd_h2o_intercept], "  slope scale = ", x_scale[layout.idx_vcd_h2o_slope])
         println("    vcd_o2_sif scale = ", x_scale[layout.idx_vcd_o2_sif], "  vcd_h2o_sif scale = ", x_scale[layout.idx_vcd_h2o_sif])
-        println("    p scale = ", p_sigma_hpa, "  T scale = ", t_sigma_k, "  continuum scale = ", x_scale[layout.idx_continuum_scale])
+        println("    p scale = ", p_sigma_hpa, "  T scale = ", t_sigma_k)
         if use_pt_constraints
             println(
                 "  p/T box constraints: ±", pt_constraint_sigma_mult, "σ ",
@@ -827,12 +873,17 @@ function main()
 
     # Multi-step LM from prior state (spectral-space comparison).
     x_curr = copy(x_a)
-    y_curr = fm(x_curr)
+    y_curr = copy(fm(x_curr))
+    dof = max(length(y_obs) - layout.n_state, 1)
+    chi2_curr = sum(((y_obs .- y_curr) ./ meas_sigma) .^ 2)
     x_series = [copy(x_curr)]
     y_series = [copy(y_curr)]
     obj_series = [_cost_with_prior(y_obs, y_curr, x_curr, x_a, S_e_inv, S_a_inv)]
     rmse_series = [sqrt(mean((y_obs .- y_curr) .^ 2))]
+    chi2_series = [chi2_curr]
+    redchi2_series = [chi2_curr / dof]
     dx_norm_series = Float64[]
+    dx_rel_series = Float64[]
     cond_series = Float64[]
     rmse_linear_series = Float64[]
     rho_series = Float64[]
@@ -874,16 +925,34 @@ function main()
         end
         λ = step.lambda_next
         if !step.accepted
-            failed_step = istep
-            failed_error = "no accepted LM update after $(lm_max_inner) inner tries"
+            stalled_conv, stalled_msg = _stalled_convergence(
+                dx_rel_series,
+                redchi2_series;
+                enabled=conv_stall_enable,
+                window=conv_stall_window,
+                redchi2_target=conv_stall_redchi2_target,
+                redchi2_abs_tol=conv_stall_redchi2_abs_tol,
+                redchi2_rel_tol=conv_stall_redchi2_rel_tol,
+                dx_rel_tol=conv_stall_dx_rel_tol,
+            )
+            if stalled_conv
+                converged = true
+                convergence_reason = stalled_msg
+            else
+                failed_step = istep
+                failed_error = "no accepted LM update after $(lm_max_inner) inner tries"
+            end
             break
         end
         x_curr = step.x_next
         push!(x_series, copy(x_curr))
-        y_curr = step.y_next
+        y_curr = copy(step.y_next)
         push!(y_series, copy(y_curr))
         push!(obj_series, step.cost_next)
         push!(rmse_series, sqrt(mean((y_obs .- y_curr) .^ 2)))
+        chi2_curr = sum(((y_obs .- y_curr) ./ meas_sigma) .^ 2)
+        push!(chi2_series, chi2_curr)
+        push!(redchi2_series, chi2_curr / dof)
         push!(dx_norm_series, norm(step.dx))
         push!(cond_series, step.cond_A)
         push!(rmse_linear_series, step.rmse_linear)
@@ -892,6 +961,7 @@ function main()
         push!(accepted_series, step.accepted)
 
         dx_rel = norm(step.dx) / max(norm(x_prev), eps(Float64))
+        push!(dx_rel_series, dx_rel)
         rmse_curr = rmse_series[end]
         rmse_abs_change = abs(rmse_curr - rmse_prev)
         rmse_rel_change = rmse_abs_change / max(abs(rmse_prev), eps(Float64))
@@ -906,13 +976,21 @@ function main()
 
     println()
     println("LM multi-step summary")
-    println("  objective prior: ", obj_series[1], "   RMSE prior: ", rmse_series[1])
+    println(
+        "  objective prior: ", obj_series[1],
+        "   RMSE prior: ", rmse_series[1],
+        "   chi2 prior: ", chi2_series[1],
+        "   red_chi2 prior: ", redchi2_series[1],
+    )
     for istep in 1:length(dx_norm_series)
         println(
             "  step ", istep,
             " objective: ", obj_series[istep + 1],
             "   RMSE: ", rmse_series[istep + 1],
+            "   chi2: ", chi2_series[istep + 1],
+            "   red_chi2: ", redchi2_series[istep + 1],
             "   |dx|: ", dx_norm_series[istep],
+            "   |dx|/|x|: ", dx_rel_series[istep],
             "   cond(A): ", cond_series[istep],
             "   RMSE_lin: ", rmse_linear_series[istep],
             "   rho: ", rho_series[istep],
@@ -930,12 +1008,16 @@ function main()
     println("State vector by step")
     for istep in 0:(length(x_series) - 1)
         dxn = istep == 0 ? 0.0 : dx_norm_series[istep]
+        dxr = istep == 0 ? NaN : dx_rel_series[istep]
         cnd = istep == 0 ? NaN : cond_series[istep]
         println(
             "  step ", istep,
             " | obj=", obj_series[istep + 1],
             " rmse=", rmse_series[istep + 1],
+            " chi2=", chi2_series[istep + 1],
+            " red_chi2=", redchi2_series[istep + 1],
             " |dx|=", dxn,
+            " |dx|/|x|=", dxr,
             " cond(A)=", cnd,
             " λ=", lambda_series[istep + 1],
         )
@@ -948,9 +1030,32 @@ function main()
     # Save compact iteration diagnostics and all state elements to CSV.
     log_path = isabspath(iter_log_file) ? iter_log_file : joinpath(@__DIR__, iter_log_file)
     open(log_path, "w") do io
-        println(io, join(vcat(["step", "objective", "rmse", "rmse_linear", "rho", "dx_norm", "cond_A", "lambda", "accepted"], state_names), ","))
+        println(
+            io,
+            join(
+                vcat(
+                    [
+                        "step",
+                        "objective",
+                        "rmse",
+                        "chi2",
+                        "reduced_chi2",
+                        "rmse_linear",
+                        "rho",
+                        "dx_norm",
+                        "dx_rel",
+                        "cond_A",
+                        "lambda",
+                        "accepted",
+                    ],
+                    state_names,
+                ),
+                ",",
+            ),
+        )
         for istep in 0:(length(x_series) - 1)
             dxn = istep == 0 ? 0.0 : dx_norm_series[istep]
+            dxr = istep == 0 ? NaN : dx_rel_series[istep]
             cnd = istep == 0 ? NaN : cond_series[istep]
             rlin = istep == 0 ? NaN : rmse_linear_series[istep]
             rho = istep == 0 ? NaN : rho_series[istep]
@@ -959,9 +1064,12 @@ function main()
                 string(istep),
                 string(obj_series[istep + 1]),
                 string(rmse_series[istep + 1]),
+                string(chi2_series[istep + 1]),
+                string(redchi2_series[istep + 1]),
                 string(rlin),
                 string(rho),
                 string(dxn),
+                string(dxr),
                 string(cnd),
                 string(lambda_series[istep + 1]),
                 string(acc),
@@ -1017,4 +1125,6 @@ function main()
     println("  saved plot: ", save_path)
 end
 
-main()
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end
