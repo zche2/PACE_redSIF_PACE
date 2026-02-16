@@ -886,6 +886,7 @@ function prepare_mwe_inputs(config_path::AbstractString)
         axis_unit = axis_unit,
         spectral_axis = float_type.(spectral_axis),
         λ_hres = float_type.(λ_hres),
+        sif_nev = sif_nev,
     )
 end
 

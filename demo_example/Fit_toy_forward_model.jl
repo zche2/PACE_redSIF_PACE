@@ -6,6 +6,7 @@ using Statistics
 using ForwardDiff
 using SparseArrays
 using Plots
+using JLD2
 
 include(joinpath(@__DIR__, "Simple_PACE_xSecFit_MWE_Functions.jl"))
 using .SimplePACEXSecFitMWEFunctions
@@ -1119,10 +1120,153 @@ function main()
     hline!(p2, [0.0]; color=:black, ls=:dot, lw=1.0, label="")
 
     p = plot(p1, p2; layout=(2, 1), link=:x, size=(1000, 800))
-
     save_path = isabspath(iter_plot_file) ? iter_plot_file : joinpath(@__DIR__, iter_plot_file)
     savefig(p, save_path)
     println("  saved plot: ", save_path)
+
+    # =========================================================================
+    # Reconstruct high-resolution SIF from final state
+    # =========================================================================
+    
+    println("\n" * "="^70)
+    println("Reconstructing high-resolution SIF from final state")
+    println("="^70)
+    
+    x_final = x_series[end]
+    
+    # Extract SIF coefficients from final state
+    sif_coeff_final = x_final[layout.idx_sif]
+    println("Final SIF coefficients: ", sif_coeff_final)
+    
+    # Reconstruct high-resolution SIF spectrum
+    sif_hres = ctx.sif_basis_hres * sif_coeff_final
+    
+    println("High-resolution SIF reconstructed:")
+    println("  Grid: $(length(ctx.λ_hres)) points")
+    println("  Range: [$(minimum(ctx.λ_hres)), $(maximum(ctx.λ_hres))] nm")
+    println("  SIF range: [$(minimum(sif_hres)), $(maximum(sif_hres))]")
+    println("  SIF mean: $(mean(sif_hres))")
+    println("  SIF std: $(std(sif_hres))")
+    
+    # Reconstruct other high-resolution components for context
+    vcd_o2_i = x_final[layout.idx_vcd_o2_intercept]
+    vcd_o2_s = x_final[layout.idx_vcd_o2_slope]
+    vcd_h2o_i = x_final[layout.idx_vcd_h2o_intercept]
+    vcd_h2o_s = x_final[layout.idx_vcd_h2o_slope]
+    p_o2 = x_final[layout.idx_p_o2_hpa]
+    t_o2 = x_final[layout.idx_t_o2_k]
+    p_h2o = x_final[layout.idx_p_h2o_hpa]
+    t_h2o = x_final[layout.idx_t_h2o_k]
+    vcd_o2_sif = x_final[layout.idx_vcd_o2_sif]
+    vcd_h2o_sif = x_final[layout.idx_vcd_h2o_sif]
+    
+    # Get cross-sections at high resolution
+    spectral_axis = collect(Float64.(ctx.spectral_axis))
+    z_hres = _normalized_grid(ctx.λ_hres)
+    
+    xs_o2_hres = [ctx.o2_sitp(spectral_axis[i], p_o2, t_o2) for i in eachindex(spectral_axis)]
+    xs_h2o_hres = [ctx.h2o_sitp(spectral_axis[i], p_h2o, t_h2o) for i in eachindex(spectral_axis)]
+    
+    # Calculate transmittances
+    vcd_o2_hres = @. vcd_o2_i + vcd_o2_s * z_hres
+    vcd_h2o_hres = @. vcd_h2o_i + vcd_h2o_s * z_hres
+    trans_hres = @. exp(-(vcd_h2o_hres * xs_h2o_hres + vcd_o2_hres * xs_o2_hres))
+    trans_sif_hres = @. exp(-(vcd_h2o_sif * xs_h2o_hres + vcd_o2_sif * xs_o2_hres))
+    
+    # Calculate reflected solar continuum
+    solar_continuum_hres = @. solar_hres * trans_hres
+    
+    # Calculate SIF contribution to TOA radiance
+    sif_contribution_hres = @. trans_sif_hres * sif_hres
+    
+    # Total high-resolution radiance
+    radiance_total_hres = solar_continuum_hres .+ sif_contribution_hres
+    
+    println("\nHigh-resolution components:")
+    println("  Solar continuum contribution: $(mean(solar_continuum_hres))")
+    println("  SIF contribution: $(mean(sif_contribution_hres))")
+    println("  Total radiance: $(mean(radiance_total_hres))")
+    println("  SIF fraction: $(mean(sif_contribution_hres) / mean(radiance_total_hres) * 100)%")
+    
+    # =========================================================================
+    # Plot high-resolution SIF and components
+    # =========================================================================
+    
+    p_sif = plot(
+        ctx.λ_hres,
+        sif_hres;
+        xlabel="Wavelength [nm]",
+        ylabel="SIF [mW/m²/sr/nm]",
+        title="Retrieved High-Resolution SIF Spectrum",
+        lw=2,
+        color=:red,
+        label="SIF",
+        legend=:topright,
+        size=(1000, 600)
+    )
+    
+    p_trans = plot(
+        ctx.λ_hres,
+        trans_hres;
+        xlabel="Wavelength [nm]",
+        ylabel="Transmittance",
+        title="Atmospheric Transmittance",
+        lw=2,
+        color=:blue,
+        label="Direct path (T↓↑)",
+        legend=:bottomleft
+    )
+    plot!(p_trans, ctx.λ_hres, trans_sif_hres;
+            lw=2, color=:orange, ls=:dash, label="SIF path (T↑)")
+    
+    p_contrib = plot(
+        ctx.λ_hres,
+        solar_continuum_hres;
+        xlabel="Wavelength [nm]",
+        ylabel="Radiance",
+        title="High-Res Radiance Components",
+        lw=2,
+        color=:blue,
+        label="Solar continuum",
+        legend=:topright
+    )
+    plot!(p_contrib, ctx.λ_hres, sif_contribution_hres;
+            lw=2, color=:red, label="SIF contribution")
+    plot!(p_contrib, ctx.λ_hres, radiance_total_hres;
+            lw=2, color=:black, ls=:dash, label="Total")
+    
+    p_sif_all = plot(p_sif, p_trans, p_contrib;
+                        layout=(3, 1),
+                        size=(1000, 1200))
+    
+    sif_plot_file = replace(iter_plot_file, ".png" => "_sif_hires.png")
+    sif_save_path = isabspath(sif_plot_file) ? sif_plot_file : joinpath(@__DIR__, sif_plot_file)
+    savefig(p_sif_all, sif_save_path)
+    println("  saved SIF plot: ", sif_save_path)
+    
+    # =========================================================================
+    # Save high-resolution SIF to file
+    # =========================================================================
+
+    sif_output_file = replace(iter_log_file, ".csv" => "_sif_hires.jld2")
+    sif_output_path = isabspath(sif_output_file) ? sif_output_file : joinpath(@__DIR__, sif_output_file)
+    
+    @save sif_output_path λ_hres=ctx.λ_hres sif_hres sif_coeff_final trans_hres trans_sif_hres solar_continuum_hres sif_contribution_hres radiance_total_hres
+    
+    println("  saved SIF data: ", sif_output_path)
+    
+    # Print SIF statistics at key wavelengths
+    println("\nSIF at key wavelengths:")
+    key_wavelengths = [685.0, 740.0, 760.0]
+    for λ_key in key_wavelengths
+        idx = argmin(abs.(ctx.λ_hres .- λ_key))
+        λ_actual = ctx.λ_hres[idx]
+        sif_val = sif_hres[idx]
+        println("  λ = $(round(λ_actual, digits=2)) nm: SIF = $(round(sif_val, digits=4)) mW/m²/sr/nm")
+    end
+    
+    println("="^70)
+
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
