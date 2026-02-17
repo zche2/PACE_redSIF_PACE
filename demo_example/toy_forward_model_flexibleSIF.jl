@@ -460,44 +460,95 @@ function state_names_simple(ctx; n_legendre::Int=2)
 end
 
 """
-    initial_state_simple(ctx; n_legendre=2, T::Type{<:AbstractFloat}=Float64)
+    initial_state_simple(ctx; y_obs=nothing, n_legendre=2, T::Type{<:AbstractFloat}=Float64)
 
 Build a default initial state matching current model layout.
 Supports both SIF retrieval (n_ev > 0) and no-SIF mode (n_ev = 0).
+
+If `y_obs` is provided, P0 and P1 are initialized from a weighted envelope fit
+that emphasizes the upper envelope of the spectrum.
+Higher-order Legendre terms are set to zero.
 """
 function initial_state_simple(
     ctx;
+    y_obs::Union{Nothing, AbstractVector{<:Real}}=nothing,
     n_legendre::Int=2,
     T::Type{<:AbstractFloat}=Float64,
+    fm=nothing,  # Optional: forward model for ratio-based fit
 )
     layout = state_layout_simple(ctx; n_legendre=n_legendre)
     x = zeros(T, layout.n_state)
     
     # VCD estimates
-    x[layout.idx_vcd_o2_intercept] = T(3.981071705534985e24)   # VCD_O2 intercept
-    x[layout.idx_vcd_o2_slope] = T(0.0)                        # VCD_O2 slope
-    x[layout.idx_vcd_h2o_intercept] = T(3.981071705534969e22)  # VCD_H2O intercept
-    x[layout.idx_vcd_h2o_slope] = T(0.0)                       # VCD_H2O slope
+    x[layout.idx_vcd_o2_intercept] = T(3.981071705534985e24)
+    x[layout.idx_vcd_o2_slope] = T(0.0)
+    x[layout.idx_vcd_h2o_intercept] = T(3.981071705534969e22)
+    x[layout.idx_vcd_h2o_slope] = T(0.0)
     
     # Pressure and temperature
-    x[layout.idx_p_o2_hpa] = T(800.0)     # p_o2_hpa
-    x[layout.idx_t_o2_k] = T(250.0)       # t_o2_k
-    x[layout.idx_p_h2o_hpa] = T(780.0)    # p_h2o_hpa
-    x[layout.idx_t_h2o_k] = T(285.0)      # t_h2o_k
+    x[layout.idx_p_o2_hpa] = T(800.0)
+    x[layout.idx_t_o2_k] = T(250.0)
+    x[layout.idx_p_h2o_hpa] = T(780.0)
+    x[layout.idx_t_h2o_k] = T(285.0)
     
     # SIF-path VCDs and coefficients (only if retrieving SIF)
     if layout.n_ev > 0
-        # Shorter effective light path for emitted SIF than for incoming solar
         x[layout.idx_vcd_o2_sif] = T(0.5) * x[layout.idx_vcd_o2_intercept]
         x[layout.idx_vcd_h2o_sif] = T(0.5) * x[layout.idx_vcd_h2o_intercept]
-        
-        # SIF coefficients start at zero
         x[layout.idx_sif] .= T(0.0)
     end
+    # Default: P0 = 1, others = 0
+    x[layout.idx_legendre] .= T(0.0)
+    x[first(layout.idx_legendre)] = T(1.0)
     
     # Legendre polynomial coefficients
-    x[layout.idx_legendre] .= T(0.0)
-    x[first(layout.idx_legendre)] = T(1.0)  # P0 = 1 (baseline multiplicative factor)
+    if !isnothing(y_obs) && length(layout.idx_legendre) >= 1
+        z = _normalized_grid(collect(ctx.λ))
+        A01 = hcat(ones(T, length(z)), z)
+        
+        # If forward model provided, fit ratio to get envelope-like shape
+        if !isnothing(fm)
+            try
+                # Get baseline forward model prediction
+                y_base = fm(x)
+                
+                # Compute ratio (emphasizes spectral features)
+                ratio = y_obs ./ max.(abs.(y_base), eps(T))
+                
+                # Weight by radiance level to emphasize upper-envelope shape
+                w = collect(T.(y_obs)) .- minimum(y_obs)
+                w .+= max(maximum(w), one(T)) * T(1e-6)
+                s = sqrt.(w ./ maximum(w))
+                
+                # Weighted least squares fit of ratio
+                c01 = (A01 .* s) \ (ratio .* s)
+            catch err
+                @warn "Ratio-based fit failed, falling back to direct fit" exception=err
+                # Fallback to direct fit
+                c01 = A01 \ collect(T.(y_obs))
+            end
+        else
+            # Direct fit to observations
+            c01 = A01 \ collect(T.(y_obs))
+        end
+        
+        # Set P0 coefficient
+        x[layout.idx_legendre[1]] = c01[1]
+        
+        # Set P1 coefficient (if we have enough Legendre terms)
+        if length(layout.idx_legendre) >= 2
+            x[layout.idx_legendre[2]] = c01[2]
+        end
+        
+        # Higher-order terms stay at zero
+        if length(layout.idx_legendre) >= 3
+            x[layout.idx_legendre[3:end]] .= T(0.0)
+        end
+    else
+        # Default: P0 = 1, others = 0
+        x[layout.idx_legendre] .= T(0.0)
+        x[first(layout.idx_legendre)] = T(1.0)
+    end
     
     return x
 end

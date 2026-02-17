@@ -27,9 +27,11 @@ end
 # Now use only the specific function I need
 const lm_one_step = FitHelpers.lm_one_step
 const _spdiag_invvar = FitHelpers._spdiag_invvar
+const _stalled_convergence = FitHelpers._stalled_convergence
 
 """
-Run LM retrieval and return results
+Run LM retrieval with full diagnostics and convergence checks.
+Integrates the iteration framework from Fit_toy_forward_model.jl.
 """
 function run_lm_retrieval(
     fm,
@@ -46,59 +48,168 @@ function run_lm_retrieval(
     lower_bounds=nothing,
     upper_bounds=nothing,
     verbose=true,
+    # NEW: Additional convergence parameters
+    conv_dx_rel_tol=1e-6,
+    conv_rmse_rel_tol=1e-6,
+    conv_rmse_abs_tol=1e-6,
+    conv_stall_enable=true,
+    conv_stall_window=3,
+    conv_stall_redchi2_target=5.0,
+    conv_stall_redchi2_abs_tol=0.1,
+    conv_stall_redchi2_rel_tol=0.03,
+    conv_stall_dx_rel_tol=5e-3,
+    lm_lambda_up=2.0,
+    lm_lambda_down=0.7,
+    lm_lambda_min=1e-8,
+    lm_lambda_max=1e8,
+    lm_max_inner=8,
+    meas_sigma=0.01,
 )
-    x_curr = copy(x_a)
+    # Initialize from prior (not x0!)
+    x_curr = copy(x_a)  # DIFFERENCE: Start from prior, not x0
+    y_curr = fm(x_curr)
     λ = lambda0
     
-    history = []
+    # DIFFERENCE: Track full diagnostics
+    dof = max(length(y_obs) - layout.n_state, 1)
+    chi2_curr = sum(((y_obs .- y_curr) ./ meas_sigma) .^ 2)
+    
+    x_series = [copy(x_curr)]
+    y_series = [copy(y_curr)]
+    obj_series = [0.5 * sum((y_obs .- y_curr).^2)]  # DIFFERENCE: Track objective
+    rmse_series = [sqrt(mean((y_obs .- y_curr) .^ 2))]
+    chi2_series = [chi2_curr]  # DIFFERENCE: Track chi-squared
+    redchi2_series = [chi2_curr / dof]  # DIFFERENCE: Track reduced chi-squared
+    dx_norm_series = Float64[]
+    dx_rel_series = Float64[]
+    cond_series = Float64[]  # DIFFERENCE: Track condition number
+    rmse_linear_series = Float64[]  # DIFFERENCE: Track linearized RMSE
+    rho_series = Float64[]  # DIFFERENCE: Track LM gain ratio
+    lambda_series = Float64[lambda0]
+    accepted_series = Bool[]
+    
+    failed_step = 0
+    failed_error = ""
+    converged = false
+    convergence_reason = ""
+    
+    history = []  # Keep for compatibility
     
     for istep in 1:max_steps
-        step = lm_one_step(
-            fm,
-            x_curr,
-            y_obs;
-            x_a=x_a,
-            S_e_inv=S_e_inv,
-            S_a_inv=S_a_inv,
-            lambda=λ,
-            lambda_up=2.0,
-            lambda_down=0.7,
-            lambda_min=1e-8,
-            lambda_max=1e8,
-            max_inner=8,
-            jacobian_eval=jacobian_eval,
-            x_scale=x_scale,
-            lower_bounds=lower_bounds,
-            upper_bounds=upper_bounds,
-        )
+        x_prev = copy(x_curr)
+        rmse_prev = rmse_series[end]
         
-        λ = step.lambda_next
-        
-        if !step.accepted
+        # DIFFERENCE: Wrapped in try-catch for robustness
+        step = try
+            lm_one_step(
+                fm,
+                x_curr,
+                y_obs;
+                x_a=x_a,
+                S_e_inv=S_e_inv,
+                S_a_inv=S_a_inv,
+                lambda=λ,
+                lambda_up=lm_lambda_up,
+                lambda_down=lm_lambda_down,
+                lambda_min=lm_lambda_min,
+                lambda_max=lm_lambda_max,
+                max_inner=lm_max_inner,
+                jacobian_eval=jacobian_eval,
+                x_scale=x_scale,
+                lower_bounds=lower_bounds,
+                upper_bounds=upper_bounds,
+            )
+        catch err
+            failed_step = istep
+            failed_error = string(typeof(err))
             if verbose
-                println("  Step $istep: No accepted update")
+                println("  Step $istep: ERROR - $failed_error")
             end
             break
         end
         
-        x_curr = step.x_next
+        λ = step.lambda_next
         
+        if !step.accepted
+            # DIFFERENCE: Stalled convergence check
+            stalled_conv, stalled_msg = _stalled_convergence(
+                dx_rel_series,
+                redchi2_series;
+                enabled=conv_stall_enable,
+                window=conv_stall_window,
+                redchi2_target=conv_stall_redchi2_target,
+                redchi2_abs_tol=conv_stall_redchi2_abs_tol,
+                redchi2_rel_tol=conv_stall_redchi2_rel_tol,
+                dx_rel_tol=conv_stall_dx_rel_tol,
+            )
+            
+            if stalled_conv
+                converged = true
+                convergence_reason = stalled_msg
+                if verbose
+                    println("  Step $istep: $stalled_msg")
+                end
+            else
+                failed_step = istep
+                failed_error = "no accepted LM update after $(lm_max_inner) inner tries"
+                if verbose
+                    println("  Step $istep: No accepted update")
+                end
+            end
+            break
+        end
+        
+        # Update state
+        x_curr = step.x_next
+        y_curr = step.y_next
+        
+        # DIFFERENCE: Track all diagnostics
+        push!(x_series, copy(x_curr))
+        push!(y_series, copy(y_curr))
+        push!(obj_series, step.cost_next)
+        
+        rmse_curr = sqrt(mean((y_obs .- y_curr) .^ 2))
+        push!(rmse_series, rmse_curr)
+        
+        chi2_curr = sum(((y_obs .- y_curr) ./ meas_sigma) .^ 2)
+        push!(chi2_series, chi2_curr)
+        push!(redchi2_series, chi2_curr / dof)
+        
+        push!(dx_norm_series, norm(step.dx))
+        push!(cond_series, step.cond_A)
+        push!(rmse_linear_series, step.rmse_linear)
+        push!(rho_series, step.rho)
+        push!(lambda_series, λ)
+        push!(accepted_series, step.accepted)
+        
+        # DIFFERENCE: Track relative step size
+        dx_rel = norm(step.dx) / max(norm(x_prev), eps(Float64))
+        push!(dx_rel_series, dx_rel)
+        
+        # For compatibility
         push!(history, (
             iter = istep,
-            rmse = step.rmse_next,
-            chi2 = 2.0 * step.cost_next,
+            rmse = rmse_curr,
+            chi2 = chi2_curr,
             lambda = λ,
             dx_norm = norm(step.dx),
         ))
         
         if verbose
-            println("  Step $istep: RMSE=$(step.rmse_next), χ²=$(2.0*step.cost_next), λ=$λ")
+            println("  Step $istep: RMSE=$rmse_curr, χ²=$chi2_curr, red_χ²=$(chi2_curr/dof), λ=$λ, |dx|/|x|=$dx_rel")
         end
         
-        # Convergence check
-        if step.rmse_next < 1e-6 || norm(step.dx) < 1e-6
+        # DIFFERENCE: Multiple convergence criteria
+        rmse_abs_change = abs(rmse_curr - rmse_prev)
+        rmse_rel_change = rmse_abs_change / max(abs(rmse_prev), eps(Float64))
+        
+        if dx_rel < conv_dx_rel_tol ||
+           rmse_rel_change < conv_rmse_rel_tol ||
+           rmse_abs_change < conv_rmse_abs_tol
+            converged = true
+            convergence_reason = "dx_rel=$dx_rel, rmse_abs_change=$rmse_abs_change, rmse_rel_change=$rmse_rel_change"
             if verbose
-                println("  Converged!")
+                println("  Converged: $convergence_reason")
             end
             break
         end
@@ -107,12 +218,31 @@ function run_lm_retrieval(
     y_final = fm(x_curr)
     residual = y_obs .- y_final
     
+    # DIFFERENCE: Return comprehensive diagnostics
     return (
         x_final = x_curr,
         y_final = y_final,
         residual = residual,
         rmse = sqrt(mean(residual.^2)),
-        history = history,
+        converged = converged,
+        convergence_reason = convergence_reason,
+        failed_step = failed_step,
+        failed_error = failed_error,
+        history = history,  # Keep for compatibility
+        # NEW: Full diagnostic series
+        x_series = x_series,
+        y_series = y_series,
+        obj_series = obj_series,
+        rmse_series = rmse_series,
+        chi2_series = chi2_series,
+        redchi2_series = redchi2_series,
+        dx_norm_series = dx_norm_series,
+        dx_rel_series = dx_rel_series,
+        cond_series = cond_series,
+        rmse_linear_series = rmse_linear_series,
+        rho_series = rho_series,
+        lambda_series = lambda_series,
+        accepted_series = accepted_series,
     )
 end
 
@@ -182,7 +312,7 @@ function main()
     
     layout_sif  = state_layout_simple(ctx; n_legendre=n_legendre)
     state_names = state_names_simple(ctx; n_legendre=n_legendre)
-    x0_sif = initial_state_simple(ctx; n_legendre=n_legendre)
+    x0_sif = initial_state_simple(ctx; y_obs=y_obs, n_legendre=n_legendre, fm=fm_sif)
     
     println("  State vector size: $(layout_sif.n_state)")
     println("  Including: $(layout_sif.n_ev) SIF components")
@@ -248,8 +378,7 @@ function main()
     
     layout_nosif = state_layout_simple(ctx_nosif; n_legendre=n_legendre)
     state_names_nosif = state_names_simple(ctx_nosif; n_legendre=n_legendre)
-    x0_nosif = initial_state_simple(ctx_nosif; n_legendre=n_legendre)
-    
+    x0_nosif = initial_state_simple(ctx_nosif; y_obs=y_obs, n_legendre=n_legendre, fm=fm_nosif)  
     println("  State vector size: $(layout_nosif.n_state)")
     println("  No SIF components")
     
