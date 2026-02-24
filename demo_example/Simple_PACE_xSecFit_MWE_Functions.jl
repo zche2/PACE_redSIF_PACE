@@ -239,6 +239,9 @@ function resolve_paths(cfg::Dict)
     pace_rsr_file = cfg_get(cfg, "data", "pace_rsr_file", "PACE_OCI_RSRs.nc")
     pace_rsr_path = isabspath(pace_rsr_file) ? pace_rsr_file : joinpath(base_dir, pace_rsr_file)
 
+    pace_snr_file = cfg_get(cfg, "data", "pace_snr_file", "PACE_OCI_L1BLUT_baseline_SNR_1.1.txt")
+    pace_snr_path = isabspath(pace_snr_file) ? pace_snr_file : joinpath(base_dir, pace_snr_file)
+
     regen_kernel_file = cfg_get(cfg, "data", "regenerated_kernel_file", "KernelInstrument_regenerated.jld2")
     regen_kernel_path = isabspath(regen_kernel_file) ? regen_kernel_file : joinpath(base_dir, regen_kernel_file)
 
@@ -251,6 +254,7 @@ function resolve_paths(cfg::Dict)
         o2_path = o2_path,
         h2o_path = h2o_path,
         pace_rsr_path = pace_rsr_path,
+        pace_snr_path = pace_snr_path,
         regen_kernel_path = regen_kernel_path,
     )
 end
@@ -769,6 +773,7 @@ function prepare_mwe_inputs(config_path::AbstractString)
     normalize_sif = Bool(cfg_get(cfg, "spectral", "normalize_sif_first_ev", true))
 
     clip_negative_rsr = Bool(cfg_get(cfg, "kernel", "clip_negative_rsr", true))
+    use_band_snr = Bool(cfg_get(cfg, "kernel", "use_band_snr", true))
     compare_with_stored = Bool(cfg_get(cfg, "kernel", "compare_with_stored", true))
     band_match_tol_nm = Float64(cfg_get(cfg, "kernel", "band_match_tol_nm", 0.01))
     save_regenerated = Bool(cfg_get(cfg, "kernel", "save_regenerated", false))
@@ -864,6 +869,46 @@ function prepare_mwe_inputs(config_path::AbstractString)
         spectral_axis = reverse(spectral_axis)
     end
 
+    # build OCI band-specific SNR from baseline SNR file if requested
+    println("Preparing band-specific SNR from baseline file: use_band_snr=$use_band_snr")
+    if use_band_snr
+        # Read the file to find header end
+        snr_file_path = must_exist(paths.pace_snr_path)
+        snr_lines = readlines(snr_file_path)
+        
+        # Find the line number where "/end_header" appears
+        header_end_idx = findfirst(line -> occursin("/end_header", line), snr_lines)
+        
+        if isnothing(header_end_idx)
+            @warn "Could not find '/end_header' in SNR file, assuming no header"
+            header_end_idx = 0
+        end
+        
+        # Read data, skipping header lines
+        snr_data = readdlm(snr_file_path, String, skipstart=header_end_idx)
+        
+        snr_band_full = parse.(Float64, snr_data[:, 2])
+        idx = findall((snr_data[:, 1] .== "Red") .& (λ_min .<= snr_band_full .<= λ_max))
+        snr_band_clip = snr_band_full[idx]
+        c1 = parse.(Float64, snr_data[idx, 4])
+        c2 = parse.(Float64, snr_data[idx, 5])
+        
+        # Sanity check alignment
+        for b in band_nominal
+            if !any(abs.(snr_band_clip .- b) .< 1e-3)
+                @warn "No SNR value found for band $b nm in baseline SNR file; check alignment with PACE bands."
+            end
+        end
+        
+        println("  | Loaded $(length(snr_band_clip)) SNR bands from file")
+        println("  | c1 range: [$(minimum(c1)), $(maximum(c1))]")
+        println("  | c2 range: [$(minimum(c2)), $(maximum(c2))]")
+        
+        band_snr_coeffs = Dict("c1" => c1, "c2" => c2)
+    else
+        band_snr_coeffs = nothing
+    end
+
     return (
         cfg = cfg,
         paths = paths,
@@ -877,6 +922,7 @@ function prepare_mwe_inputs(config_path::AbstractString)
         regenerated_kernel_quality = regenerated_quality,
         generation_info = generation_info,
         kernel_comparison = comparison,
+        band_snr_coeffs = band_snr_coeffs,
         lambda_source = λ_source,
         delta_lambda_nm = delta_λ,
         o2_sitp = o2_sitp,

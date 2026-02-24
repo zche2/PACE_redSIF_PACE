@@ -206,6 +206,11 @@ function rodgers_eq59_one_step(
     )
 end
 
+function _get_sigma2(radiance, c1, c2)
+    # Simple noise model: σ² = c₁ + (c₂ * radiance)
+    return c1 .+ (c2 .* radiance)
+end
+
 function _spdiag_invvar(sigma::AbstractVector{<:Real})
     σ = collect(Float64.(sigma))
     # Guard against only numerically pathological scales; keep physically
@@ -632,6 +637,8 @@ function main()
     lm_lambda_min = Float64(get(fit_cfg, "lm_lambda_min", 1e-8))
     lm_lambda_max = Float64(get(fit_cfg, "lm_lambda_max", 1e8))
     lm_max_inner = Int(get(fit_cfg, "lm_max_inner", 8))
+    # Measurement error settings requested by user
+    use_band_snr = Bool(get(fit_cfg, "use_band_snr", true))
     meas_sigma = Float64(get(fit_cfg, "meas_sigma", 0.01))
     # Prior settings requested by user
     p_prior_hpa = Float64(get(fit_cfg, "p_prior_hpa", 700.0))
