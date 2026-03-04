@@ -19,7 +19,7 @@ plot(λ_ref, sif_u[:, 1:4])
 sif_svd = PACE_SIF.Spectral_SVD(sif_shapes, λ_ref, λ_min=350.0, λ_max=2500.0)
 plot(sif_svd.PrinComp[:, 1:4])
 # compute covariance matrix
-cov(sif_svd.Loading[1:4, :], dims=2)
+cov(sif_svd.Loading[1:4, :], dims=2) .* 5
 
 # normalize shapes to max=1
 sif_shapes_norm = sif_shapes ./ maximum(sif_shapes, dims=2)

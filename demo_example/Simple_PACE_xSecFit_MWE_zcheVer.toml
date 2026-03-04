@@ -19,6 +19,8 @@ sif_file = "SIF_singular_vector.jld2"
 o2_file = "Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange_O2.jld2"
 # H2O cross-section lookup file (JLD2) on wavelength grid.
 h2o_file = "Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange_H2O.jld2"
+# solar file
+solar_file = "solar_merged_20240731_600_33300_100.out"
 
 [numerics]
 # Floating-point type for LUT/interpolator context and forward-model state vectors (`Float64` or `Float32`).
@@ -78,10 +80,11 @@ spectrum_var = "radiance_red"
 # Pixel index in PACE swath to retrieve (first spatial dimension).
 pixel_index = 1260
 # Scan index in PACE swath to retrieve (second spatial dimension).
-scan_index = 1702
+scan_index = 1700
 
 [fit]
 # use model specify which model to be used.
+# model options: standard, vcd_ratio
 model_variant = "standard"
 # Number of Legendre polynomial terms in multiplicative baseline.
 n_legendre = 3
@@ -119,6 +122,10 @@ use_vcd_slope_prior = true
 vcd_slope_prior_sigma_factor = 1.0
 # Prior sigma for all SIF coefficients (prior mean is fixed to 0).
 sif_sigma = 1e12
+# If true, use SIF prior covariance from Spectral_SVD on sif_basis file; if false, use diagonal prior only.
+use_sif_covariance = false
+# Scale factor applied to SIF prior covariance to downgrade the constraint (larger = weaker); default 5.
+sif_prior_cov_scale_factor = 5
 # Minimum allowed prior sigma to avoid singular inverse covariance.
 prior_min_sigma = 0.001
 # Default sigma assigned to unconstrained parameters.

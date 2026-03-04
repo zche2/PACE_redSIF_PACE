@@ -5,6 +5,8 @@ using JLD2
 using Interpolations
 using NCDatasets
 using DelimitedFiles
+using LinearAlgebra
+using Statistics
 using PACE_SIF
 
 export read_mwe_config,
@@ -12,6 +14,7 @@ export read_mwe_config,
        parse_lut_interpolation_mode,
        resolve_paths,
        load_sif_basis,
+       sif_basis_prior_cov,
        load_solar_spectrum_on_grid,
        load_pace_spectrum_on_grid,
        infer_lut_spectral_axis,
@@ -319,6 +322,41 @@ function load_sif_basis(
 end
 
 """
+    sif_basis_prior_cov(sif_path; n_ev, λ_min, λ_max)
+
+Load the SIF basis file at `sif_path`, run `PACE_SIF.Spectral_SVD` on `SIF_shapes` over the
+wavelength window [λ_min, λ_max], and return the covariance of the first `n_ev` loading
+coefficients (prior covariance for SIF basis components in state space).
+
+The JLD2 file must contain `SIF_shapes` (wavelength × samples) and `SIF_wavelen`.
+Returns an `n_ev × n_ev` symmetric positive (semi)definite matrix, or `nothing` if the
+file lacks `SIF_shapes` or the SVD yields too few components.
+"""
+function sif_basis_prior_cov(
+    sif_path::AbstractString;
+    n_ev::Int,
+    λ_min::Real,
+    λ_max::Real,
+)
+    sif = JLD2.load(must_exist(sif_path))
+    haskey(sif, "SIF_shapes") && haskey(sif, "SIF_wavelen") || return nothing
+    sif_shapes = convert.(Float64, sif["SIF_shapes"])
+    λ_ref = collect(Float64.(sif["SIF_wavelen"]))
+    # Spectral_SVD expects profile with second dimension = wavelength (subset after indexing).
+    # SIF_shapes is (n_wavelength × n_samples), so transpose to (n_samples × n_wavelength).
+    profile = permutedims(sif_shapes, (2, 1))
+    svd_result = PACE_SIF.Spectral_SVD(profile, λ_ref; λ_min=Float64(λ_min), λ_max=Float64(λ_max))
+    n_available = size(svd_result.Loading, 1)
+    n_use = min(n_ev, n_available)
+    n_use < 1 && return nothing
+    L = Matrix(svd_result.Loading[1:n_use, :])   # (n_use × n_samples)
+    C = cov(L, dims=2)
+    # Ensure numerical stability for inversion (e.g. in S_a_inv).
+    C = C + 1e-12 * I
+    return C
+end
+
+"""
     load_solar_spectrum_on_grid(solar_path, λ_target; header_lines=3)
 
 Read the ASCII solar file with columns:
@@ -423,6 +461,12 @@ function load_pace_spectrum_on_grid(
     else
         close(ds)
         error("Unsupported '$spectrum_var' dimensions: ndims=$(ndims(v)); expected 1D or 3D")
+    end
+
+    # print nflh if has key "nflh"
+    if haskey(ds, "nflh")
+        nflh = ds["nflh"][pixel_idx, scan_idx];
+        println("Benchmarking nFLH: $(nflh) W/m^2/sr/nm")
     end
     close(ds)
 
@@ -838,6 +882,25 @@ function prepare_mwe_inputs(config_path::AbstractString)
         normalize=normalize_sif,
     )
 
+    # Prior covariance for SIF basis components from Spectral_SVD on sif_basis file (only when use_sif_covariance)
+    use_sif_covariance = Bool(cfg_get(cfg, "fit", "use_sif_covariance", false))
+    sif_prior_cov = if use_sif_covariance
+        cov_raw = sif_basis_prior_cov(
+            paths.sif_path;
+            n_ev=sif_nev,
+            λ_min=λ_min,
+            λ_max=λ_max,
+        )
+        if !isnothing(cov_raw)
+            sif_prior_cov_scale = Float64(cfg_get(cfg, "fit", "sif_prior_cov_scale_factor", 5))
+            cov_raw * sif_prior_cov_scale
+        else
+            nothing
+        end
+    else
+        nothing
+    end
+
     # Convolve high-resolution SIF basis to nominal low-resolution PACE bands.
     band_nominal = collect(Float64.(regenerated_kernel.band))
     sif_basis_lres_nominal = regenerated_kernel.RSR_out * sif_basis_hres
@@ -929,6 +992,7 @@ function prepare_mwe_inputs(config_path::AbstractString)
         h2o_sitp = h2o_sitp,
         sif_basis_hres = float_type.(sif_basis_hres),
         sif_basis = float_type.(sif_basis_lres),
+        sif_prior_cov = sif_prior_cov,
         axis_unit = axis_unit,
         spectral_axis = float_type.(spectral_axis),
         λ_hres = float_type.(λ_hres),

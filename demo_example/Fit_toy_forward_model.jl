@@ -825,7 +825,17 @@ function main()
     prior_sigma[layout.idx_sif] .= max(sif_sigma, prior_min_sigma)
     use_prior = true
 
-    S_a_inv = _spdiag_invvar(prior_sigma)
+    # S_a_inv: use SIF basis covariance from Spectral_SVD when available; else diagonal prior.
+    if hasproperty(ctx, :sif_prior_cov) && !isnothing(ctx.sif_prior_cov) &&
+       length(layout.idx_sif) == size(ctx.sif_prior_cov, 1)
+        σ = collect(Float64.(prior_sigma))
+        @. σ = clamp(abs(σ), 1e-12, 1e100)
+        S_a_inv_dense = Matrix(Diagonal(@. 1.0 / (σ^2)))
+        S_a_inv_dense[layout.idx_sif, layout.idx_sif] .= inv(ctx.sif_prior_cov)
+        S_a_inv = S_a_inv_dense
+    else
+        S_a_inv = _spdiag_invvar(prior_sigma)
+    end
 
     # Parameter scaling for LM updates (conditioning improvement).
     x_scale = ones(Float64, length(x0))
@@ -913,7 +923,14 @@ function main()
         println("    p prior = ", p_prior_hpa, " sigma = ", p_sigma_hpa)
         println("    T prior = ", t_prior_k, " sigma = ", t_sigma_k)
         println("  priors on SIF coeffs:")
-        println("    x_a[sif_ev*] = 0.0  sigma = ", prior_sigma[first(layout.idx_sif)])
+        if hasproperty(ctx, :sif_prior_cov) && !isnothing(ctx.sif_prior_cov) &&
+            length(layout.idx_sif) == size(ctx.sif_prior_cov, 1)
+            println("    x_a[sif_ev*] = 0.0  prior = covariance block (inv(cov) from SIF shapes)")
+            println("    SIF prior covariance matrix:")
+            println("    ", ctx.sif_prior_cov)
+        else
+            println("    x_a[sif_ev*] = 0.0  sigma = ", prior_sigma[first(layout.idx_sif)])
+        end
         println("  LM scales:")
         println("    vcd_o2 scale = ", x_scale[layout.idx_vcd_o2_intercept], "  slope scale = ", x_scale[layout.idx_vcd_o2_slope])
         println("    vcd_h2o scale = ", x_scale[layout.idx_vcd_h2o_intercept], "  slope scale = ", x_scale[layout.idx_vcd_h2o_slope])

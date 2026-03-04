@@ -444,7 +444,17 @@ function run_one_retrieval!(
     end
 
     x_curr = copy(x_a)
-    S_a_inv = _spdiag_invvar(prior_sigma)
+    # S_a_inv: use SIF basis covariance from Spectral_SVD when available
+    if hasproperty(core.ctx, :sif_prior_cov) && !isnothing(core.ctx.sif_prior_cov) &&
+       length(layout.idx_sif) == size(core.ctx.sif_prior_cov, 1)
+        σ = collect(Float64.(prior_sigma))
+        @. σ = clamp(abs(σ), 1e-12, 1e100)
+        S_a_inv_dense = Matrix(Diagonal(@. 1.0 / (σ^2)))
+        S_a_inv_dense[layout.idx_sif, layout.idx_sif] .= inv(core.ctx.sif_prior_cov)
+        S_a_inv = S_a_inv_dense
+    else
+        S_a_inv = _spdiag_invvar(prior_sigma)
+    end
     x_scale = copy(core.x_scale_base)
 
     y_curr = copy(core.fm(x_curr))
