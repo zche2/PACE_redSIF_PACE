@@ -84,6 +84,7 @@ function _forward_generic(
     vcd_h2o_sif,
     sif_coeff,
     leg_coeff,
+    model_variant
 )
     xs_o2 = vec(ctx.o2_sitp(spectral_axis, p_o2_hpa, t_o2_k))
     xs_h2o = vec(ctx.h2o_sitp(spectral_axis, p_h2o_hpa, t_h2o_k))
@@ -91,7 +92,17 @@ function _forward_generic(
     vcd_o2_λ = @. vcd_o2_intercept + vcd_o2_slope * z_hres
     vcd_h2o_λ = @. vcd_h2o_intercept + vcd_h2o_slope * z_hres
     trans = @. exp(-(vcd_h2o_λ * xs_h2o + vcd_o2_λ * xs_o2))
-    trans_sif = @. exp(-(vcd_h2o_sif * xs_h2o + vcd_o2_sif * xs_o2))
+
+    println("Using model variant: $model_variant")
+    if model_variant == :standard
+        trans_sif = @. exp(-(vcd_h2o_sif * xs_h2o + vcd_o2_sif * xs_o2))
+    elseif model_variant == :vcd_ratio
+        vcd_o2_sif_λ  = @. vcd_o2_sif * vcd_o2_λ;
+        vcd_h2o_sif_λ = @. vcd_h2o_sif * vcd_h2o_λ;
+        trans_sif     = @. exp(-(vcd_h2o_sif_λ * xs_h2o + vcd_o2_sif_λ * xs_o2))
+    else
+        error("Unsupported model_variant: $model_variant")
+    end
     sif_hres = sif_basis_hres * sif_coeff
     y_hres = @. solar_hres * trans + trans_sif * sif_hres
 
@@ -115,6 +126,7 @@ function _forward_prealloc!(
     vcd_h2o_sif,
     sif_coeff,
     leg_coeff,
+    model_variant::Symbol,
 ) where {T<:Real}
     p_o2 = T(p_o2_hpa)
     t_o2 = T(t_o2_k)
@@ -132,7 +144,14 @@ function _forward_prealloc!(
     @. sc.vcd_o2 = vcd_o2_i + vcd_o2_s * sc.z_hres
     @. sc.vcd_h2o = vcd_h2o_i + vcd_h2o_s * sc.z_hres
     @. sc.trans = exp(-(sc.vcd_h2o * sc.xs_h2o + sc.vcd_o2 * sc.xs_o2))
-    @. sc.trans_sif = exp(-(vcd_h2o_sif_t * sc.xs_h2o + vcd_o2_sif_t * sc.xs_o2))
+
+    if model_variant == :standard
+        @. sc.trans_sif = exp(-(vcd_h2o_sif_t * sc.xs_h2o + vcd_o2_sif_t * sc.xs_o2))
+    elseif model_variant == :vcd_ratio
+        @. sc.trans_sif = exp(-(vcd_h2o_sif_t * vcd_h2o_i * sc.xs_h2o + vcd_o2_sif_t * vcd_o2_i * sc.xs_o2))
+    else
+        error("Unsupported model_variant: $model_variant")
+    end
 
     mul!(sc.sif_hres, sc.sif_basis, sif_coeff)
     @. sc.y_hres = sc.solar_hres * sc.trans + sc.trans_sif * sc.sif_hres
@@ -151,6 +170,7 @@ end
         preallocate_float64=false,
         preallocate_float32=false,
         preallocate_other_types=false,
+        model_variant::Symbol=:standard,
     )
 
 Build a closure `f(x)` that captures fixed context once:
@@ -190,7 +210,9 @@ function make_forward_model_simple(
     preallocate_float64::Bool=false,
     preallocate_float32::Bool=false,
     preallocate_other_types::Bool=false,
+    model_variant::Symbol=:standard,
 )
+    println("Building forward model with model_variant = $model_variant")
     n_legendre >= 0 || error("n_legendre must be >= 0")
 
     λ_hres = collect(ctx.λ_hres)
@@ -280,6 +302,7 @@ function make_forward_model_simple(
                 vcd_h2o_sif,
                 sif_coeff,
                 leg_coeff,
+                model_variant
             )
         end
         return _forward_prealloc!(
@@ -297,6 +320,7 @@ function make_forward_model_simple(
             vcd_h2o_sif,
             sif_coeff,
             leg_coeff,
+            model_variant
         )
     end
 
@@ -397,6 +421,7 @@ function initial_state_simple(
     ctx;
     n_legendre::Int=2,
     T::Type{<:AbstractFloat}=Float64,
+    model_variant::Symbol=:standard,
 )
     layout = state_layout_simple(ctx; n_legendre=n_legendre)
     x0 = zeros(T, layout.n_state)
@@ -408,9 +433,15 @@ function initial_state_simple(
     x0[layout.idx_t_o2_k] = T(250.0)       # t_o2_k
     x0[layout.idx_p_h2o_hpa] = T(780.0)    # p_h2o_hpa
     x0[layout.idx_t_h2o_k] = T(285.0)      # t_h2o_k
-    # Shorter effective light path for emitted SIF than for incoming solar.
-    x0[layout.idx_vcd_o2_sif] = T(0.5) * x0[layout.idx_vcd_o2_intercept]
-    x0[layout.idx_vcd_h2o_sif] = T(0.5) * x0[layout.idx_vcd_h2o_intercept]
+    if model_variant == :standard
+        x0[layout.idx_vcd_o2_sif] = T(0.5) * x0[layout.idx_vcd_o2_intercept]
+        x0[layout.idx_vcd_h2o_sif] = T(0.5) * x0[layout.idx_vcd_h2o_intercept]
+    elseif model_variant == :vcd_ratio
+        x0[layout.idx_vcd_o2_sif] = T(.5)  # VCD_O2 SIF-path ratio to main path
+        x0[layout.idx_vcd_h2o_sif] = T(.5)  # VCD_H2O SIF-path ratio to main path
+    else
+        error("Unsupported model_variant: $model_variant")
+    end
     # SIF coeffs default to zero.
     # For multiplicative Legendre polynomial without +1 term, set P0 coeff = 1
     # so the default polynomial factor is unity.

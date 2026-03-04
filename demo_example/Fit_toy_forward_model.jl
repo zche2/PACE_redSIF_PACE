@@ -14,6 +14,41 @@ using .SimplePACEXSecFitMWEFunctions
 include(joinpath(@__DIR__, "toy_forward_model.jl"))
 
 """
+    make_Se_inv_from_snr(y, band_snr_coeffs)
+
+Compute diagonal measurement error covariance inverse S_e^{-1} from
+per-pixel SNR model encoded in `band_snr_coeffs`.
+
+The noise model is:
+    σ²(λ) = c₁(λ) + c₂(λ) * y(λ)
+
+`band_snr_coeffs` must be a Dict with keys `"c1"` and `"c2"`, each a
+vector of length `n` (one entry per spectral pixel).
+
+Returns a sparse diagonal matrix `S_e_inv` of size `(n, n)`.
+"""
+function make_Se_inv_from_snr(
+    y::AbstractVector{<:Real},
+    band_snr_coeffs::Dict,
+)
+    n = length(y)
+    c1 = band_snr_coeffs["c1"]
+    c2 = band_snr_coeffs["c2"]
+    length(c1) == n || error(
+        "band_snr_coeffs c1 length ($(length(c1))) must match spectrum length ($n)"
+    )
+    length(c2) == n || error(
+        "band_snr_coeffs c2 length ($(length(c2))) must match spectrum length ($n)"
+    )
+    sigma2 = Vector{Float64}(undef, n)
+    @inbounds for i in 1:n
+        sigma2[i] = Float64(c1[i]) + Float64(c2[i]) * y[i]
+    end
+    return spdiagm(0 => @. 1.0 / sigma2)
+end
+
+
+"""
     rodgers_eq59_fit(fm, x0, y_obs; kwargs...)
 
 Simple unconstrained nonlinear least-squares:
@@ -461,6 +496,9 @@ The LM damping is applied as a pre-factor on the prior precision term:
     A(γ) = K' S_e^-1 K + γ S_a^-1
 with γ >= 0.
 
+`S_e_inv` may be supplied directly, or constructed on-the-fly from SNR
+coefficients (`band_snr_coeffs`) or a scalar fallback (`meas_sigma`).
+
 Returns accepted/rejected step, updated damping, and diagnostics.
 """
 function lm_one_step(
@@ -469,7 +507,6 @@ function lm_one_step(
     y_obs::AbstractVector{<:Real},
     ;
     x_a::AbstractVector{<:Real},
-    S_e_inv,
     S_a_inv,
     lambda::Float64,
     lambda_up::Float64=10.0,
@@ -481,6 +518,10 @@ function lm_one_step(
     x_scale::Union{Nothing, AbstractVector{<:Real}}=nothing,
     lower_bounds::Union{Nothing, AbstractVector{<:Real}}=nothing,
     upper_bounds::Union{Nothing, AbstractVector{<:Real}}=nothing,
+    # Measurement noise options (used only when S_e_inv is nothing)
+    use_band_snr::Bool=false,
+    band_snr_coeffs=nothing,
+    meas_sigma::Float64=0.01,
 )
     x = collect(Float64.(x_curr))
     y = fm(x)
@@ -488,9 +529,17 @@ function lm_one_step(
     ssr0 = 0.5 * dot(r0, r0)
     rmse0 = sqrt(mean(r0 .^ 2))
 
+    # Build S_e_inv lazily (only when not supplied by caller).
+    Se_inv = if use_band_snr && !isnothing(band_snr_coeffs)
+        make_Se_inv_from_snr(y, band_snr_coeffs)
+    else
+        spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
+    end
+    println("  | Using S_e_inv with diagonal entries in range [", minimum(diag(Se_inv)), ", ", maximum(diag(Se_inv)), "]")
+
     J = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x) : jacobian_eval(x)
-    H_obs = J' * S_e_inv * J
-    g_obs = J' * S_e_inv * (y_obs .- y)
+    H_obs = J' * Se_inv * J
+    g_obs = J' * Se_inv * (y_obs .- y)
     g_pri = S_a_inv * (x_a .- x)
 
     s = isnothing(x_scale) ? ones(Float64, length(x)) : collect(Float64.(x_scale))
@@ -566,6 +615,8 @@ function lm_one_step(
         end
     end
 
+    chi2_curr = dot(y_obs .- y_best, Se_inv * (y_obs .- y_best))
+
     return (
         x_next = x_best,
         y_prior = y,
@@ -573,6 +624,7 @@ function lm_one_step(
         dx = dx_best,
         cost_prior = ssr0,
         cost_next = cost_best,
+        chi2_next = chi2_curr,
         accepted = accepted,
         lambda_next = λ,
         inner_tries = n_try,
@@ -601,6 +653,7 @@ function main()
     state_float_type = parse_float_type(cfg)
     ctx = prepare_mwe_inputs(config_path)
 
+    model_variant = Symbol(get(fit_cfg, "model_variant", "standard"))
     n_legendre = Int(get(fit_cfg, "n_legendre", 2))
     preallocate_forward = Bool(get(fit_cfg, "preallocate_forward", true))
     preallocate_ad_forward = Bool(get(fit_cfg, "preallocate_ad_forward", false))
@@ -680,9 +733,10 @@ function main()
         preallocate_float64=preallocate_forward && state_float_type == Float64,
         preallocate_float32=preallocate_forward && state_float_type == Float32,
         preallocate_other_types=preallocate_ad_forward,
+        model_variant=model_variant,
     )
     layout = state_layout_simple(ctx; n_legendre=n_legendre)
-    x0 = initial_state_simple(ctx; n_legendre=n_legendre, T=state_float_type)
+    x0 = initial_state_simple(ctx; n_legendre=n_legendre, T=state_float_type, model_variant=model_variant)
     jacobian_eval = if use_hybrid_jacobian
         make_hybrid_jacobian_evaluator(
             fm,
@@ -744,18 +798,17 @@ function main()
     x_a[layout.idx_p_h2o_hpa] = p_prior_hpa
     x_a[layout.idx_t_o2_k] = t_prior_k
     x_a[layout.idx_t_h2o_k] = t_prior_k
+    x_a[layout.idx_vcd_o2_intercept]  = x0[layout.idx_vcd_o2_intercept]
+    x_a[layout.idx_vcd_h2o_intercept] = x0[layout.idx_vcd_h2o_intercept]
+    x_a[layout.idx_vcd_o2_sif]  = x0[layout.idx_vcd_o2_sif]
+    x_a[layout.idx_vcd_h2o_sif] = x0[layout.idx_vcd_h2o_sif]
     prior_sigma[layout.idx_p_o2_hpa] = p_sigma_hpa
     prior_sigma[layout.idx_p_h2o_hpa] = p_sigma_hpa
     prior_sigma[layout.idx_t_o2_k] = t_sigma_k
     prior_sigma[layout.idx_t_h2o_k] = t_sigma_k
 
-    x_a[layout.idx_vcd_o2_intercept] = x0[layout.idx_vcd_o2_intercept]
-    x_a[layout.idx_vcd_h2o_intercept] = x0[layout.idx_vcd_h2o_intercept]
     prior_sigma[layout.idx_vcd_o2_intercept] = vcd_o2_sigma
     prior_sigma[layout.idx_vcd_h2o_intercept] = vcd_h2o_sigma
-    # SIF-path VCD priors: shorter path than direct solar beam (initially 50%).
-    x_a[layout.idx_vcd_o2_sif] = x0[layout.idx_vcd_o2_sif]
-    x_a[layout.idx_vcd_h2o_sif] = x0[layout.idx_vcd_h2o_sif]
     prior_sigma[layout.idx_vcd_o2_sif] = vcd_o2_sigma
     prior_sigma[layout.idx_vcd_h2o_sif] = vcd_h2o_sigma
 
@@ -773,7 +826,6 @@ function main()
     use_prior = true
 
     S_a_inv = _spdiag_invvar(prior_sigma)
-    S_e_inv = spdiagm(0 => fill(1.0 / (meas_sigma^2), length(y_obs)))
 
     # Parameter scaling for LM updates (conditioning improvement).
     x_scale = ones(Float64, length(x0))
@@ -813,7 +865,6 @@ function main()
     println("  AD forward preallocation (other numeric types): ", preallocate_ad_forward)
     println("  Jacobian preallocation (ForwardDiff.jacobian!): ", preallocate_jacobian)
     println("  Hybrid Jacobian (analytic + AD for p/T): ", use_hybrid_jacobian)
-    println("  measurement sigma (1σ): ", meas_sigma)
     println(
         "  stalled-convergence check: ",
         conv_stall_enable,
@@ -879,11 +930,20 @@ function main()
         println("  prior: disabled")
     end
 
+    println("\n" * "="^70)
+    println("Starting LM optimization using model variant: ", model_variant)
+    println("="^70)
+
     # Multi-step LM from prior state (spectral-space comparison).
     x_curr = copy(x_a)
     y_curr = copy(fm(x_curr))
+    S_e_inv = if !use_band_snr || isnothing(ctx.band_snr_coeffs)
+        spdiagm(0 => fill(1.0 / (meas_sigma^2), length(y_obs)))
+    else
+        make_Se_inv_from_snr(y_curr, ctx.band_snr_coeffs)
+    end
     dof = max(length(y_obs) - layout.n_state, 1)
-    chi2_curr = sum(((y_obs .- y_curr) ./ meas_sigma) .^ 2)
+    chi2_curr = dot(y_obs .- y_curr, S_e_inv * (y_obs .- y_curr))
     x_series = [copy(x_curr)]
     y_series = [copy(y_curr)]
     obj_series = [_cost_with_prior(y_obs, y_curr, x_curr, x_a, S_e_inv, S_a_inv)]
@@ -905,6 +965,7 @@ function main()
 
     n_steps = max(n_plot_steps, 0)
     for istep in 1:n_steps
+        println("LM step ", istep)
         x_prev = copy(x_curr)
         rmse_prev = rmse_series[end]
         step = try
@@ -913,7 +974,6 @@ function main()
                 x_curr,
                 y_obs;
                 x_a=x_a,
-                S_e_inv=S_e_inv,
                 S_a_inv=S_a_inv,
                 lambda=λ,
                 lambda_up=lm_lambda_up,
@@ -925,6 +985,8 @@ function main()
                 x_scale=x_scale,
                 lower_bounds=lower_bounds,
                 upper_bounds=upper_bounds,
+                use_band_snr=use_band_snr,
+                band_snr_coeffs=ctx.band_snr_coeffs,
             )
         catch err
             failed_step = istep
@@ -958,7 +1020,7 @@ function main()
         push!(y_series, copy(y_curr))
         push!(obj_series, step.cost_next)
         push!(rmse_series, sqrt(mean((y_obs .- y_curr) .^ 2)))
-        chi2_curr = sum(((y_obs .- y_curr) ./ meas_sigma) .^ 2)
+        chi2_curr = step.chi2_next
         push!(chi2_series, chi2_curr)
         push!(redchi2_series, chi2_curr / dof)
         push!(dx_norm_series, norm(step.dx))
@@ -990,7 +1052,7 @@ function main()
         "   chi2 prior: ", chi2_series[1],
         "   red_chi2 prior: ", redchi2_series[1],
     )
-    for istep in 1:length(dx_norm_series)
+    for istep in eachindex(dx_norm_series)
         println(
             "  step ", istep,
             " objective: ", obj_series[istep + 1],
@@ -1033,6 +1095,18 @@ function main()
         for j in eachindex(state_names)
             println("    ", state_names[j], " = ", xk[j])
         end
+
+        # sanity check
+        if model_variant == :standard
+            # print ratio of vcd_h2o to vcd_h2o_sif and vcd_o2 to vcd_o2_sif to check if SIF VCDs are reasonable relative to direct-beam VCDs
+            vcd_o2_mean  = xk[layout.idx_vcd_o2_intercept] + xk[layout.idx_vcd_o2_slope] * mean(_normalized_grid(ctx.λ))
+            vcd_h2o_mean = xk[layout.idx_vcd_h2o_intercept] + xk[layout.idx_vcd_h2o_slope] * mean(_normalized_grid(ctx.λ))
+            vcd_o2_ratio = xk[layout.idx_vcd_o2_sif] / vcd_o2_mean
+            vcd_h2o_ratio = xk[layout.idx_vcd_h2o_sif] / vcd_h2o_mean
+            println("    vcd_o2_sif / vcd_o2_solar = ", vcd_o2_ratio)
+            println("    vcd_h2o_sif / vcd_h2o_solar = ", vcd_h2o_ratio)
+        end
+
     end
 
     # Save compact iteration diagnostics and all state elements to CSV.
