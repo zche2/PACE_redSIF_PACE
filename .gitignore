@@ -1,0 +1,11 @@
+# particular file forms
+*.jld2
+*.log
+*.png
+*.gif
+*.nc
+*.csv
+
+# folder
+PACE_proposal_materials/
+Manifest.toml
