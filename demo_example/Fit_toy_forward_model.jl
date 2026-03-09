@@ -362,10 +362,10 @@ function make_hybrid_jacobian_evaluator(
     n_state = layout.n_state
     spectral_axis = collect(Float64.(ctx.spectral_axis))
     z_hres = _normalized_grid(ctx.λ_hres)
-    z_lres = _normalized_grid(ctx.λ)
+    # z_lres = _normalized_grid(ctx.λ)
     K = Matrix{Float64}(hasproperty(ctx, :kernel_rsr_out) ? ctx.kernel_rsr_out : ctx.kernel.RSR_out)
     sif_basis = Matrix{Float64}(ctx.sif_basis_hres)
-    leg_basis = Matrix{Float64}(_legendre_design_matrix(z_lres, n_legendre))
+    leg_basis = Matrix{Float64}(_legendre_design_matrix(z_hres, n_legendre))
     solar = collect(Float64.(solar_hres))
 
     n_hres = length(z_hres)
@@ -378,8 +378,7 @@ function make_hybrid_jacobian_evaluator(
     trans_sif = zeros(Float64, n_hres)
     sif_hres = zeros(Float64, n_hres)
     y_hres = zeros(Float64, n_hres)
-    y_lres = zeros(Float64, n_lres)
-    poly = zeros(Float64, n_lres)
+    rho = zeros(Float64, n_hres)
     dxsdp_o2 = zeros(Float64, n_hres)
     dxsdt_o2 = zeros(Float64, n_hres)
     dxsdp_h2o = zeros(Float64, n_hres)
@@ -391,7 +390,7 @@ function make_hybrid_jacobian_evaluator(
     function apply_hres_column!(col::Int)
         mul!(d_lres, K, d_hres)
         @inbounds @simd for i in 1:n_lres
-            J[i, col] = d_lres[i] * poly[i]
+            J[i, col] = d_lres[i]
         end
         return nothing
     end
@@ -438,34 +437,33 @@ function make_hybrid_jacobian_evaluator(
         @. trans_sif = exp(-(vcd_h2o_sif * xs_h2o + vcd_o2_sif * xs_o2))
 
         mul!(sif_hres, sif_basis, sif_coeff)
-        @. y_hres = solar * trans + trans_sif * sif_hres
-        mul!(y_lres, K, y_hres)
-        mul!(poly, leg_basis, leg_coeff)
+        mul!(rho, leg_basis, leg_coeff)
+        @. y_hres = solar * trans * rho / π + trans_sif * sif_hres
 
-        # Analytic VCD derivatives.
-        @. d_hres = -solar * trans * xs_o2
+        # Analytic VCD derivatives (solar term includes rho/π).
+        @. d_hres = -solar * trans * rho / π * xs_o2
         apply_hres_column!(layout.idx_vcd_o2_intercept)
-        @. d_hres = -solar * trans * (z_hres * xs_o2)
+        @. d_hres = -solar * trans * rho / π * (z_hres * xs_o2)
         apply_hres_column!(layout.idx_vcd_o2_slope)
-        @. d_hres = -solar * trans * xs_h2o
+        @. d_hres = -solar * trans * rho / π * xs_h2o
         apply_hres_column!(layout.idx_vcd_h2o_intercept)
-        @. d_hres = -solar * trans * (z_hres * xs_h2o)
+        @. d_hres = -solar * trans * rho / π * (z_hres * xs_h2o)
         apply_hres_column!(layout.idx_vcd_h2o_slope)
 
-        # Analytic SIF-path VCD derivatives.
+        # Analytic SIF-path VCD derivatives (sif_hres is raw, before trans_sif multiply).
         @. d_hres = -trans_sif * sif_hres * xs_o2
         apply_hres_column!(layout.idx_vcd_o2_sif)
         @. d_hres = -trans_sif * sif_hres * xs_h2o
         apply_hres_column!(layout.idx_vcd_h2o_sif)
 
-        # Analytic p/T derivatives using LUT derivatives.
-        @. d_hres = -solar * trans * (vcd_o2 * dxsdp_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdp_o2)
+        # Analytic p/T derivatives using LUT derivatives (solar term includes rho/π).
+        @. d_hres = -solar * trans * rho / π * (vcd_o2 * dxsdp_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdp_o2)
         apply_hres_column!(layout.idx_p_o2_hpa)
-        @. d_hres = -solar * trans * (vcd_o2 * dxsdt_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdt_o2)
+        @. d_hres = -solar * trans * rho / π * (vcd_o2 * dxsdt_o2) - trans_sif * sif_hres * (vcd_o2_sif * dxsdt_o2)
         apply_hres_column!(layout.idx_t_o2_k)
-        @. d_hres = -solar * trans * (vcd_h2o * dxsdp_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdp_h2o)
+        @. d_hres = -solar * trans * rho / π * (vcd_h2o * dxsdp_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdp_h2o)
         apply_hres_column!(layout.idx_p_h2o_hpa)
-        @. d_hres = -solar * trans * (vcd_h2o * dxsdt_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdt_h2o)
+        @. d_hres = -solar * trans * rho / π * (vcd_h2o * dxsdt_h2o) - trans_sif * sif_hres * (vcd_h2o_sif * dxsdt_h2o)
         apply_hres_column!(layout.idx_t_h2o_k)
 
         # Analytic SIF coefficients.
@@ -474,12 +472,10 @@ function make_hybrid_jacobian_evaluator(
             apply_hres_column!(layout.idx_sif[iev])
         end
 
-        # Analytic Legendre coefficients.
+        # Analytic Legendre coefficients: ∂y_hres/∂a_j = solar * trans / π * leg_basis[:, j].
         for j in 1:layout.n_leg_coeff
-            col = layout.idx_legendre[j]
-            @inbounds @simd for i in 1:n_lres
-                J[i, col] = y_lres[i] * leg_basis[i, j]
-            end
+            @. d_hres = solar * trans / π * (@view leg_basis[:, j])
+            apply_hres_column!(layout.idx_legendre[j])
         end
 
         return J
@@ -1204,6 +1200,7 @@ function main()
         ctx.λ,
         y_obs .- y_series[1];
         label="Residual @ prior",
+        ylims=(-0.1, 0.1),
         lw=2.0,
         color=:steelblue,
         ls=:dash,
@@ -1257,28 +1254,41 @@ function main()
     t_h2o = x_final[layout.idx_t_h2o_k]
     vcd_o2_sif = x_final[layout.idx_vcd_o2_sif]
     vcd_h2o_sif = x_final[layout.idx_vcd_h2o_sif]
+    leg_coeff = x_final[layout.idx_legendre]
     
     # Get cross-sections at high resolution
     spectral_axis = collect(Float64.(ctx.spectral_axis))
     z_hres = _normalized_grid(ctx.λ_hres)
+    K      = hasproperty(ctx, :kernel_rsr_out) ? ctx.kernel_rsr_out : ctx.kernel.RSR_out
     
     xs_o2_hres = [ctx.o2_sitp(spectral_axis[i], p_o2, t_o2) for i in eachindex(spectral_axis)]
     xs_h2o_hres = [ctx.h2o_sitp(spectral_axis[i], p_h2o, t_h2o) for i in eachindex(spectral_axis)]
     
-    # Calculate transmittances
+    # Calculate transmittances at high and low resolution
     vcd_o2_hres = @. vcd_o2_i + vcd_o2_s * z_hres
     vcd_h2o_hres = @. vcd_h2o_i + vcd_h2o_s * z_hres
     trans_hres = @. exp(-(vcd_h2o_hres * xs_h2o_hres + vcd_o2_hres * xs_o2_hres))
     trans_sif_hres = @. exp(-(vcd_h2o_sif * xs_h2o_hres + vcd_o2_sif * xs_o2_hres))
     
+    trans_lres = K * trans_hres
+    trans_sif_lres = K * trans_sif_hres
+    
     # Calculate reflected solar continuum
-    solar_continuum_hres = @. solar_hres * trans_hres
+    leg_basis = Matrix{Float64}(_legendre_design_matrix(z_hres, n_legendre))
+    rho_hres = leg_basis * leg_coeff
+    solar_rho_hres = @. solar_hres * rho_hres / π
+    solar_rho_lres = K * solar_rho_hres
+    solar_continuum_hres = @. solar_hres * trans_hres * rho_hres / π
+    solar_continuum_lres = K * solar_continuum_hres
     
-    # Calculate SIF contribution to TOA radiance
+    # Calculate SIF contribution to TOA radiance at high and low resolution
     sif_contribution_hres = @. trans_sif_hres * sif_hres
+    sif_contribution_lres = K * sif_contribution_hres
     
-    # Total high-resolution radiance
+    # Total high-resolution radiance at high and low resolution
     radiance_total_hres = solar_continuum_hres .+ sif_contribution_hres
+    radiance_total_lres_postconv = K * radiance_total_hres
+    radiance_total_lres_preconv  = solar_continuum_lres .+ sif_contribution_lres
     
     println("\nHigh-resolution components:")
     println("  Solar continuum contribution: $(mean(solar_continuum_hres))")
@@ -1312,10 +1322,16 @@ function main()
         lw=2,
         color=:blue,
         label="Direct path (T↓↑)",
-        legend=:bottomleft
+        legend=:bottomleft,
+        alpha=0.5,
+        ylims=(0.0, 1.2)
     )
+    plot!(p_trans, ctx.λ, trans_lres;
+            lw=2, color=:blue, ls=:dash, label="Direct path (T↓↑) (low-res)")
     plot!(p_trans, ctx.λ_hres, trans_sif_hres;
-            lw=2, color=:orange, ls=:dash, label="SIF path (T↑)")
+            lw=2, color=:orange, label="SIF path (T↑)", alpha=0.5)
+    plot!(p_trans, ctx.λ, trans_sif_lres;
+            lw=2, color=:orange, ls=:dash, label="SIF path (T↑) (low-res)")
     
     p_contrib = plot(
         ctx.λ_hres,
@@ -1324,15 +1340,20 @@ function main()
         ylabel="Radiance",
         title="High-Res Radiance Components",
         lw=2,
-        color=:blue,
+        color=:lightblue,
         label="Solar continuum",
-        legend=:topright
+        legend=:topright,
+        alpha=0.5
     )
     plot!(p_contrib, ctx.λ_hres, sif_contribution_hres;
             lw=2, color=:red, label="SIF contribution")
     plot!(p_contrib, ctx.λ_hres, radiance_total_hres;
-            lw=2, color=:black, ls=:dash, label="Total")
-    
+            lw=2, color=:silver, ls=:dash, label="Total", alpha=0.5)
+    plot!(p_contrib, ctx.λ, radiance_total_lres_postconv;
+            lw=2, color=:black, label="Total (low-res) (post-conv)")
+    plot!(p_contrib, ctx.λ, solar_rho_lres;
+            lw=2, color=:green, label="Solar radiance baseline (low-res)")
+
     p_sif_all = plot(p_sif, p_trans, p_contrib;
                         layout=(3, 1),
                         size=(1000, 1200))

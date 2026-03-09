@@ -80,7 +80,7 @@ spectrum_var = "radiance_red"
 # Pixel index in PACE swath to retrieve (first spatial dimension).
 pixel_index = 1260
 # Scan index in PACE swath to retrieve (second spatial dimension).
-scan_index = 1700
+scan_index = 1698
 
 [fit]
 # use model specify which model to be used.

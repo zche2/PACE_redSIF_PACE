@@ -47,7 +47,7 @@ function _build_scratch(
         zeros(T, n_hres),
         zeros(T, n_hres),
         zeros(T, n_lres),
-        zeros(T, n_lres),
+        zeros(T, n_hres),
         zeros(T, n_lres),
     )
 end
@@ -103,12 +103,14 @@ function _forward_generic(
     else
         error("Unsupported model_variant: $model_variant")
     end
-    sif_hres = sif_basis_hres * sif_coeff
-    y_hres = @. solar_hres * trans + trans_sif * sif_hres
+    sif_hres_rad = sif_basis_hres * sif_coeff
+    sif_toa_hres_rad   = @. trans_sif * sif_hres_rad
+    rho_hres           = leg_basis * leg_coeff
+    solar_toa_hres_rad = @. solar_hres * trans * rho_hres / π   # π in principle converts flux to radiance, but we keep it here for consistency with the unit.
+    y_hres = @. solar_toa_hres_rad + sif_toa_hres_rad
 
     y_lres = K * y_hres
-    poly = leg_basis * leg_coeff
-    return y_lres .* poly
+    return y_lres
 end
 
 function _forward_prealloc!(
@@ -154,11 +156,11 @@ function _forward_prealloc!(
     end
 
     mul!(sc.sif_hres, sc.sif_basis, sif_coeff)
-    @. sc.y_hres = sc.solar_hres * sc.trans + sc.trans_sif * sc.sif_hres
-
-    mul!(sc.y_lres, sc.K, sc.y_hres)
+    @. sc.sif_hres = sc.trans_sif * sc.sif_hres
     mul!(sc.poly, sc.leg_basis, leg_coeff)
-    @. sc.out = sc.y_lres * sc.poly
+    @. sc.y_hres = sc.solar_hres * sc.trans * sc.poly / T(π) + sc.sif_hres
+
+    mul!(sc.out, sc.K, sc.y_hres)
     return sc.out
 end
 
@@ -200,8 +202,9 @@ State vector layout for `x`:
 11..`10+nEV`: SIF EV coefficients (on high-res grid)
 `(11+nEV)`..end: Legendre coefficients `a0..aN` with `N=n_legendre`
 
-Low-res multiplicative polynomial:
-`poly(λ) = Σ a_n P_n(z(λ))`, where `z` is λ mapped to [-1, 1].
+High-res reflectance polynomial (applied before convolution):
+`ρ(λ) = Σ a_n P_n(z(λ))`, where `z` is λ_hres mapped to [-1, 1].
+TOA radiance: `y_hres = solar * T_direct * ρ / π + T_sif * SIF`, then `y_lres = K * y_hres`.
 """
 function make_forward_model_simple(
     ctx,
@@ -231,10 +234,10 @@ function make_forward_model_simple(
         error("sif_basis_hres first dimension must match ctx.λ_hres length")
 
     layout = state_layout_simple(ctx; n_legendre=n_legendre)
-    n_ev = layout.n_ev
+    # n_ev = layout.n_ev
+    # z_lres = _normalized_grid(λ_lres)
     z_hres = _normalized_grid(λ_hres)
-    z_lres = _normalized_grid(λ_lres)
-    leg_basis = _legendre_design_matrix(z_lres, n_legendre)
+    leg_basis = _legendre_design_matrix(z_hres, n_legendre)
 
     # Type-specific scratch buffers for allocation-light forward evaluations.
     # This closure is stateful and not thread-safe when preallocation is enabled.

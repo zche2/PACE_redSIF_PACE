@@ -1,0 +1,28 @@
+# Pseudo-measurement experiment config (paths and options).
+# Main retrieval/LUT config is given by main_config_path.
+
+[pseudo_measurement]
+# Path to MERRA2-derived transmittance NetCDF (profile × band; 72 layers; see Generate_transmittance.jl).
+trans_nc = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc"
+# Main MWE config used for prepare_mwe_inputs (LUTs, kernel, SIF basis, fit).
+main_config_path = "../Simple_PACE_xSecFit_MWE_zcheVer.toml"
+# Profile index to use for synthetic radiance (1-based; use 1 if only one profile).
+profile_index = 1
+# AMF for synthetic (1/cos(VZA)); use 1.0 for nadir.
+amf = 1.0
+# SIF coefficients to inject (one per SIF EV; length must match sif_nev in main config).
+sif_coeff_true = [1.0]
+# Add Gaussian noise to synthetic spectrum (sigma = noise_sigma * (c1 + c2*y)); set 0 to disable.
+noise_scale = 0.0
+# Number of synthetic samples to generate and retrieve (Create_synthetic_radiance.jl).
+n_samples = 5
+
+[sif_addition]
+# PACE NetCDF and pixel for SIF_addition.jl (can override pace_observation in main config).
+pace_file = "sample_granule_20240830T131442_new_chl.nc"
+pixel_index = 1260
+scan_index = 1702
+# SIF coefficients to add (known truth) before retrieval.
+sif_coeff_add = [0.5]
+# max_iter
+max_iter = 20

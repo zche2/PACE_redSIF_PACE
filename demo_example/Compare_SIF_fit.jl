@@ -340,7 +340,7 @@ function _run_lm(setup, max_steps::Int)
         end
     end
 
-    y_final = setup.fm(x_curr)
+    y_final = copy(setup.fm(x_curr))
     rmse_final = sqrt(mean((setup.y_obs .- y_final) .^ 2))
     return (
         x_final=x_curr,
@@ -377,6 +377,17 @@ function main()
     λ = collect(Float64, setup_with.ctx.λ)
     y_obs = setup_with.y_obs
 
+    # --- Remove SIF from full fit experiment ---
+    x_with = copy(res_with.x_final)
+    x_with[setup_with.layout.idx_sif] .= 0.0
+    println("x_with[setup_with.layout.idx_sif] = ", x_with[setup_with.layout.idx_sif])
+    println("res_with.x_final[setup_with.layout.idx_sif] = ", res_with.x_final[setup_with.layout.idx_sif])
+    y_with = setup_with.fm(x_with)
+    # compare with res_with.y_final
+    rmse_remove_sif = sqrt(mean((y_with .- res_with.y_final) .^ 2))
+    println("rmse_remove_sif = ", rmse_remove_sif)
+    res_remove_sif = (x_final=x_with, y_final=y_with, rmse_final=sqrt(mean((y_obs .- y_with) .^ 2)), converged=res_with.converged, steps_taken=res_with.steps_taken)
+
     # ---- Plot: final fit (obs + both models) ----
     p_fit = plot(
         λ,
@@ -394,6 +405,7 @@ function main()
     # ---- Plot: residuals ----
     res_with_resid = y_obs .- res_with.y_final
     res_without_resid = y_obs .- res_without.y_final
+    res_remove_sif_resid = y_obs .- res_remove_sif.y_final
     p_resid = plot(
         λ,
         res_with_resid;
@@ -405,6 +417,7 @@ function main()
         title="Residuals",
     )
     plot!(p_resid, λ, res_without_resid; label="Residual (no SIF)", lw=1.8, color=:red, ls=:dash)
+    plot!(p_resid, λ, res_remove_sif_resid; label="Residual (remove SIF)", lw=1.8, color=:green, ls=:dash)
     hline!(p_resid, [0.0]; color=:black, ls=:dot, lw=1, label="")
 
     # ---- Plot: SIF spectral shape (from "with SIF" retrieval) ----

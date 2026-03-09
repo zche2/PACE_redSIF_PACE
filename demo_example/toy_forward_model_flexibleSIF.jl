@@ -47,7 +47,7 @@ function _build_scratch(
         zeros(T, n_hres),
         zeros(T, n_hres),
         zeros(T, n_lres),
-        zeros(T, n_lres),
+        zeros(T, n_hres),
         zeros(T, n_lres),
     )
 end
@@ -92,16 +92,18 @@ function _forward_generic(
     vcd_h2o_λ = @. vcd_h2o_intercept + vcd_h2o_slope * z_hres
     trans = @. exp(-(vcd_h2o_λ * xs_h2o + vcd_o2_λ * xs_o2))
     trans_sif = @. exp(-(vcd_h2o_sif * xs_h2o + vcd_o2_sif * xs_o2))
-    sif_hres = if length(sif_coeff) > 0
+    sif_hres_rad = if length(sif_coeff) > 0
         sif_basis_hres * sif_coeff
     else
         zeros(eltype(sif_basis_hres), size(sif_basis_hres, 1))
     end
-    y_hres = @. solar_hres * trans + trans_sif * sif_hres
+    sif_toa_hres_rad = @. trans_sif * sif_hres_rad
+    rho_hres = leg_basis * leg_coeff
+    solar_toa_hres_rad = @. solar_hres * trans * rho_hres / π
+    y_hres = @. solar_toa_hres_rad + sif_toa_hres_rad
 
     y_lres = K * y_hres
-    poly = leg_basis * leg_coeff
-    return y_lres .* poly
+    return y_lres
 end
 
 function _forward_prealloc!(
@@ -141,14 +143,13 @@ function _forward_prealloc!(
     if length(sif_coeff) > 0
         mul!(sc.sif_hres, sc.sif_basis, sif_coeff)
     else
-        fill!(sc.sif_hres, 0.0)  # Zero out SIF when not retrieving it
+        fill!(sc.sif_hres, zero(T))
     end
-
-    @. sc.y_hres = sc.solar_hres * sc.trans + sc.trans_sif * sc.sif_hres
-
-    mul!(sc.y_lres, sc.K, sc.y_hres)
+    @. sc.sif_hres = sc.trans_sif * sc.sif_hres
     mul!(sc.poly, sc.leg_basis, leg_coeff)
-    @. sc.out = sc.y_lres * sc.poly
+    @. sc.y_hres = sc.solar_hres * sc.trans * sc.poly / T(π) + sc.sif_hres
+
+    mul!(sc.out, sc.K, sc.y_hres)
     return sc.out
 end
 
@@ -195,8 +196,9 @@ State vector layout for `x` when sif_nev = 0:
 1-8: Same as above (VCDs, p/T)
 9..end: Legendre coefficients `a0..aN` with `N=n_legendre`
 
-Low-res multiplicative polynomial:
-`poly(λ) = Σ a_n P_n(z(λ))`, where `z` is λ mapped to [-1, 1].
+High-res reflectance polynomial (applied before convolution):
+`ρ(λ) = Σ a_n P_n(z(λ))`, where `z` is λ_hres mapped to [-1, 1].
+TOA radiance: `y_hres = solar * T_direct * ρ / π + T_sif * SIF`, then `y_lres = K * y_hres`.
 """
 function make_forward_model_simple(
     ctx,
@@ -226,8 +228,7 @@ function make_forward_model_simple(
     layout = state_layout_simple(ctx; n_legendre=n_legendre)
     n_ev = layout.n_ev
     z_hres = _normalized_grid(λ_hres)
-    z_lres = _normalized_grid(λ_lres)
-    leg_basis = _legendre_design_matrix(z_lres, n_legendre)
+    leg_basis = _legendre_design_matrix(z_hres, n_legendre)
 
     # Type-specific scratch buffers for allocation-light forward evaluations.
     # This closure is stateful and not thread-safe when preallocation is enabled.
