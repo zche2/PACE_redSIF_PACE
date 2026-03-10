@@ -167,6 +167,7 @@ function _create_output_dataset(
     output_path::AbstractString,
     n_pix::Int,
     n_scan::Int,
+    n_sif_ev::Int,
     state_names::Vector{String},
     pace_path::AbstractString,
     config_path::AbstractString,
@@ -177,6 +178,7 @@ function _create_output_dataset(
     defDim(ds, "pixels", n_pix)
     defDim(ds, "scans", n_scan)
     defDim(ds, "state", length(state_names))
+    defDim(ds, "sif_nev", n_sif_ev)
     ds.attrib["title"] = "PACE toy retrieval swath output (full NC)"
     ds.attrib["history"] = "Created " * Dates.format(now(), Dates.DateFormat("yyyy-mm-ddTHH:MM:SS"))
     ds.attrib["input_pace_file"] = String(pace_path)
@@ -196,6 +198,8 @@ function _create_output_dataset(
     v_rchi2 = defVar(ds, "reduced_chi2", Float32, ("pixels", "scans"))
     v_obj = defVar(ds, "objective", Float32, ("pixels", "scans"))
     v_sif1 = defVar(ds, "sif_ev1", Float32, ("pixels", "scans"))
+    v_sif_coeffs = defVar(ds, "sif_coeffs", Float32, ("pixels", "scans", "sif_nev"))
+    v_sif_678 = defVar(ds, "sif_radiance_678nm", Float32, ("pixels", "scans"))
     v_dark = defVar(ds, "is_dark", UInt8, ("pixels", "scans"))
     v_ocean = defVar(ds, "is_ocean", UInt8, ("pixels", "scans"))
     v_pixsrc = defVar(ds, "source_pixel_index", Int32, ("pixels",))
@@ -208,6 +212,8 @@ function _create_output_dataset(
     v_rchi2.attrib["long_name"] = "Reduced chi-square: sum((r/sigma)^2)/(n_meas-n_state)"
     v_obj.attrib["long_name"] = "Final MAP objective value"
     v_sif1.attrib["long_name"] = "Retrieved first SIF eigenvector coefficient (sif_ev1)"
+    v_sif_coeffs.attrib["long_name"] = "All retrieved SIF eigenvector coefficients"
+    v_sif_678.attrib["long_name"] = "Reconstructed SIF radiance at 678.2 nm"
     v_dark.attrib["long_name"] = "1 if spectrum passed dark-scene threshold, 0 otherwise"
     v_ocean.attrib["long_name"] = "1 if spectrum passed ocean-mask filter, 0 otherwise"
     v_pixsrc[:] = collect(Int32.(pixel_range))
@@ -223,10 +229,12 @@ function _build_retrieval_core(config_path::AbstractString)
     state_float_type = MWEF.parse_float_type(cfg)
     ctx = MWEF.prepare_mwe_inputs(config_path)
     n_legendre = Int(get(fit_cfg, "n_legendre", 2))
+    model_variant = Symbol(get(fit_cfg, "model_variant", "standard"))
     preallocate_forward = Bool(get(fit_cfg, "preallocate_forward", true))
     preallocate_ad_forward = Bool(get(fit_cfg, "preallocate_ad_forward", false))
     preallocate_jacobian = Bool(get(fit_cfg, "preallocate_jacobian", false))
     use_hybrid_jacobian = Bool(get(fit_cfg, "use_hybrid_jacobian", false))
+    use_band_snr = Bool(get(fit_cfg, "use_band_snr", true))
     conv_dx_rel_tol = Float64(get(fit_cfg, "conv_dx_rel_tol", 1e-6))
     conv_rmse_rel_tol = Float64(get(fit_cfg, "conv_rmse_rel_tol", 1e-6))
     conv_rmse_abs_tol = Float64(get(fit_cfg, "conv_rmse_abs_tol", 1e-6))
@@ -272,9 +280,10 @@ function _build_retrieval_core(config_path::AbstractString)
         preallocate_float64=preallocate_forward && state_float_type == Float64,
         preallocate_float32=preallocate_forward && state_float_type == Float32,
         preallocate_other_types=preallocate_ad_forward,
+        model_variant=model_variant,
     )
     layout = state_layout_simple(ctx; n_legendre=n_legendre)
-    x0 = initial_state_simple(ctx; n_legendre=n_legendre, T=state_float_type)
+    x0 = initial_state_simple(ctx; n_legendre=n_legendre, T=state_float_type, model_variant=model_variant)
     jacobian_eval = if use_hybrid_jacobian
         make_hybrid_jacobian_evaluator(
             fm,
@@ -319,7 +328,6 @@ function _build_retrieval_core(config_path::AbstractString)
             prior_sigma_base[idx] = max(legendre_higher_sigma, prior_min_sigma)
         end
     end
-    S_e_inv = spdiagm(0 => fill(1.0 / (meas_sigma^2), length(ctx.λ)))
     x_scale_base = ones(Float64, length(x0))
     x_scale_base[layout.idx_vcd_o2_intercept] = vcd_o2_sigma
     x_scale_base[layout.idx_vcd_o2_slope] = max(vcd_o2_sigma * vcd_slope_prior_sigma_factor, prior_min_sigma)
@@ -347,6 +355,9 @@ function _build_retrieval_core(config_path::AbstractString)
     end
     z = _normalized_grid(ctx.λ)
     A01 = hcat(ones(length(z)), z)
+    λ_hres = collect(Float64, ctx.λ_hres)
+    idx_678 = argmin(abs.(λ_hres .- 678.2))
+    sif_basis_678 = collect(Float64, ctx.sif_basis_hres[idx_678, :])
     return (
         cfg = cfg,
         ctx = ctx,
@@ -361,11 +372,12 @@ function _build_retrieval_core(config_path::AbstractString)
         prior_min_sigma = prior_min_sigma,
         A01 = A01,
         jacobian_eval = jacobian_eval,
-        S_e_inv = S_e_inv,
+        use_band_snr = use_band_snr,
         x_scale_base = x_scale_base,
         lower_bounds = lower_bounds,
         upper_bounds = upper_bounds,
         meas_sigma = meas_sigma,
+        sif_basis_678 = sif_basis_678,
         conv_dx_rel_tol = conv_dx_rel_tol,
         conv_rmse_rel_tol = conv_rmse_rel_tol,
         conv_rmse_abs_tol = conv_rmse_abs_tol,
@@ -428,9 +440,15 @@ function _run_one_retrieval!(
     end
     x_scale = copy(core.x_scale_base)
     y_curr = copy(core.fm(x_curr))
+    S_e_inv = if core.use_band_snr && !isnothing(core.ctx.band_snr_coeffs)
+        make_Se_inv_from_snr(y_curr, core.ctx.band_snr_coeffs)
+    else
+        spdiagm(0 => fill(1.0 / (core.meas_sigma^2), length(y_obs)))
+    end
     rmse_prev = sqrt(mean((y_obs .- y_curr) .^ 2))
     dof = max(length(y_obs) - length(x_curr), 1)
-    redchi2_hist = Float64[sum(((y_obs .- y_curr) ./ core.meas_sigma) .^ 2) / dof]
+    chi2_curr = dot(y_obs .- y_curr, S_e_inv * (y_obs .- y_curr))
+    redchi2_hist = Float64[chi2_curr / dof]
     dx_rel_hist = Float64[]
     λ = core.lm.lambda0
     n_acc = 0
@@ -443,7 +461,6 @@ function _run_one_retrieval!(
                 x_curr,
                 y_obs;
                 x_a=x_a,
-                S_e_inv=core.S_e_inv,
                 S_a_inv=S_a_inv,
                 lambda=λ,
                 lambda_up=core.lm.lambda_up,
@@ -455,6 +472,9 @@ function _run_one_retrieval!(
                 x_scale=x_scale,
                 lower_bounds=core.lower_bounds,
                 upper_bounds=core.upper_bounds,
+                use_band_snr=core.use_band_snr,
+                band_snr_coeffs=core.ctx.band_snr_coeffs,
+                meas_sigma=core.meas_sigma,
             )
         catch
             status = Int16(4)
@@ -490,7 +510,8 @@ function _run_one_retrieval!(
         rmse_abs_change = abs(rmse_curr - rmse_prev)
         rmse_rel_change = rmse_abs_change / max(abs(rmse_prev), eps(Float64))
         rmse_prev = rmse_curr
-        push!(redchi2_hist, sum(((y_obs .- y_curr) ./ core.meas_sigma) .^ 2) / dof)
+        chi2_curr = dot(y_obs .- y_curr, S_e_inv * (y_obs .- y_curr))
+        push!(redchi2_hist, chi2_curr / dof)
         if dx_rel < core.conv_dx_rel_tol ||
            rmse_rel_change < core.conv_rmse_rel_tol ||
            rmse_abs_change < core.conv_rmse_abs_tol
@@ -505,8 +526,8 @@ function _run_one_retrieval!(
     x_out .= x_curr
     resid = y_obs .- y_curr
     rmse = sqrt(mean(resid .^ 2))
-    rchi2 = sum((resid ./ core.meas_sigma) .^ 2) / dof
-    obj = _cost_with_prior(y_obs, y_curr, x_curr, x_a, core.S_e_inv, S_a_inv)
+    rchi2 = chi2_curr / dof
+    obj = _cost_with_prior(y_obs, y_curr, x_curr, x_a, S_e_inv, S_a_inv)
     return (converged = converged, status = status, n_steps = n_acc, rmse = rmse, reduced_chi2 = rchi2, objective = obj)
 end
 
@@ -594,10 +615,12 @@ function run_orbit_full_nc(core, pace_path::AbstractString, config_path::Abstrac
         fill(missing, n_pix, n_scan)
     end
     output_path = _make_output_path(pace_path, cfg)
+    n_sif_ev = length(core.layout.idx_sif)
     ds_out = _create_output_dataset(
         output_path,
         length(pixel_range),
         length(scan_range),
+        n_sif_ev,
         core.state_names,
         pace_path,
         config_path,
@@ -633,6 +656,8 @@ function run_orbit_full_nc(core, pace_path::AbstractString, config_path::Abstrac
         rchi2_scan = fill(Float32(NaN), length(pixel_range))
         obj_scan = fill(Float32(NaN), length(pixel_range))
         sif1_scan = fill(Float32(NaN), length(pixel_range))
+        sif_coeffs_scan = fill(Float32(NaN), length(pixel_range), n_sif_ev)
+        sif_678_scan = fill(Float32(NaN), length(pixel_range))
         dark_scan = fill(UInt8(0), length(pixel_range))
         ocean_scan = fill(UInt8(0), length(pixel_range))
         for (i_pix_out, i_pix_src) in enumerate(pixel_range)
@@ -668,9 +693,12 @@ function run_orbit_full_nc(core, pace_path::AbstractString, config_path::Abstrac
             rmse_scan[i_pix_out] = Float32(stats.rmse)
             rchi2_scan[i_pix_out] = Float32(stats.reduced_chi2)
             obj_scan[i_pix_out] = Float32(stats.objective)
-            if length(core.layout.idx_sif) >= 1
-                sif1_scan[i_pix_out] = Float32(x_tmp[first(core.layout.idx_sif)])
+            sif_coeff = x_tmp[core.layout.idx_sif]
+            if length(sif_coeff) >= 1
+                sif1_scan[i_pix_out] = Float32(sif_coeff[1])
             end
+            sif_coeffs_scan[i_pix_out, :] .= Float32.(sif_coeff)
+            sif_678_scan[i_pix_out] = Float32(dot(core.sif_basis_678, sif_coeff))
         end
         ds_out["x_hat"][:, j_scan_out, :] = state_scan
         ds_out["converged"][:, j_scan_out] = conv_scan
@@ -680,6 +708,8 @@ function run_orbit_full_nc(core, pace_path::AbstractString, config_path::Abstrac
         ds_out["reduced_chi2"][:, j_scan_out] = rchi2_scan
         ds_out["objective"][:, j_scan_out] = obj_scan
         ds_out["sif_ev1"][:, j_scan_out] = sif1_scan
+        ds_out["sif_coeffs"][:, j_scan_out, :] = sif_coeffs_scan
+        ds_out["sif_radiance_678nm"][:, j_scan_out] = sif_678_scan
         ds_out["is_dark"][:, j_scan_out] = dark_scan
         ds_out["is_ocean"][:, j_scan_out] = ocean_scan
         n_conv = count(==(UInt8(1)), conv_scan)
