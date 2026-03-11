@@ -531,7 +531,7 @@ function lm_one_step(
     else
         spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
     end
-    println("  | Using S_e_inv with diagonal entries in range [", minimum(diag(Se_inv)), ", ", maximum(diag(Se_inv)), "]")
+    # println("  | Using S_e_inv with diagonal entries in range [", minimum(diag(Se_inv)), ", ", maximum(diag(Se_inv)), "]")
 
     J = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x) : jacobian_eval(x)
     H_obs = J' * Se_inv * J
