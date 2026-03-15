@@ -1181,7 +1181,7 @@ function main()
         ctx.λ,
         y_obs;
         label="PACE measurement",
-        lw=2.8,
+        lw=3.5,
         color=:black,
         xlabel="Wavelength [nm]",
         ylabel="Radiance",
@@ -1200,7 +1200,7 @@ function main()
         ctx.λ,
         y_obs .- y_series[1];
         label="Residual @ prior",
-        ylims=(-0.1, 0.1),
+        ylims=(-0.2, 0.2),
         lw=2.0,
         color=:steelblue,
         ls=:dash,

@@ -18,11 +18,34 @@ noise_scale = 0.0
 n_samples = 5
 
 [sif_addition]
-# PACE NetCDF and pixel for SIF_addition.jl (can override pace_observation in main config).
+# mode: "date" = all granules for a date (parallel_granules), "granule" = single granule by ID, "single_pixel" = one pixel only
+mode = "granule"
+# Date mode: date = YYYYMMDD. Granule mode: granule_id required.
+granule_id = "20250927T123954"
+# date = "20250927"  # YYYYMMDD when mode=date
+L1B_dir = "/home/zhe2/data/PACE/L1B_V3"
+L2AOP_dir = "/home/zhe2/data/PACE/L2_AOP_V3.1"
+L2BGC_dir = "/home/zhe2/data/PACE/L2_BGC_V3.1"
+output_dir = "/home/zhe2/FraLab/PACE_redSIF_PACE/demo_example/pseudo_measurement/sif_addition_output"
+interim_dir = "/home/zhe2/FraLab/PACE_redSIF_PACE/demo_example/pseudo_measurement/sif_addition_interim"
+# Date mode: parallel_granules = true uses Threads.@threads over granules (pixel-level threads disabled per granule)
+parallel_granules = true
+# use_in_memory_merge: true = read L1B/L2 directly, write single interim; false = subset files then merge
+use_in_memory_merge = true
+# SIF addition: magnitude and shape source
+sif_magnitude = 0.5
+sif_shape_source = "jld2"  # "jld2" = use SIF_shapes from file, "basis" = fixed sif_coeff_add
+sif_jld2_path = ""  # optional override; empty = use from main config data.sif_file
+add_snr_noise = true
+# Pixel filter: only pixels with valid nflh != 0
+pixel_filter_vars = ["nflh"]
+nflh_nonzero = true
+# Optional: subset of scans for quick testing (1-based inclusive). Omit for full swath.
+scan_start = 1
+scan_end = 5
+# Single-pixel mode: pace file and pixel/scan indices
 pace_file = "sample_granule_20240830T131442_new_chl.nc"
-pixel_index = 1260
-scan_index = 1702
-# SIF coefficients to add (known truth) before retrieval.
+pixel_index = 1259
+scan_index = 1699
 sif_coeff_add = [0.5]
-# max_iter
 max_iter = 20
