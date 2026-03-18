@@ -19,7 +19,7 @@ n_samples = 5
 
 [sif_addition]
 # mode: "date" = all granules for a date (parallel_granules), "granule" = single granule by ID, "single_pixel" = one pixel only
-mode = "granule"
+mode = "single_pixel"
 # Date mode: date = YYYYMMDD. Granule mode: granule_id required.
 granule_id = "20250927T123954"
 # date = "20250927"  # YYYYMMDD when mode=date
@@ -41,8 +41,8 @@ add_snr_noise = true
 pixel_filter_vars = ["nflh"]
 nflh_nonzero = true
 # Optional: subset of scans for quick testing (1-based inclusive). Omit for full swath.
-scan_start = 1
-scan_end = 5
+# scan_start = 1
+# scan_end = 5
 # Single-pixel mode: pace file and pixel/scan indices
 pace_file = "sample_granule_20240830T131442_new_chl.nc"
 pixel_index = 1259

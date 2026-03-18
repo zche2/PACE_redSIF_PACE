@@ -59,8 +59,8 @@ function _create_sif_addition_output_dataset(
     state_names::Vector{String},
     pace_path::AbstractString,
     config_path::AbstractString,
-    pixel_range::UnitRange{Int},
-    scan_range::UnitRange{Int},
+    pixel_range::AbstractRange{Int},
+    scan_range::AbstractRange{Int},
 )
     ds = Dataset(output_path, "c")
     defDim(ds, "pixels", n_pix)
