@@ -1,0 +1,42 @@
+# AddingSIF pipeline config. Extends base MWE config with [adding_sif] and [batch_fit].
+# Use as: julia -t N demo_example/AddingSIF/Run_adding_sif.jl demo_example/AddingSIF/adding_sif_config.toml
+# Or set PACE_ADDING_SIF_CONFIG to this file path.
+# Base config: Simple_PACE_xSecFit_MWE_zcheVer.toml
+
+[adding_sif]
+mode = "granule"  # "date" = all granules for date, "granule" = single granule by ID
+date = "20250927"  # YYYYMMDD when mode=date
+granule_id = "20250927T123954"  # e.g. "20250927T131442" when mode=granule
+L1B_dir = "/home/zhe2/data/PACE/L1B_V3"
+L2AOP_dir = "/home/zhe2/data/PACE/L2_AOP_V3.1"
+L2BGC_dir = "/home/zhe2/data/PACE/L2_BGC_V3.1"
+output_dir = "/home/zhe2/data/PACE/adding_sif_output"
+interim_dir = "/home/zhe2/data/PACE/adding_sif_interim"
+sif_magnitude = 0.5
+# Path to SIF shapes JLD2 (SIF_shapes, SIF_wavelen). Override via data.sif_file if relative.
+sif_jld2_path = ""
+add_snr_noise = true
+# If true, store Rtoa_red (observed radiance after SIF+noise) in output NetCDF.
+store_rtoa = false
+parallel_granules = true
+use_in_memory_merge = true
+# Optional: subset for quick testing (1-based inclusive). Omit or set end=0 for full swath.
+# pixel_start = 1100
+# pixel_end = 1150      # 0 = all pixels
+# scan_start = 300
+# scan_end = 350       # e.g. only first 5 scans
+
+[pace_observation]
+spectrum_var = "Rtoa_red"
+wavelength_var = "red_wavelength"
+
+[batch_fit]
+output_dir = "/home/zhe2/FraLab/PACE_redSIF_PACE/demo_example/AddingSIF/AddingSIF_output"
+output_suffix_parallel = "_adding_sif_p5_20260320.nc"
+pixel_filter_vars = ["nflh"]
+use_threads = true
+max_outer_steps = 20
+dark_filter_enabled = false
+ocean_filter_enabled = false
+watermask_var = "watermask"
+ocean_mask_values = [1]
