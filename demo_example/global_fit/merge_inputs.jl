@@ -48,11 +48,11 @@ function preprocess_and_merge_in_memory(
     try
         # L1B: read and TOA
         rhot_info = _find_var_from_dataset(ds_l1b, "rhot_red")
-        rhot_raw = _read_var_rescaled(rhot_info.var)
+        rhot_raw = rhot_info.var[:]
         sol_info = _find_var_from_dataset(ds_l1b, "red_solar_irradiance")
-        solar_irrad = _read_var_rescaled(sol_info.var)
+        solar_irrad = sol_info.var[:]
         sza_info = _find_var_from_dataset(ds_l1b, "solar_zenith")
-        sza = _read_var_rescaled(sza_info.var)
+        sza = sza_info.var[:]
         earth_sun = ds_l1b.attrib["earth_sun_distance_correction"]
 
         solar_irrad = reshape(solar_irrad, (1, 1, size(solar_irrad)...))
@@ -61,23 +61,23 @@ function preprocess_and_merge_in_memory(
         Rtoa = _to_pixels_scans_bands(Rtoa, rhot_info.dims)
 
         wl_info = _find_var_from_dataset(ds_l1b, "red_wavelength")
-        wl = Float32.(replace(_read_var_rescaled(wl_info.var), missing => NaN))
+        wl = Float32.(replace(wl_info.var[:], missing => NaN))
 
         lat_info = _find_var_from_dataset(ds_l1b, "latitude")
-        lat = Float32.(replace(_to_pixels_scans_2d(_read_var_rescaled(lat_info.var), lat_info.dims), missing => NaN))
+        lat = Float32.(replace(_to_pixels_scans_2d(lat_info.var[:], lat_info.dims), missing => NaN))
         lon_info = _find_var_from_dataset(ds_l1b, "longitude")
-        lon = Float32.(replace(_to_pixels_scans_2d(_read_var_rescaled(lon_info.var), lon_info.dims), missing => NaN))
+        lon = Float32.(replace(_to_pixels_scans_2d(lon_info.var[:], lon_info.dims), missing => NaN))
 
         wm = nothing
         if haskey(ds_l1b, "watermask")
             wm_info = _find_var_from_dataset(ds_l1b, "watermask")
-            wm_raw = _read_var_rescaled(wm_info.var)
+            wm_raw = wm_info.var[:]
             T = Base.nonmissingtype(eltype(wm_raw))
             wm = T.(replace(_to_pixels_scans_2d(wm_raw, wm_info.dims), missing => typemin(T)))
         end
 
         nflh_info = _find_var_from_dataset(ds_aop, "nflh")
-        nflh = Float32.(replace(_to_pixels_scans_2d(_read_var_rescaled(nflh_info.var), nflh_info.dims), missing => NaN))
+        nflh = Float32.(replace(_to_pixels_scans_2d(nflh_info.var[:], nflh_info.dims), missing => NaN))
 
         chlor_a = nothing
         if L2BGC_path !== nothing && isfile(L2BGC_path)
@@ -85,7 +85,7 @@ function preprocess_and_merge_in_memory(
             try
                 try
                     chl_info = _find_var_from_dataset(ds_bgc, "chlor_a")
-                    chlor_a = Float32.(replace(_to_pixels_scans_2d(_read_var_rescaled(chl_info.var), chl_info.dims), missing => NaN))
+                    chlor_a = Float32.(replace(_to_pixels_scans_2d(chl_info.var[:], chl_info.dims), missing => NaN))
                 catch
                     # chlor_a optional for filtering
                 end

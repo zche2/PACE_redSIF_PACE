@@ -1,20 +1,10 @@
 # =========================================================================================================
 # Pre-processes PACE OCI data:
-# 1) rescale packed NetCDF data
-# 2) compute TOA radiance from rhot
-# 3) subset and merge variables from L1B/L2 groups into flat NetCDF
+# 1) compute TOA radiance from rhot
+# 2) subset and merge variables from L1B/L2 groups into flat NetCDF
 # =========================================================================================================
 
 using NCDatasets
-
-# Function to rescale packed data
-function rescale_data(
-    x,
-    scale_factor,
-    offset,
-)
-    return (x .- offset) ./ scale_factor
-end
 
 # Find variable and return (var, dims) from dataset (searches groups and root)
 function _find_var_from_dataset(ds, varname::String)
@@ -47,15 +37,6 @@ function _find_var_from_dataset(ds, varname::String)
         return (var=var, dims=collect(String.(dimnames(var))))
     end
     error("Variable '$varname' not found in dataset")
-end
-
-# Read var with optional rescale (scale_factor, add_offset)
-function _read_var_rescaled(var)
-    data = var[:]
-    if haskey(var.attrib, "scale_factor") && haskey(var.attrib, "add_offset")
-        data = rescale_data(data, var.attrib["scale_factor"], var.attrib["add_offset"])
-    end
-    return data
 end
 
 # Compute Rtoa from rhot: Rtoa = rhot * E * cos(sza) / π / earth_sun_distance_correction
@@ -180,16 +161,7 @@ function subset_netcdf_dataset(
                     end
                 end
 
-                if haskey(var.attrib, "scale_factor") && haskey(var.attrib, "add_offset")
-                    scale_factor = var.attrib["scale_factor"]
-                    add_offset = var.attrib["add_offset"]
-                    original_data = var[idx_tuple...]
-                    rescaled_data = rescale_data(original_data, scale_factor, add_offset)
-                    merged_var[:] = rescaled_data
-                    merged_var.attrib["rescaled"] = "true"
-                else
-                    merged_var[:] = var[idx_tuple...]
-                end
+                merged_var[:] = var[idx_tuple...]
             end
         end
 
