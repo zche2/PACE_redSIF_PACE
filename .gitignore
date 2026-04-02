@@ -5,6 +5,7 @@
 *.png
 *.gif
 *.nc
+*.csv
 
 # folder
 PACE_proposal_materials/
