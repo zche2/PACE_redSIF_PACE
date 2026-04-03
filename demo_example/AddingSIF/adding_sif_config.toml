@@ -14,8 +14,8 @@ output_dir = "/home/zhe2/data/PACE/adding_sif_output"
 interim_dir = "/home/zhe2/data/PACE/adding_sif_interim"
 # Path to SIF shapes JLD2 (SIF_shapes, SIF_wavelen). Override via data.sif_file if relative.
 sif_jld2_path = ""
-add_snr_noise = true
-sif_magnitude = 0.5
+add_snr_noise = false
+sif_magnitude = 0
 # If true, store Rtoa_red (observed radiance after SIF+noise) in output NetCDF.
 store_rtoa = true
 parallel_granules = true
@@ -32,7 +32,7 @@ wavelength_var = "red_wavelength"
 
 [batch_fit]
 output_dir = "/home/zhe2/FraLab/PACE_redSIF_PACE/demo_example/AddingSIF/AddingSIF_output"
-output_suffix_parallel = "_adding_sif_p5_20260327.nc"
+output_suffix_parallel = "_adding_sif_zero_20260401.nc"
 pixel_filter_vars = ["nflh"]
 use_threads = true
 max_outer_steps = 20
