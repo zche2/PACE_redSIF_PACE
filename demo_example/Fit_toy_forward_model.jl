@@ -635,7 +635,111 @@ function lm_one_step(
     )
 end
 
-function main()
+"""
+One damped Gauss-Newton (MAP) step for the same objective as [`lm_one_step`](@ref):
+    A = K' S_e^{-1} K + S_a^{-1}   (scaled: Hs_obs + S_as)
+    full step `Δx_full` solves the normal equations; the applied update is `gn_damping * Δx_full`
+    (constant learning-rate style damping; use `< 1` to shrink steps for stability).
+
+Unlike LM, there is no inner retry loop; the step is taken whenever `fm(x + gn_damping*Δx_full)` succeeds.
+Returns the same NamedTuple shape as `lm_one_step` (`lambda_next` is `NaN`; `inner_tries` is `1`).
+"""
+function gn_one_step(
+    fm,
+    x_curr::AbstractVector{<:Real},
+    y_obs::AbstractVector{<:Real},
+    ;
+    x_a::AbstractVector{<:Real},
+    S_a_inv,
+    jacobian_eval::Union{Nothing, Function}=nothing,
+    x_scale::Union{Nothing, AbstractVector{<:Real}}=nothing,
+    lower_bounds::Union{Nothing, AbstractVector{<:Real}}=nothing,
+    upper_bounds::Union{Nothing, AbstractVector{<:Real}}=nothing,
+    use_band_snr::Bool=false,
+    band_snr_coeffs=nothing,
+    meas_sigma::Float64=0.01,
+    gn_damping::Float64=1.0,
+)
+    gn_damping > 0.0 || error("gn_damping must be positive, got $gn_damping")
+    x = collect(Float64.(x_curr))
+    y = fm(x)
+    r0 = y_obs .- y
+    ssr0 = 0.5 * dot(r0, r0)
+    rmse0 = sqrt(mean(r0 .^ 2))
+
+    Se_inv = if use_band_snr && !isnothing(band_snr_coeffs)
+        make_Se_inv_from_snr(y, band_snr_coeffs)
+    else
+        spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
+    end
+
+    J = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x) : jacobian_eval(x)
+    H_obs = J' * Se_inv * J
+    g_obs = J' * Se_inv * (y_obs .- y)
+    g_pri = S_a_inv * (x_a .- x)
+
+    s = isnothing(x_scale) ? ones(Float64, length(x)) : collect(Float64.(x_scale))
+    length(s) == length(x) || error("x_scale length must match state length")
+    s .= max.(abs.(s), 1e-12)
+
+    S = Diagonal(s)
+    Hs_obs = S * H_obs * S
+    S_as = S * S_a_inv * S
+
+    # Full GN: A = Hs_obs + S_as (equivalent to LM with γ=1 on prior precision only)
+    A = Hs_obs + S_as
+    cond_A_try = cond(Matrix(A))
+    rhs = S * (g_obs .+ g_pri)
+    du = A \ rhs
+    dx_full = S * du
+    dx = gn_damping .* dx_full
+    r_lin = r0 .- J * dx
+    ssr_lin = 0.5 * dot(r_lin, r_lin)
+    rmse_lin = sqrt(mean(r_lin .^ 2))
+    x_try = x .+ dx
+    if !isnothing(lower_bounds) && !isnothing(upper_bounds)
+        _apply_box_constraints!(x_try, lower_bounds, upper_bounds)
+    end
+
+    y_try = fm(x_try)
+
+    r_try = y_obs .- y_try
+    ssr_try = 0.5 * dot(r_try, r_try)
+    rmse_try = sqrt(mean(r_try .^ 2))
+    pred_red = ssr0 - ssr_lin
+    act_red = ssr0 - ssr_try
+    rho = pred_red > 0 ? act_red / pred_red : -Inf
+
+    chi2_curr = dot(y_obs .- y_try, Se_inv * (y_obs .- y_try))
+    dx_best = x_try .- x
+
+    return (
+        x_next = x_try,
+        y_prior = y,
+        y_next = y_try,
+        dx = dx_best,
+        cost_prior = ssr0,
+        cost_next = ssr_try,
+        chi2_next = chi2_curr,
+        accepted = true,
+        lambda_next = NaN,
+        inner_tries = 1,
+        cond_A = cond_A_try,
+        rmse_prior = rmse0,
+        rmse_linear = rmse_lin,
+        rmse_next = rmse_try,
+        pred_reduction = pred_red,
+        act_reduction = act_red,
+        rho = rho,
+        J = J,
+    )
+end
+
+function main(;
+    silent::Bool=false,
+    return_rmse_series_only::Bool=false,
+    fit_method_override::Union{Nothing,Symbol}=nothing,
+)
     config_path = get(
         ENV,
         "PACE_MWE_CONFIG",
@@ -686,6 +790,14 @@ function main()
     lm_lambda_min = Float64(get(fit_cfg, "lm_lambda_min", 1e-8))
     lm_lambda_max = Float64(get(fit_cfg, "lm_lambda_max", 1e8))
     lm_max_inner = Int(get(fit_cfg, "lm_max_inner", 8))
+    gn_damping = Float64(get(fit_cfg, "gn_damping", 1.0))
+    gn_damping > 0.0 || error("fit.gn_damping must be > 0")
+    fit_method = Symbol(get(fit_cfg, "fit_method", "lm"))
+    fit_method in (:lm, :gn) || error("fit.fit_method must be \"lm\" or \"gn\", got $(repr(string(fit_method)))")
+    if fit_method_override !== nothing
+        fit_method = fit_method_override
+        fit_method in (:lm, :gn) || error("fit_method_override must be :lm or :gn")
+    end
     # Measurement error settings requested by user
     use_band_snr = Bool(get(fit_cfg, "use_band_snr", true))
     meas_sigma = Float64(get(fit_cfg, "meas_sigma", 0.01))
@@ -861,93 +973,100 @@ function main()
         upper_bounds[layout.idx_t_h2o_k] = t_prior_k + pt_constraint_sigma_mult * t_sigma_k
     end
 
-    println("Fitting one PACE spectrum")
-    println("  config: ", config_path)
-    println("  selected pixel/scan: ", (obs_info.pixel_idx, obs_info.scan_idx))
-    println("  n_state: ", layout.n_state, " (nEV=", layout.n_ev, ", n_legendre=", layout.n_legendre, ")")
-    println("  state float type: ", state_float_type)
-    println("  LUT interpolation mode: ", getproperty(ctx, :lut_interpolation))
-    println("  forward preallocation: ", preallocate_forward)
-    println("  AD forward preallocation (other numeric types): ", preallocate_ad_forward)
-    println("  Jacobian preallocation (ForwardDiff.jacobian!): ", preallocate_jacobian)
-    println("  Hybrid Jacobian (analytic + AD for p/T): ", use_hybrid_jacobian)
-    println(
-        "  stalled-convergence check: ",
-        conv_stall_enable,
-        " (window=", conv_stall_window,
-        ", red_chi2_target=", conv_stall_redchi2_target,
-        ", red_chi2_abs_tol=", conv_stall_redchi2_abs_tol,
-        ", red_chi2_rel_tol=", conv_stall_redchi2_rel_tol,
-        ", dx_rel_tol=", conv_stall_dx_rel_tol,
-        ")",
-    )
-    if use_prior
-        leg0_idx = first(layout.idx_legendre)
-        println("  priors on Legendre coeffs:")
-        println("    x_a[leg0] = ", x_a[leg0_idx], "  sigma[leg0] = ", prior_sigma[leg0_idx])
-        if length(layout.idx_legendre) >= 2
-            leg1_idx = layout.idx_legendre[2]
-            println("    x_a[leg1] = ", x_a[leg1_idx], "  sigma[leg1] = ", prior_sigma[leg1_idx])
-        end
-        println("  priors on VCD:")
+    if !silent
+        println("Fitting one PACE spectrum")
+        println("  config: ", config_path)
+        println("  selected pixel/scan: ", (obs_info.pixel_idx, obs_info.scan_idx))
+        println("  n_state: ", layout.n_state, " (nEV=", layout.n_ev, ", n_legendre=", layout.n_legendre, ")")
+        println("  state float type: ", state_float_type)
+        println("  LUT interpolation mode: ", getproperty(ctx, :lut_interpolation))
+        println("  forward preallocation: ", preallocate_forward)
+        println("  AD forward preallocation (other numeric types): ", preallocate_ad_forward)
+        println("  Jacobian preallocation (ForwardDiff.jacobian!): ", preallocate_jacobian)
+        println("  Hybrid Jacobian (analytic + AD for p/T): ", use_hybrid_jacobian)
         println(
-            "    x_a[vcd_o2_intercept] = ", x_a[layout.idx_vcd_o2_intercept],
-            "  sigma = ", prior_sigma[layout.idx_vcd_o2_intercept],
+            "  stalled-convergence check: ",
+            conv_stall_enable,
+            " (window=", conv_stall_window,
+            ", red_chi2_target=", conv_stall_redchi2_target,
+            ", red_chi2_abs_tol=", conv_stall_redchi2_abs_tol,
+            ", red_chi2_rel_tol=", conv_stall_redchi2_rel_tol,
+            ", dx_rel_tol=", conv_stall_dx_rel_tol,
+            ")",
         )
-        println(
-            "    x_a[vcd_h2o_intercept] = ", x_a[layout.idx_vcd_h2o_intercept],
-            "  sigma = ", prior_sigma[layout.idx_vcd_h2o_intercept],
-        )
-        println(
-            "    x_a[vcd_o2_sif] = ", x_a[layout.idx_vcd_o2_sif],
-            "  sigma = ", prior_sigma[layout.idx_vcd_o2_sif],
-        )
-        println(
-            "    x_a[vcd_h2o_sif] = ", x_a[layout.idx_vcd_h2o_sif],
-            "  sigma = ", prior_sigma[layout.idx_vcd_h2o_sif],
-        )
-        println("  priors on VCD slopes:")
-        println(
-            "    x_a[vcd_o2_slope] = ", x_a[layout.idx_vcd_o2_slope],
-            "  sigma = ", prior_sigma[layout.idx_vcd_o2_slope],
-        )
-        println(
-            "    x_a[vcd_h2o_slope] = ", x_a[layout.idx_vcd_h2o_slope],
-            "  sigma = ", prior_sigma[layout.idx_vcd_h2o_slope],
-        )
-        println("  priors on p/T:")
-        println("    p prior = ", p_prior_hpa, " sigma = ", p_sigma_hpa)
-        println("    T prior = ", t_prior_k, " sigma = ", t_sigma_k)
-        println("  priors on SIF coeffs:")
-        if hasproperty(ctx, :sif_prior_cov) && !isnothing(ctx.sif_prior_cov) &&
-            length(layout.idx_sif) == size(ctx.sif_prior_cov, 1)
-            println("    x_a[sif_ev*] = 0.0  prior = covariance block (inv(cov) from SIF shapes)")
-            println("    SIF prior covariance matrix:")
-            println("    ", ctx.sif_prior_cov)
-        else
-            println("    x_a[sif_ev*] = 0.0  sigma = ", prior_sigma[first(layout.idx_sif)])
-        end
-        println("  LM scales:")
-        println("    vcd_o2 scale = ", x_scale[layout.idx_vcd_o2_intercept], "  slope scale = ", x_scale[layout.idx_vcd_o2_slope])
-        println("    vcd_h2o scale = ", x_scale[layout.idx_vcd_h2o_intercept], "  slope scale = ", x_scale[layout.idx_vcd_h2o_slope])
-        println("    vcd_o2_sif scale = ", x_scale[layout.idx_vcd_o2_sif], "  vcd_h2o_sif scale = ", x_scale[layout.idx_vcd_h2o_sif])
-        println("    p scale = ", p_sigma_hpa, "  T scale = ", t_sigma_k)
-        if use_pt_constraints
+        if use_prior
+            leg0_idx = first(layout.idx_legendre)
+            println("  priors on Legendre coeffs:")
+            println("    x_a[leg0] = ", x_a[leg0_idx], "  sigma[leg0] = ", prior_sigma[leg0_idx])
+            if length(layout.idx_legendre) >= 2
+                leg1_idx = layout.idx_legendre[2]
+                println("    x_a[leg1] = ", x_a[leg1_idx], "  sigma[leg1] = ", prior_sigma[leg1_idx])
+            end
+            println("  priors on VCD:")
             println(
-                "  p/T box constraints: ±", pt_constraint_sigma_mult, "σ ",
-                "(p in [", lower_bounds[layout.idx_p_o2_hpa], ", ", upper_bounds[layout.idx_p_o2_hpa], "], ",
-                "T in [", lower_bounds[layout.idx_t_o2_k], ", ", upper_bounds[layout.idx_t_o2_k], "])",
+                "    x_a[vcd_o2_intercept] = ", x_a[layout.idx_vcd_o2_intercept],
+                "  sigma = ", prior_sigma[layout.idx_vcd_o2_intercept],
             )
+            println(
+                "    x_a[vcd_h2o_intercept] = ", x_a[layout.idx_vcd_h2o_intercept],
+                "  sigma = ", prior_sigma[layout.idx_vcd_h2o_intercept],
+            )
+            println(
+                "    x_a[vcd_o2_sif] = ", x_a[layout.idx_vcd_o2_sif],
+                "  sigma = ", prior_sigma[layout.idx_vcd_o2_sif],
+            )
+            println(
+                "    x_a[vcd_h2o_sif] = ", x_a[layout.idx_vcd_h2o_sif],
+                "  sigma = ", prior_sigma[layout.idx_vcd_h2o_sif],
+            )
+            println("  priors on VCD slopes:")
+            println(
+                "    x_a[vcd_o2_slope] = ", x_a[layout.idx_vcd_o2_slope],
+                "  sigma = ", prior_sigma[layout.idx_vcd_o2_slope],
+            )
+            println(
+                "    x_a[vcd_h2o_slope] = ", x_a[layout.idx_vcd_h2o_slope],
+                "  sigma = ", prior_sigma[layout.idx_vcd_h2o_slope],
+            )
+            println("  priors on p/T:")
+            println("    p prior = ", p_prior_hpa, " sigma = ", p_sigma_hpa)
+            println("    T prior = ", t_prior_k, " sigma = ", t_sigma_k)
+            println("  priors on SIF coeffs:")
+            if hasproperty(ctx, :sif_prior_cov) && !isnothing(ctx.sif_prior_cov) &&
+                length(layout.idx_sif) == size(ctx.sif_prior_cov, 1)
+                println("    x_a[sif_ev*] = 0.0  prior = covariance block (inv(cov) from SIF shapes)")
+                println("    SIF prior covariance matrix:")
+                println("    ", ctx.sif_prior_cov)
+            else
+                println("    x_a[sif_ev*] = 0.0  sigma = ", prior_sigma[first(layout.idx_sif)])
+            end
+            println("  LM scales:")
+            println("    vcd_o2 scale = ", x_scale[layout.idx_vcd_o2_intercept], "  slope scale = ", x_scale[layout.idx_vcd_o2_slope])
+            println("    vcd_h2o scale = ", x_scale[layout.idx_vcd_h2o_intercept], "  slope scale = ", x_scale[layout.idx_vcd_h2o_slope])
+            println("    vcd_o2_sif scale = ", x_scale[layout.idx_vcd_o2_sif], "  vcd_h2o_sif scale = ", x_scale[layout.idx_vcd_h2o_sif])
+            println("    p scale = ", p_sigma_hpa, "  T scale = ", t_sigma_k)
+            if use_pt_constraints
+                println(
+                    "  p/T box constraints: ±", pt_constraint_sigma_mult, "σ ",
+                    "(p in [", lower_bounds[layout.idx_p_o2_hpa], ", ", upper_bounds[layout.idx_p_o2_hpa], "], ",
+                    "T in [", lower_bounds[layout.idx_t_o2_k], ", ", upper_bounds[layout.idx_t_o2_k], "])",
+                )
+            end
+        else
+            println("  prior: disabled")
         end
-    else
-        println("  prior: disabled")
+
+        println("\n" * "="^70)
+        println(
+            "Starting ",
+            fit_method == :gn ? "Gauss-Newton" : "Levenberg-Marquardt",
+            " optimization using model variant: ",
+            model_variant,
+        )
+        println("="^70)
     end
 
-    println("\n" * "="^70)
-    println("Starting LM optimization using model variant: ", model_variant)
-    println("="^70)
-
-    # Multi-step LM from prior state (spectral-space comparison).
+    # Multi-step LM or GN from prior state (spectral-space comparison).
     x_curr = copy(x_a)
     y_curr = copy(fm(x_curr))
     S_e_inv = if !use_band_snr || isnothing(ctx.band_snr_coeffs)
@@ -978,35 +1097,54 @@ function main()
 
     n_steps = max(n_plot_steps, 0)
     for istep in 1:n_steps
-        println("LM step ", istep)
         x_prev = copy(x_curr)
         rmse_prev = rmse_series[end]
         step = try
-            lm_one_step(
-                fm,
-                x_curr,
-                y_obs;
-                x_a=x_a,
-                S_a_inv=S_a_inv,
-                lambda=λ,
-                lambda_up=lm_lambda_up,
-                lambda_down=lm_lambda_down,
-                lambda_min=lm_lambda_min,
-                lambda_max=lm_lambda_max,
-                max_inner=lm_max_inner,
-                jacobian_eval=jacobian_eval,
-                x_scale=x_scale,
-                lower_bounds=lower_bounds,
-                upper_bounds=upper_bounds,
-                use_band_snr=use_band_snr,
-                band_snr_coeffs=ctx.band_snr_coeffs,
-            )
+            if fit_method == :gn
+                gn_one_step(
+                    fm,
+                    x_curr,
+                    y_obs;
+                    x_a=x_a,
+                    S_a_inv=S_a_inv,
+                    jacobian_eval=jacobian_eval,
+                    x_scale=x_scale,
+                    lower_bounds=lower_bounds,
+                    upper_bounds=upper_bounds,
+                    use_band_snr=use_band_snr,
+                    band_snr_coeffs=ctx.band_snr_coeffs,
+                    meas_sigma=meas_sigma,
+                    gn_damping=gn_damping,
+                )
+            else
+                lm_one_step(
+                    fm,
+                    x_curr,
+                    y_obs;
+                    x_a=x_a,
+                    S_a_inv=S_a_inv,
+                    lambda=λ,
+                    lambda_up=lm_lambda_up,
+                    lambda_down=lm_lambda_down,
+                    lambda_min=lm_lambda_min,
+                    lambda_max=lm_lambda_max,
+                    max_inner=lm_max_inner,
+                    jacobian_eval=jacobian_eval,
+                    x_scale=x_scale,
+                    lower_bounds=lower_bounds,
+                    upper_bounds=upper_bounds,
+                    use_band_snr=use_band_snr,
+                    band_snr_coeffs=ctx.band_snr_coeffs,
+                )
+            end
         catch err
             failed_step = istep
             failed_error = string(typeof(err))
             break
         end
-        λ = step.lambda_next
+        if fit_method == :lm
+            λ = step.lambda_next
+        end
         if !step.accepted
             stalled_conv, stalled_msg = _stalled_convergence(
                 dx_rel_series,
@@ -1023,7 +1161,11 @@ function main()
                 convergence_reason = stalled_msg
             else
                 failed_step = istep
-                failed_error = "no accepted LM update after $(lm_max_inner) inner tries"
+                failed_error = if fit_method == :gn
+                    "Gauss-Newton step rejected (forward model failed at trial state)"
+                else
+                    "no accepted LM update after $(lm_max_inner) inner tries"
+                end
             end
             break
         end
@@ -1040,7 +1182,7 @@ function main()
         push!(cond_series, step.cond_A)
         push!(rmse_linear_series, step.rmse_linear)
         push!(rho_series, step.rho)
-        push!(lambda_series, λ)
+        push!(lambda_series, fit_method == :lm ? λ : NaN)
         push!(accepted_series, step.accepted)
 
         dx_rel = norm(step.dx) / max(norm(x_prev), eps(Float64))
@@ -1057,8 +1199,12 @@ function main()
         end
     end
 
+    if return_rmse_series_only
+        return rmse_series
+    end
+
     println()
-    println("LM multi-step summary")
+    println((fit_method == :gn ? "GN" : "LM"), " multi-step summary")
     println(
         "  objective prior: ", obj_series[1],
         "   RMSE prior: ", rmse_series[1],

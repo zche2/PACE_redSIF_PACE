@@ -31,3 +31,9 @@ dark_filter_enabled = false
 ocean_filter_enabled = false
 watermask_var = "watermask"
 ocean_mask_values = [1]
+
+[fit]
+# Iteration method for toy/MWE-style fits when merged with base config: "lm" or "gn".
+fit_method = "lm"
+# Gauss-Newton step scale (default 1.0); use < 1 when merging with base MWE configs.
+gn_damping = 1.0

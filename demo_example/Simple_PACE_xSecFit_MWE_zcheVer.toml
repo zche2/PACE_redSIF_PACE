@@ -102,6 +102,8 @@ max_iter = 12
 rel_obj_tol = 1e-8
 # Legacy relative step tolerance (kept for compatibility).
 rel_step_tol = 1e-8
+# Iteration method: "lm" (Levenberg-Marquardt) or "gn" (Gauss-Newton).
+fit_method = "lm"
 # Convergence threshold: relative state update norm.
 conv_dx_rel_tol = 1e-6
 # Convergence threshold: relative RMSE change.
@@ -145,7 +147,7 @@ vcd_h2o_sigma = 3e22
 # If true, enforce box constraints on p/T around prior mean.
 use_pt_constraints = true
 # Constraint width multiplier for p/T bounds: prior ± multiplier*sigma.
-pt_constraint_sigma_mult = 3.0
+pt_constraint_sigma_mult = 1.5
 # Initial LM damping parameter (gamma).
 lm_lambda0 = 1.0
 # LM multiplier applied to gamma after rejected trial step.
@@ -158,6 +160,8 @@ lm_lambda_min = 1e-8
 lm_lambda_max = 1e8
 # Maximum inner LM gamma trials per outer iteration.
 lm_max_inner = 24
+# Gauss-Newton step scale (learning rate): multiplies the GN linearized step; use < 1.0 for stability.
+gn_damping = 0.2
 # Measurement 1-sigma noise per spectral channel (used for S_e diagonal).
 meas_sigma = 0.01
 # Number of outer LM steps to attempt for logging/plotting.

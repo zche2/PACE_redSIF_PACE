@@ -32,6 +32,8 @@ base_dir = "/Users/cfranken/data"
 xsec_dir = ""
 
 [fit]
+# Iteration method: "lm" (Levenberg-Marquardt) or "gn" (Gauss-Newton).
+fit_method = "lm"
 sif_sigma = 1.0e-12
 vcd_o2_sigma = 1.0e23
 iter_plot_file = "toy_fit_iter_spectral_sif_fixed.png"
