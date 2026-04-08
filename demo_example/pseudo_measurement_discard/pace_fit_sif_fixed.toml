@@ -32,8 +32,12 @@ base_dir = "/Users/cfranken/data"
 xsec_dir = ""
 
 [fit]
-# Iteration method: "lm" (Levenberg-Marquardt) or "gn" (Gauss-Newton).
+# Iteration method: "lm" (Levenberg-Marquardt), "gn" (Gauss-Newton), or "lbfgsb".
 fit_method = "lm"
+# L-BFGS-B memory size and line-search controls.
+lbfgs_m = 5
+lbfgs_c1 = 1.0e-4
+lbfgs_max_backtrack = 40
 sif_sigma = 1.0e-12
 vcd_o2_sigma = 1.0e23
 iter_plot_file = "toy_fit_iter_spectral_sif_fixed.png"

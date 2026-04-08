@@ -735,9 +735,255 @@ function gn_one_step(
     )
 end
 
+mutable struct LbfgsbState
+    m::Int
+    s_hist::Vector{Vector{Float64}}
+    y_hist::Vector{Vector{Float64}}
+    rho::Vector{Float64}
+end
+
+function LbfgsbState(m::Int)
+    m > 0 || error("lbfgs_m must be > 0, got $m")
+    return LbfgsbState(m, Vector{Vector{Float64}}(), Vector{Vector{Float64}}(), Float64[])
+end
+
+function _lbfgs_direction(
+    grad::Vector{Float64},
+    state::LbfgsbState,
+)
+    q = copy(grad)
+    if isempty(state.s_hist)
+        return -q
+    end
+    α = zeros(Float64, length(state.s_hist))
+    for i in length(state.s_hist):-1:1
+        α[i] = state.rho[i] * dot(state.s_hist[i], q)
+        q .-= α[i] .* state.y_hist[i]
+    end
+    γ = dot(state.s_hist[end], state.y_hist[end]) / max(dot(state.y_hist[end], state.y_hist[end]), 1e-18)
+    γ = max(γ, 1e-10)
+    r = γ .* q
+    for i in eachindex(state.s_hist)
+        β = state.rho[i] * dot(state.y_hist[i], r)
+        r .+= state.s_hist[i] .* (α[i] - β)
+    end
+    return -r
+end
+
+function _max_step_to_bounds(
+    x::Vector{Float64},
+    p::Vector{Float64},
+    lower::Vector{Float64},
+    upper::Vector{Float64},
+)
+    α_max = Inf
+    @inbounds for i in eachindex(x)
+        pi = p[i]
+        if pi > 1e-30
+            α_max = min(α_max, (upper[i] - x[i]) / pi)
+        elseif pi < -1e-30
+            α_max = min(α_max, (lower[i] - x[i]) / pi)
+        end
+    end
+    return isfinite(α_max) ? max(α_max, 0.0) : 0.0
+end
+
+function _lbfgsb_push_memory!(
+    state::LbfgsbState,
+    s::Vector{Float64},
+    y::Vector{Float64},
+)
+    ys = dot(y, s)
+    ys > 1e-12 || return false
+    while length(state.s_hist) >= state.m
+        popfirst!(state.s_hist)
+        popfirst!(state.y_hist)
+        popfirst!(state.rho)
+    end
+    push!(state.s_hist, s)
+    push!(state.y_hist, y)
+    push!(state.rho, 1.0 / ys)
+    return true
+end
+
+"""
+One bound-constrained L-BFGS-B-style MAP step with Armijo backtracking.
+
+Memory update policy on rejected steps is explicit:
+if no acceptable line-search step is found, `(s, y, rho)` history is unchanged.
+"""
+function lbfgsb_one_step(
+        fm,
+        x_curr::AbstractVector{<:Real},
+        y_obs::AbstractVector{<:Real},
+        ;
+        x_a::AbstractVector{<:Real},
+        S_a_inv,
+        jacobian_eval::Union{Nothing, Function}=nothing,
+        lower_bounds::Union{Nothing, AbstractVector{<:Real}}=nothing,
+        upper_bounds::Union{Nothing, AbstractVector{<:Real}}=nothing,
+        use_band_snr::Bool=false,
+        band_snr_coeffs=nothing,
+        meas_sigma::Float64=0.01,
+        lbfgs_state::LbfgsbState,
+        lbfgs_c1::Float64=1e-4,
+        lbfgs_max_backtrack::Int=20,
+    )
+    lbfgs_c1 > 0 || error("lbfgs_c1 must be > 0")
+    lbfgs_max_backtrack > 0 || error("lbfgs_max_backtrack must be > 0")
+
+    x = collect(Float64.(x_curr))
+    y = fm(x)
+    r0 = y_obs .- y
+    ssr0 = 0.5 * dot(r0, r0)
+    rmse0 = sqrt(mean(r0 .^ 2))
+
+    Se_inv = if use_band_snr && !isnothing(band_snr_coeffs)
+        make_Se_inv_from_snr(y, band_snr_coeffs)
+    else
+        spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
+    end
+
+    J = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x) : jacobian_eval(x)
+    g_obs = J' * Se_inv * (y_obs .- y)
+    g_pri = S_a_inv * (x_a .- x)
+    grad0 = -(g_obs .+ g_pri)
+    cost0 = _cost_with_prior(y_obs, y, x, x_a, Se_inv, S_a_inv)
+
+    lb = isnothing(lower_bounds) ? fill(-Inf, length(x)) : collect(Float64.(lower_bounds))
+    ub = isnothing(upper_bounds) ? fill(Inf, length(x)) : collect(Float64.(upper_bounds))
+
+    p = _lbfgs_direction(grad0, lbfgs_state)
+    if dot(grad0, p) > 0
+        p .= -grad0
+    end
+
+    α_cap = _max_step_to_bounds(x, p, lb, ub)
+    if α_cap <= 0
+        chi2_curr = dot(y_obs .- y, Se_inv * (y_obs .- y))
+        return (
+            x_next = x,
+            y_prior = y,
+            y_next = y,
+            dx = zeros(Float64, length(x)),
+            cost_prior = cost0,
+            cost_next = cost0,
+            chi2_next = chi2_curr,
+            accepted = false,
+            lambda_next = NaN,
+            inner_tries = 1,
+            cond_A = NaN,
+            rmse_prior = rmse0,
+            rmse_linear = rmse0,
+            rmse_next = rmse0,
+            pred_reduction = 0.0,
+            act_reduction = 0.0,
+            rho = NaN,
+            J = J,
+            reject_reason = "zero feasible step to bounds",
+        )
+    end
+
+    α = min(1.0, 0.99 * α_cap)
+    accepted = false
+    x_best = x
+    y_best = y
+    cost_best = cost0
+    rmse_best = rmse0
+    n_try = 0
+
+    for _ in 1:lbfgs_max_backtrack
+        n_try += 1
+        x_try = clamp.(x .+ α .* p, lb, ub)
+        y_try = try
+            fm(x_try)
+        catch
+            α *= 0.5
+            α < 1e-16 * max(α_cap, 1.0) && break
+            continue
+        end
+        cost_try = _cost_with_prior(y_obs, y_try, x_try, x_a, Se_inv, S_a_inv)
+        armijo_rhs = cost0 + lbfgs_c1 * dot(grad0, x_try .- x)
+        if cost_try <= armijo_rhs + 1e-12 * max(1.0, abs(cost0))
+            accepted = true
+            x_best = x_try
+            y_best = y_try
+            cost_best = cost_try
+            rmse_best = sqrt(mean((y_obs .- y_try) .^ 2))
+            break
+        end
+        α *= 0.5
+        α < 1e-16 * max(α_cap, 1.0) && break
+    end
+
+    if !accepted
+        chi2_curr = dot(y_obs .- y, Se_inv * (y_obs .- y))
+        return (
+            x_next = x,
+            y_prior = y,
+            y_next = y,
+            dx = zeros(Float64, length(x)),
+            cost_prior = cost0,
+            cost_next = cost0,
+            chi2_next = chi2_curr,
+            accepted = false,
+            lambda_next = NaN,
+            inner_tries = max(n_try, 1),
+            cond_A = NaN,
+            rmse_prior = rmse0,
+            rmse_linear = rmse0,
+            rmse_next = rmse0,
+            pred_reduction = 0.0,
+            act_reduction = 0.0,
+            rho = NaN,
+            J = J,
+            reject_reason = "no acceptable Armijo step in $(max(n_try, 1)) tries",
+        )
+    end
+
+    dx = x_best .- x
+    r_lin = r0 .- J * dx
+    ssr_lin = 0.5 * dot(r_lin, r_lin)
+    rmse_lin = sqrt(mean(r_lin .^ 2))
+    ssr_try = 0.5 * dot(y_obs .- y_best, y_obs .- y_best)
+    pred_red = ssr0 - ssr_lin
+    act_red = ssr0 - ssr_try
+    rho = pred_red > 0 ? act_red / pred_red : NaN
+
+    J_new = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x_best) : jacobian_eval(x_best)
+    g_obs_new = J_new' * Se_inv * (y_obs .- y_best)
+    g_pri_new = S_a_inv * (x_a .- x_best)
+    grad_new = -(g_obs_new .+ g_pri_new)
+    _lbfgsb_push_memory!(lbfgs_state, dx, grad_new .- grad0)
+
+    chi2_curr = dot(y_obs .- y_best, Se_inv * (y_obs .- y_best))
+    return (
+        x_next = x_best,
+        y_prior = y,
+        y_next = y_best,
+        dx = dx,
+        cost_prior = cost0,
+        cost_next = cost_best,
+        chi2_next = chi2_curr,
+        accepted = true,
+        lambda_next = NaN,
+        inner_tries = n_try,
+        cond_A = NaN,
+        rmse_prior = rmse0,
+        rmse_linear = rmse_lin,
+        rmse_next = rmse_best,
+        pred_reduction = pred_red,
+        act_reduction = act_red,
+        rho = rho,
+        J = J,
+        reject_reason = "",
+    )
+end
+
 function main(;
     silent::Bool=false,
     return_rmse_series_only::Bool=false,
+    return_benchmark::Bool=false,
     fit_method_override::Union{Nothing,Symbol}=nothing,
 )
     config_path = get(
@@ -792,11 +1038,17 @@ function main(;
     lm_max_inner = Int(get(fit_cfg, "lm_max_inner", 8))
     gn_damping = Float64(get(fit_cfg, "gn_damping", 1.0))
     gn_damping > 0.0 || error("fit.gn_damping must be > 0")
+    lbfgs_m = Int(get(fit_cfg, "lbfgs_m", 5))
+    lbfgs_c1 = Float64(get(fit_cfg, "lbfgs_c1", 1e-4))
+    lbfgs_max_backtrack = Int(get(fit_cfg, "lbfgs_max_backtrack", 20))
+    lbfgs_m > 0 || error("fit.lbfgs_m must be > 0")
+    lbfgs_c1 > 0.0 || error("fit.lbfgs_c1 must be > 0")
+    lbfgs_max_backtrack > 0 || error("fit.lbfgs_max_backtrack must be > 0")
     fit_method = Symbol(get(fit_cfg, "fit_method", "lm"))
-    fit_method in (:lm, :gn) || error("fit.fit_method must be \"lm\" or \"gn\", got $(repr(string(fit_method)))")
+    fit_method in (:lm, :gn, :lbfgsb) || error("fit.fit_method must be \"lm\", \"gn\", or \"lbfgsb\", got $(repr(string(fit_method)))")
     if fit_method_override !== nothing
         fit_method = fit_method_override
-        fit_method in (:lm, :gn) || error("fit_method_override must be :lm or :gn")
+        fit_method in (:lm, :gn, :lbfgsb) || error("fit_method_override must be :lm, :gn, or :lbfgsb")
     end
     # Measurement error settings requested by user
     use_band_snr = Bool(get(fit_cfg, "use_band_snr", true))
@@ -1057,9 +1309,10 @@ function main(;
         end
 
         println("\n" * "="^70)
+        method_label = fit_method == :gn ? "Gauss-Newton" : (fit_method == :lbfgsb ? "L-BFGS-B" : "Levenberg-Marquardt")
         println(
             "Starting ",
-            fit_method == :gn ? "Gauss-Newton" : "Levenberg-Marquardt",
+            method_label,
             " optimization using model variant: ",
             model_variant,
         )
@@ -1067,8 +1320,18 @@ function main(;
     end
 
     # Multi-step LM or GN from prior state (spectral-space comparison).
+    n_forward = Ref(0)
+    n_jacobian = Ref(0)
+    fm_eval = x -> begin
+        n_forward[] += 1
+        return fm(x)
+    end
+    jac_eval = x -> begin
+        n_jacobian[] += 1
+        return jacobian_eval(x)
+    end
     x_curr = copy(x_a)
-    y_curr = copy(fm(x_curr))
+    y_curr = copy(fm_eval(x_curr))
     S_e_inv = if !use_band_snr || isnothing(ctx.band_snr_coeffs)
         spdiagm(0 => fill(1.0 / (meas_sigma^2), length(y_obs)))
     else
@@ -1094,6 +1357,8 @@ function main(;
     converged = false
     convergence_reason = ""
     λ = lm_lambda0
+    lbfgs_state = LbfgsbState(lbfgs_m)
+    t_start_ns = time_ns()
 
     n_steps = max(n_plot_steps, 0)
     for istep in 1:n_steps
@@ -1102,12 +1367,12 @@ function main(;
         step = try
             if fit_method == :gn
                 gn_one_step(
-                    fm,
+                    fm_eval,
                     x_curr,
                     y_obs;
                     x_a=x_a,
                     S_a_inv=S_a_inv,
-                    jacobian_eval=jacobian_eval,
+                    jacobian_eval=jac_eval,
                     x_scale=x_scale,
                     lower_bounds=lower_bounds,
                     upper_bounds=upper_bounds,
@@ -1116,9 +1381,26 @@ function main(;
                     meas_sigma=meas_sigma,
                     gn_damping=gn_damping,
                 )
+            elseif fit_method == :lbfgsb
+                lbfgsb_one_step(
+                    fm_eval,
+                    x_curr,
+                    y_obs;
+                    x_a=x_a,
+                    S_a_inv=S_a_inv,
+                    jacobian_eval=jac_eval,
+                    lower_bounds=lower_bounds,
+                    upper_bounds=upper_bounds,
+                    use_band_snr=use_band_snr,
+                    band_snr_coeffs=ctx.band_snr_coeffs,
+                    meas_sigma=meas_sigma,
+                    lbfgs_state=lbfgs_state,
+                    lbfgs_c1=lbfgs_c1,
+                    lbfgs_max_backtrack=lbfgs_max_backtrack,
+                )
             else
                 lm_one_step(
-                    fm,
+                    fm_eval,
                     x_curr,
                     y_obs;
                     x_a=x_a,
@@ -1129,12 +1411,13 @@ function main(;
                     lambda_min=lm_lambda_min,
                     lambda_max=lm_lambda_max,
                     max_inner=lm_max_inner,
-                    jacobian_eval=jacobian_eval,
+                    jacobian_eval=jac_eval,
                     x_scale=x_scale,
                     lower_bounds=lower_bounds,
                     upper_bounds=upper_bounds,
                     use_band_snr=use_band_snr,
                     band_snr_coeffs=ctx.band_snr_coeffs,
+                    meas_sigma=meas_sigma,
                 )
             end
         catch err
@@ -1163,6 +1446,8 @@ function main(;
                 failed_step = istep
                 failed_error = if fit_method == :gn
                     "Gauss-Newton step rejected (forward model failed at trial state)"
+                elseif fit_method == :lbfgsb
+                    step.reject_reason
                 else
                     "no accepted LM update after $(lm_max_inner) inner tries"
                 end
@@ -1185,6 +1470,9 @@ function main(;
         push!(lambda_series, fit_method == :lm ? λ : NaN)
         push!(accepted_series, step.accepted)
 
+        println("=============== step.dx = ", step.dx)
+        println("=============== x_prev = ", x_prev)
+        println("=============== x_curr = ", x_curr)
         dx_rel = norm(step.dx) / max(norm(x_prev), eps(Float64))
         push!(dx_rel_series, dx_rel)
         rmse_curr = rmse_series[end]
@@ -1202,9 +1490,28 @@ function main(;
     if return_rmse_series_only
         return rmse_series
     end
+    elapsed_wall_s = (time_ns() - t_start_ns) / 1e9
+
+    if return_benchmark
+        return (
+            method = fit_method,
+            rmse_series = rmse_series,
+            x_final = copy(x_curr),
+            x_prior = copy(x_a),
+            state_names = state_names_simple(ctx; n_legendre=n_legendre),
+            elapsed_wall_s = elapsed_wall_s,
+            n_forward = n_forward[],
+            n_jacobian = n_jacobian[],
+            converged = converged,
+            failed_step = failed_step,
+            failed_error = failed_error,
+            convergence_reason = convergence_reason,
+            n_steps_done = length(x_series) - 1,
+        )
+    end
 
     println()
-    println((fit_method == :gn ? "GN" : "LM"), " multi-step summary")
+    println((fit_method == :gn ? "GN" : fit_method == :lbfgsb ? "L-BFGS-B" : "LM"), " multi-step summary")
     println(
         "  objective prior: ", obj_series[1],
         "   RMSE prior: ", rmse_series[1],
@@ -1228,7 +1535,7 @@ function main(;
         )
     end
     if failed_step > 0
-        println("  stopped early at step ", failed_step, " due to model failure: ", failed_error)
+        println("  stopped early at step ", failed_step, ": ", failed_error)
     elseif converged
         println("  converged: ", convergence_reason)
     end

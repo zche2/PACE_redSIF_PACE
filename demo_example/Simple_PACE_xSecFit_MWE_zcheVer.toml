@@ -102,8 +102,14 @@ max_iter = 12
 rel_obj_tol = 1e-8
 # Legacy relative step tolerance (kept for compatibility).
 rel_step_tol = 1e-8
-# Iteration method: "lm" (Levenberg-Marquardt) or "gn" (Gauss-Newton).
-fit_method = "lm"
+# Iteration method: "lm" (Levenberg-Marquardt), "gn" (Gauss-Newton), or "lbfgsb" (L-BFGS-B).
+fit_method = "lbfgsb"
+# L-BFGS-B memory size (number of stored curvature pairs).
+lbfgs_m = 5
+# Armijo sufficient-decrease constant for L-BFGS-B line search.
+lbfgs_c1 = 1.0e-4
+# Maximum backtracking tries per L-BFGS-B outer step； default 20.
+lbfgs_max_backtrack = 20
 # Convergence threshold: relative state update norm.
 conv_dx_rel_tol = 1e-6
 # Convergence threshold: relative RMSE change.
@@ -147,7 +153,7 @@ vcd_h2o_sigma = 3e22
 # If true, enforce box constraints on p/T around prior mean.
 use_pt_constraints = true
 # Constraint width multiplier for p/T bounds: prior ± multiplier*sigma.
-pt_constraint_sigma_mult = 1.5
+pt_constraint_sigma_mult = 3
 # Initial LM damping parameter (gamma).
 lm_lambda0 = 1.0
 # LM multiplier applied to gamma after rejected trial step.
