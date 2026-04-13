@@ -62,23 +62,20 @@ function _find_var_from_dataset(ds, varname::String)
     error("Variable '$varname' not found in dataset")
 end
 
-# Read var with optional rescale (scale_factor, add_offset)
-function _read_var_rescaled(var)
-    data = var[:]
-    if haskey(var.attrib, "scale_factor") && haskey(var.attrib, "add_offset")
-        data = rescale_data(data, var.attrib["scale_factor"], var.attrib["add_offset"])
-    end
-    return data
-end
-
 L1B_path = "/home/zhe2/data/PACE/L1B_V3/PACE_OCI.20260125T163441.L1B.V3.nc"
 L2AOP_path = "/home/zhe2/data/PACE/L2_AOP_V3.1/PACE_OCI.20260125T163441.L2.OC_AOP.V3_1.nc"
 L2BGC_path = "/home/zhe2/data/PACE/L2_BGC_V3.1/PACE_OCI.20260125T163441.L2.OC_BGC.V3_1.nc"
+
+pixel_start = 800
+pixel_end = 1100     
+scan_start = 1
+scan_end = 200   
 
 ds_l1b = Dataset(L1B_path)
 ds_aop = Dataset(L2AOP_path)
 ds_bgc = Dataset(L2BGC_path)
 
+# read data and subset to subregion, if not specified, use full swath
 rhot_info = _find_var_from_dataset(ds_l1b, "rhot_red")
 rhot_raw = rhot_info.var[:]
 sol_info = _find_var_from_dataset(ds_l1b, "red_solar_irradiance")
@@ -89,6 +86,10 @@ earth_sun = ds_l1b.attrib["earth_sun_distance_correction"]
 vza_info = _find_var_from_dataset(ds_l1b, "sensor_zenith")
 vza = vza_info.var[:]
 
+rhot_raw = rhot_raw[pixel_start:pixel_end, scan_start:scan_end, :]
+sza = sza[pixel_start:pixel_end, scan_start:scan_end]
+vza = vza[pixel_start:pixel_end, scan_start:scan_end]
+
 # reshape
 solar_irradiance = reshape(solar_irrad, (1, 1, size(solar_irrad)...))
 solar_zenith_angle = reshape(sza, (size(sza)..., 1))
@@ -98,7 +99,7 @@ Rtoa = rhot_raw .* solar_irradiance .* cosd.(solar_zenith_angle) ./ π ./ earth_
 Rtoa = _to_pixels_scans_bands(Rtoa, rhot_info.dims)
 
 # load retrieved SIF (residuals)
-addedSIFfile = "/home/zhe2/data/PACE/adding_sif_output/PACE_OCI.20260125T163441.L1B.V3_adding_sif_zero_20260401.nc"
+addedSIFfile = "/home/zhe2/data/PACE/adding_sif_output/PACE_OCI.20260125T163441.L1B.V3_adding_sif_zero_subregion_lbfgsb_20260408.nc"
 ds_sif = Dataset(addedSIFfile)
 rmse = ds_sif["rmse"].var[:]
 red_wavelength = ds_sif["red_wavelength"].var[:]
@@ -143,7 +144,7 @@ plot!(p1, wvlen_l1b, Rtoa_full_sif[:, 1:10], linestyle=:dash)
 
 # --- figure 2: relative residual
 p2 = plot(
-    red_wavelength, relative_residual_sif[:, 1:8000:end], 
+    red_wavelength, relative_residual_sif[:, 1:100:end], 
     size=(800, 300), legend=false, dpi=300,
     margin=10Plots.mm,
     xlabel="Wavelength [nm]",
@@ -161,7 +162,7 @@ g = relative_residual_sif .+ 1   # g: vicarious gain
 mean_g = mean(g, dims=2)
 
 p3 = plot(
-    red_wavelength, g[:, 1:1000:end], 
+    red_wavelength, g[:, 1:500:end], 
     size=(800, 300), legend=false, dpi=300,
     margin=10Plots.mm,
     xlabel="Wavelength [nm]",

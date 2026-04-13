@@ -21,10 +21,10 @@ store_rtoa = true
 parallel_granules = true
 use_in_memory_merge = true
 # Optional: subset for quick testing (1-based inclusive). Omit or set end=0 for full swath.
-# pixel_start = 1100
-# pixel_end = 1150      # 0 = all pixels
-# scan_start = 300
-# scan_end = 350       # e.g. only first 5 scans
+pixel_start = 800
+pixel_end = 1100      # 0 = all pixels
+scan_start = 1
+scan_end = 200       
 
 [pace_observation]
 spectrum_var = "Rtoa_red"
@@ -32,10 +32,10 @@ wavelength_var = "red_wavelength"
 
 [batch_fit]
 output_dir = "/home/zhe2/FraLab/PACE_redSIF_PACE/demo_example/AddingSIF/AddingSIF_output"
-output_suffix_parallel = "_adding_sif_zero_20260401.nc"
+output_suffix_parallel = "_adding_sif_zero_subregion_lbfgsb_20260408.nc"
 pixel_filter_vars = ["nflh"]
 use_threads = true
-max_outer_steps = 20
+max_outer_steps = 50
 dark_filter_enabled = false
 ocean_filter_enabled = false
 watermask_var = "watermask"

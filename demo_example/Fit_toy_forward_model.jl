@@ -740,11 +740,31 @@ mutable struct LbfgsbState
     s_hist::Vector{Vector{Float64}}
     y_hist::Vector{Vector{Float64}}
     rho::Vector{Float64}
+    # Step cache: quantities computed at x_best of an accepted step, ready to be
+    # reused as the starting values of the very next lbfgsb_one_step call (which
+    # begins at that same x_best).  Avoids one fm eval + one Jacobian eval per
+    # iteration after the first.
+    cached_y    ::Union{Nothing, Vector{Float64}}
+    cached_Se_inv                                   # sparse or diagonal matrix
+    cached_J    ::Union{Nothing, Matrix{Float64}}
+    cached_grad ::Union{Nothing, Vector{Float64}}
 end
 
 function LbfgsbState(m::Int)
     m > 0 || error("lbfgs_m must be > 0, got $m")
-    return LbfgsbState(m, Vector{Vector{Float64}}(), Vector{Vector{Float64}}(), Float64[])
+    return LbfgsbState(
+        m,
+        Vector{Vector{Float64}}(), Vector{Vector{Float64}}(), Float64[],
+        nothing, nothing, nothing, nothing,
+    )
+end
+
+function _lbfgsb_clear_cache!(state::LbfgsbState)
+    state.cached_y     = nothing
+    state.cached_Se_inv = nothing
+    state.cached_J     = nothing
+    state.cached_grad  = nothing
+    return nothing
 end
 
 function _lbfgs_direction(
@@ -828,35 +848,54 @@ function lbfgsb_one_step(
         lbfgs_state::LbfgsbState,
         lbfgs_c1::Float64=1e-4,
         lbfgs_max_backtrack::Int=20,
+        x_scale::Union{Nothing, AbstractVector{<:Real}}=nothing,
     )
     lbfgs_c1 > 0 || error("lbfgs_c1 must be > 0")
     lbfgs_max_backtrack > 0 || error("lbfgs_max_backtrack must be > 0")
 
     x = collect(Float64.(x_curr))
-    y = fm(x)
-    r0 = y_obs .- y
-    ssr0 = 0.5 * dot(r0, r0)
-    rmse0 = sqrt(mean(r0 .^ 2))
 
-    Se_inv = if use_band_snr && !isnothing(band_snr_coeffs)
-        make_Se_inv_from_snr(y, band_snr_coeffs)
+    # Reuse fm/Se_inv/J/grad computed at the end of the previous accepted step
+    # (which ended at this same x) to avoid redundant evaluations.
+    local y, Se_inv, J, grad0
+    if lbfgs_state.cached_y !== nothing
+        y      = lbfgs_state.cached_y
+        Se_inv = lbfgs_state.cached_Se_inv
+        J      = lbfgs_state.cached_J
+        grad0  = lbfgs_state.cached_grad
+        _lbfgsb_clear_cache!(lbfgs_state)
     else
-        spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
+        y = fm(x)
+        Se_inv = if use_band_snr && !isnothing(band_snr_coeffs)
+            make_Se_inv_from_snr(y, band_snr_coeffs)
+        else
+            spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
+        end
+        J     = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x) : jacobian_eval(x)
+        g_obs = J' * Se_inv * (y_obs .- y)
+        g_pri = S_a_inv * (x_a .- x)
+        grad0 = -(g_obs .+ g_pri)
     end
 
-    J = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x) : jacobian_eval(x)
-    g_obs = J' * Se_inv * (y_obs .- y)
-    g_pri = S_a_inv * (x_a .- x)
-    grad0 = -(g_obs .+ g_pri)
+    r0    = y_obs .- y
+    ssr0  = 0.5 * dot(r0, r0)
+    rmse0 = sqrt(mean(r0 .^ 2))
     cost0 = _cost_with_prior(y_obs, y, x, x_a, Se_inv, S_a_inv)
+
+    s = isnothing(x_scale) ? ones(Float64, length(x)) : collect(Float64.(x_scale))
+    s .= max.(abs.(s), 1e-12)
 
     lb = isnothing(lower_bounds) ? fill(-Inf, length(x)) : collect(Float64.(lower_bounds))
     ub = isnothing(upper_bounds) ? fill(Inf, length(x)) : collect(Float64.(upper_bounds))
 
-    p = _lbfgs_direction(grad0, lbfgs_state)
-    if dot(grad0, p) > 0
-        p .= -grad0
+    # Work in scaled u-space (u = x/s) so all parameters have comparable magnitudes.
+    # grad_u = ∂C/∂u = s .* grad_x  (chain rule: ∂C/∂u_i = s_i * ∂C/∂x_i)
+    grad0_u = grad0 .* s
+    p_u = _lbfgs_direction(grad0_u, lbfgs_state)
+    if dot(grad0_u, p_u) > 0
+        p_u .= -grad0_u
     end
+    p = p_u .* s   # convert u-space direction back to x-space step
 
     α_cap = _max_step_to_bounds(x, p, lb, ub)
     if α_cap <= 0
@@ -951,12 +990,30 @@ function lbfgsb_one_step(
     rho = pred_red > 0 ? act_red / pred_red : NaN
 
     J_new = isnothing(jacobian_eval) ? ForwardDiff.jacobian(fm, x_best) : jacobian_eval(x_best)
-    g_obs_new = J_new' * Se_inv * (y_obs .- y_best)
+    # Build Se_inv from y_best so that grad_new matches what the next call will
+    # compute when it reuses this cached gradient (next call's Se_inv is also
+    # built from y_best = its starting y).
+    Se_inv_new = if use_band_snr && !isnothing(band_snr_coeffs)
+        make_Se_inv_from_snr(y_best, band_snr_coeffs)
+    else
+        spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
+    end
+    g_obs_new = J_new' * Se_inv_new * (y_obs .- y_best)
     g_pri_new = S_a_inv * (x_a .- x_best)
     grad_new = -(g_obs_new .+ g_pri_new)
-    _lbfgsb_push_memory!(lbfgs_state, dx, grad_new .- grad0)
+    # Store curvature pairs in u-space so _lbfgs_direction sees consistent scaling.
+    du   = dx ./ s
+    dy_u = (grad_new .- grad0) .* s
+    _lbfgsb_push_memory!(lbfgs_state, du, dy_u)
 
-    chi2_curr = dot(y_obs .- y_best, Se_inv * (y_obs .- y_best))
+    # Cache y_best, Se_inv_new, J_new, grad_new for the next call's starting point.
+    # copy(J_new) is needed when jacobian_eval writes into a preallocated buffer.
+    lbfgs_state.cached_y      = copy(y_best)
+    lbfgs_state.cached_Se_inv = Se_inv_new
+    lbfgs_state.cached_J      = copy(J_new)
+    lbfgs_state.cached_grad   = copy(grad_new)
+
+    chi2_curr = dot(y_obs .- y_best, Se_inv_new * (y_obs .- y_best))
     return (
         x_next = x_best,
         y_prior = y,
@@ -1397,6 +1454,7 @@ function main(;
                     lbfgs_state=lbfgs_state,
                     lbfgs_c1=lbfgs_c1,
                     lbfgs_max_backtrack=lbfgs_max_backtrack,
+                    x_scale=x_scale,
                 )
             else
                 lm_one_step(
@@ -1470,14 +1528,12 @@ function main(;
         push!(lambda_series, fit_method == :lm ? λ : NaN)
         push!(accepted_series, step.accepted)
 
-        println("=============== step.dx = ", step.dx)
-        println("=============== x_prev = ", x_prev)
-        println("=============== x_curr = ", x_curr)
         dx_rel = norm(step.dx) / max(norm(x_prev), eps(Float64))
         push!(dx_rel_series, dx_rel)
         rmse_curr = rmse_series[end]
         rmse_abs_change = abs(rmse_curr - rmse_prev)
         rmse_rel_change = rmse_abs_change / max(abs(rmse_prev), eps(Float64))
+
         if dx_rel < conv_dx_rel_tol ||
            rmse_rel_change < conv_rmse_rel_tol ||
            rmse_abs_change < conv_rmse_abs_tol
@@ -1507,6 +1563,10 @@ function main(;
             failed_error = failed_error,
             convergence_reason = convergence_reason,
             n_steps_done = length(x_series) - 1,
+            wavelength = collect(Float64.(ctx.λ)),
+            y_obs = collect(Float64.(y_obs)),
+            y_prior = copy(y_series[1]),
+            y_final = copy(y_curr),
         )
     end
 

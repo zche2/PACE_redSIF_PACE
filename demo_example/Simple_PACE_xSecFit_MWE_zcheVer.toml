@@ -109,7 +109,7 @@ lbfgs_m = 5
 # Armijo sufficient-decrease constant for L-BFGS-B line search.
 lbfgs_c1 = 1.0e-4
 # Maximum backtracking tries per L-BFGS-B outer step； default 20.
-lbfgs_max_backtrack = 20
+lbfgs_max_backtrack = 40
 # Convergence threshold: relative state update norm.
 conv_dx_rel_tol = 1e-6
 # Convergence threshold: relative RMSE change.
@@ -170,8 +170,8 @@ lm_max_inner = 24
 gn_damping = 0.2
 # Measurement 1-sigma noise per spectral channel (used for S_e diagonal).
 meas_sigma = 0.01
-# Number of outer LM steps to attempt for logging/plotting.
-n_plot_steps = 20
+# Number of outer steps to attempt for logging/plotting.
+n_plot_steps = 50
 # Output plot filename for spectral fit and residual diagnostics.
 iter_plot_file = "toy_fit_iter_spectral_zcheVer.png"
 # Output CSV filename for per-iteration diagnostics/state vector.
