@@ -143,7 +143,7 @@ p_prior_hpa = 700.0
 # Prior sigma for pressure states [hPa].
 p_sigma_hpa = 200.0
 # Prior mean for temperature states [K].
-t_prior_k = 280.0
+t_prior_k = 273.0
 # Prior sigma for temperature states [K].
 t_sigma_k = 20.0
 # Prior sigma for O2 VCD intercept.
@@ -167,7 +167,7 @@ lm_lambda_max = 1e8
 # Maximum inner LM gamma trials per outer iteration.
 lm_max_inner = 24
 # Gauss-Newton step scale (learning rate): multiplies the GN linearized step; use < 1.0 for stability.
-gn_damping = 0.2
+gn_damping = 0.3
 # Measurement 1-sigma noise per spectral channel (used for S_e diagonal).
 meas_sigma = 0.01
 # Number of outer steps to attempt for logging/plotting.

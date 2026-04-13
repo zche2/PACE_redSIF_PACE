@@ -1042,6 +1042,7 @@ function main(;
     return_rmse_series_only::Bool=false,
     return_benchmark::Bool=false,
     fit_method_override::Union{Nothing,Symbol}=nothing,
+    x_init::Union{Nothing,AbstractVector{<:Real}}=nothing,
 )
     config_path = get(
         ENV,
@@ -1387,7 +1388,7 @@ function main(;
         n_jacobian[] += 1
         return jacobian_eval(x)
     end
-    x_curr = copy(x_a)
+    x_curr = isnothing(x_init) ? copy(x_a) : copy(x_init)
     y_curr = copy(fm_eval(x_curr))
     S_e_inv = if !use_band_snr || isnothing(ctx.band_snr_coeffs)
         spdiagm(0 => fill(1.0 / (meas_sigma^2), length(y_obs)))
