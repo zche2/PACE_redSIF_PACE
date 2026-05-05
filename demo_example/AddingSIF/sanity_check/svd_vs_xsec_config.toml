@@ -1,0 +1,140 @@
+# Configuration for SVD vs Cross-Section Fit comparison.
+# Run with:
+#   SVD_XSEC_CONFIG=<path-to-this-file> julia --project=. check_svd_vs_xsec_fit.jl
+
+# ── Data paths ─────────────────────────────────────────────────────────────────
+[data]
+base_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use"
+xsec_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange/"
+xsec_run = "Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange"
+kernel_file          = "KernelInstrument.jld2"
+pace_rsr_file        = "PACE_OCI_RSRs.nc"
+pace_snr_file        = "PACE_OCI_L1BLUT_baseline_SNR_1.1.txt"
+regenerated_kernel_file = "KernelInstrument_regenerated.jld2"
+sif_file             = "SIF_singular_vector.jld2"
+o2_file              = "Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange_O2.jld2"
+h2o_file             = "Coarse_Wavenumber_Coarse_Pressure_25hPa_Less_WvRange_H2O.jld2"
+solar_file           = "solar_merged_20240731_600_33300_100.out"
+
+# ── Numerics ───────────────────────────────────────────────────────────────────
+[numerics]
+float_type         = "Float64"
+lut_interpolation  = "cubic"
+
+# ── Spectral window ───────────────────────────────────────────────────────────
+[spectral]
+lambda_min_nm          = 640.0
+lambda_max_nm          = 756.0
+delta_lambda_nm        = 0.005
+# Number of SIF eigenvectors (shared by both fit methods)
+sif_nev                = 1
+normalize_sif_first_ev = true
+
+# ── Instrument kernel ─────────────────────────────────────────────────────────
+[kernel]
+clip_negative_rsr        = true
+use_band_snr             = true
+compare_with_stored      = true
+band_match_tol_nm        = 0.01
+save_regenerated         = true
+use_effective_band_centers = true
+
+# ── PACE observation pixel ────────────────────────────────────────────────────
+[pace_observation]
+enabled        = true
+pace_file      = "sample_granule_20240830T131442_new_chl.nc"
+wavelength_var = "red_wavelength"
+spectrum_var   = "radiance_red"
+pixel_index    = 1260
+scan_index     = 1696
+
+# ── Shared optimizer controls (apply to both xsec and SVD fits) ───────────────
+[fit]
+# Iteration method used by both runs: "lm", "gn", or "lbfgsb"
+fit_method           = "lm"
+# Measurement 1-sigma noise per spectral channel
+meas_sigma           = 0.01
+# Maximum outer iterations attempted
+n_plot_steps         = 50
+# Convergence: relative state-update norm
+conv_dx_rel_tol      = 1e-6
+# Convergence: relative RMSE change
+conv_rmse_rel_tol    = 1e-6
+# Convergence: absolute RMSE change
+conv_rmse_abs_tol    = 1e-6
+# LM damping parameters
+lm_lambda0           = 1.0
+lm_lambda_up         = 5.0
+lm_lambda_down       = 0.7
+lm_lambda_min        = 1e-8
+lm_lambda_max        = 1e8
+lm_max_inner         = 40
+# Stall detection
+conv_stall_enable           = true
+conv_stall_window           = 3
+conv_stall_redchi2_target   = 5.0
+conv_stall_redchi2_abs_tol  = 0.1
+conv_stall_redchi2_rel_tol  = 0.03
+conv_stall_dx_rel_tol       = 5e-3
+# Minimum prior sigma to avoid singular S_a^{-1}
+prior_min_sigma      = 0.001
+# Default (large) sigma for unconstrained parameters
+prior_sigma_default  = 1e12
+# Prior sigma for all SIF coefficients
+sif_sigma            = 1e12
+
+# ── Cross-section fit: method-specific controls ────────────────────────────────
+[fit.xsec]
+# Number of Legendre polynomial terms in the continuum baseline (0 = constant only)
+n_legendre                     = 3
+# Priors on Legendre P0/P1: set mean from a quick ratio fit; sigma = fraction × |mean|
+use_legendre01_prior           = true
+legendre01_prior_sigma_fraction = 1.0
+# Priors on Legendre P2+ terms: fixed sigma
+use_legendre_higher_prior      = true
+legendre_higher_sigma          = 1.0
+# VCD priors
+vcd_o2_sigma                   = 1e25
+vcd_h2o_sigma                  = 3e22
+use_vcd_slope_prior            = true
+vcd_slope_prior_sigma_factor   = 1.0
+# Pressure / temperature priors
+p_prior_hpa                    = 700.0
+p_sigma_hpa                    = 200.0
+t_prior_k                      = 273.0
+t_sigma_k                      = 20.0
+# Box constraints: restrict p/T to prior ± mult × sigma
+use_pt_constraints             = true
+pt_constraint_sigma_mult       = 3
+# Use hybrid Jacobian (analytic for linear terms, AD only for p/T)
+use_hybrid_jacobian            = true
+# Model variant: "standard" or "vcd_ratio"
+model_variant                  = "standard"
+
+# ── SVD transmittance fit: method-specific controls ────────────────────────────
+[fit.svd]
+# State order: [PC coeffs | α | Legendre | SIF]. TOA uses trans_updown = trans_up^α (SIF still uses trans_up).
+# Prior on path-scaling α (α=1 → PC transmittance only).
+alpha_prior_mean               = 1.5
+alpha_prior_sigma              = 0.5
+# Number of Legendre polynomial terms in the continuum baseline for the SVD fit
+n_legendre                     = 5
+# Priors on Legendre P0/P1
+use_legendre01_prior           = true
+legendre01_prior_sigma_fraction = 1.0
+# Priors on Legendre P2+ terms
+use_legendre_higher_prior      = true
+legendre_higher_sigma          = 1.0
+# Paths to MERRA2 convolved-transmittance NetCDF files used to build the SVD basis
+summer_nc = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc"
+winter_nc = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_winter_FineWvResModel_FullRange_Aug01.nc"
+# Number of principal components to retain in the state vector
+n_pc                           = 10
+# If true, SVD is applied to log(transmittance); if false, to (transmittance − 1)
+svd_log_transform              = true
+# Prior on PC coefficients:
+#   "loading_variance" → sigma_k = S_raw[k] / sqrt(n_profiles) × pc_prior_sigma_scale
+#   "uninformative"    → sigma_k = prior_sigma_default for all k
+pc_prior_mode                  = "loading_variance"
+# Multiplicative scale on the loading-variance-derived sigma (>1 = weaker prior)
+pc_prior_sigma_scale           = 1.0
