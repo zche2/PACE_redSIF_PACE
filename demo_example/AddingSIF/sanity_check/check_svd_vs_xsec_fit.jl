@@ -11,6 +11,11 @@
 #   rmse_vs_iteration.png      — RMSE trace for both methods on the same axes
 #   spectra_comparison.png     — observed vs prior vs final for both methods + residuals
 #   sif_trans_components.png   — convolved reflectance-path vs SIF-path: LUT xSec vs SVD
+#   transmittance_one_two.png  — LUT: K×T vs K×T² on OCI bands; SVD: T_up / T_up² / T_up^α on OCI bands
+#   jacobian_lut_hybrid_vs_forwarddiff.png — LUT: normalized (∂y/∂x_j)·σ_post,j vs λ (hybrid vs ForwardDiff)
+#   jacobian_svd_forwarddiff.png          — SVD: normalized (∂y/∂x_j)·σ_post,j vs λ (ForwardDiff)
+#   averaging_kernel_lut.png              — LUT averaging kernel A = GK (state×state, final state)
+#   averaging_kernel_svd.png              — SVD averaging kernel A = GK (state×state, final state)
 #   comparison_summary.csv     — n_iter, n_fwd, n_jac, RMSE, wall time
 #
 # Run:
@@ -64,63 +69,64 @@ function svd_state_layout(; n_pc::Int, n_legendre::Int, n_ev::Int)
 end
 
 """
-Build the SVD transmittance forward model closure.
+Build the SVD transmittance forward model on the **observation band grid** (same as pseudo
+measurements: PCs from the NetCDF live on OCI band centers, interpolated to `ctx.λ`).
 
 State vector: `[c_1..c_{n_pc}, α, leg_0..leg_{n_leg}, sif_ev_0..sif_ev_{n_ev}]`
 
-Forward model (high-res):
-  linear:  trans_up = 1 + PCs_hres * c_vec          (SVD on transmittance)
-  log:     trans_up = exp.(PCs_hres * c_vec)         (SVD on log-transmittance)
-  trans_updown = trans_up^α = exp.(α * log(trans_up))   (path / air-mass scaling)
-  ρ(λ)   = leg_basis * leg_coeff          (multiplicative continuum)
-  SIF(λ)  = trans_up * sif_basis * sif_coeff  (SIF uses upwelling transmittance)
-  y_hres  = solar * trans_updown * ρ / π + SIF
-  y_lres  = K * y_hres
+Per band (length = `length(ctx.λ)`):
+  linear:  trans_up = 1 + PCs * c_vec
+  log:     trans_up = exp.(PCs * c_vec)
+  trans_updown = trans_up^α
+  ρ = leg_basis_obs * leg_coeff
+  y = (K*solar) * trans_updown * ρ / π + trans_up * (K * sif_basis_hres * c_sif)
+
+This matches compiling the physics in low resolution like the pseudo-measurement pipeline.
+It approximates `K * (y_hres(state))` by applying `K` only to `solar` and to the SIF shape
+`(sif_basis_hres * c)` while using band-local `trans_up`; narrow bands keep the error small.
 """
 function make_svd_forward_model(
     ctx,
     solar_hres::AbstractVector{<:Real},
-    PCs_hres::Matrix{<:Real};
+    PCs_obs::Matrix{<:Real};
     n_pc::Int,
     n_legendre::Int,
     log_transform::Bool = false,
 )
     n_pc > 0       || error("n_pc must be > 0")
     n_legendre >= 0 || error("n_legendre must be >= 0")
-    size(PCs_hres, 2) >= n_pc || error("PCs_hres has fewer columns than n_pc")
+    size(PCs_obs, 2) >= n_pc || error("PCs_obs has fewer columns than n_pc")
 
-    λ_hres        = collect(Float64.(ctx.λ_hres))
+    λ_obs         = collect(Float64.(ctx.λ))
+    size(PCs_obs, 1) == length(λ_obs) ||
+        error("PCs_obs rows ($(size(PCs_obs, 1))) must match ctx.λ length ($(length(λ_obs)))")
     K             = hasproperty(ctx, :kernel_rsr_out) ? ctx.kernel_rsr_out : ctx.kernel.RSR_out
     sif_basis_hres = Float64.(ctx.sif_basis_hres)
     n_ev          = size(sif_basis_hres, 2)
-    solar         = Float64.(solar_hres)
-    PCs           = Float64.(PCs_hres[:, 1:n_pc])    # (n_hres, n_pc)
+    solar         = Float64.(collect(solar_hres))
+    PCs           = Float64.(PCs_obs[:, 1:n_pc])
 
-    z_hres    = _normalized_grid(λ_hres)
-    leg_basis = _legendre_design_matrix(z_hres, n_legendre)  # (n_hres, n_leg_coeff)
+    solar_lres = Vector(K * solar)
+    sif_lres   = K * sif_basis_hres   # (n_bands × n_ev)
+
+    z_obs     = _normalized_grid(λ_obs)
+    leg_basis = _legendre_design_matrix(z_obs, n_legendre)
     layout    = svd_state_layout(; n_pc, n_legendre, n_ev)
 
     function fm_svd(x::AbstractVector)
         length(x) == layout.n_state ||
             error("SVD state vector length $(length(x)) ≠ expected $(layout.n_state)")
         c_vec        = @view x[layout.idx_pc]
-        alpha_coeff  = x[first(layout.idx_alpha)]   # scalar: trans_updown = trans_up^alpha_coeff
+        alpha_coeff  = 10.0 ./ (1.0 .+ exp(-x[first(layout.idx_alpha)])) + 1.0
         leg_coeff    = @view x[layout.idx_legendre]
         sif_coeff    = @view x[layout.idx_sif]
 
-        # Reconstruct transmittance from PCs; path scaling trans_updown = trans_up^alpha_coeff
-        trans_up     = log_transform ? exp.(PCs * c_vec) : 1.0 .+ PCs * c_vec  # (n_hres,)
+        trans_up     = log_transform ? exp.(PCs * c_vec) : 1.0 .+ PCs * c_vec
         trans_updown = exp.(alpha_coeff .* log.(max.(trans_up, eps(Float64))))
+        rho_obs      = leg_basis * leg_coeff
+        sif_toa_lres = trans_up .* (sif_lres * sif_coeff)
 
-        # Continuum: multiplicative polynomial
-        rho_hres = leg_basis * leg_coeff                   # (n_hres,)
-
-        # SIF: attenuated by same transmittance
-        sif_hres = trans_up .* (sif_basis_hres * sif_coeff)  # (n_hres,)
-
-        # TOA radiance
-        y_hres = @. solar * trans_updown * rho_hres / π + sif_hres
-        return K * y_hres
+        return @.(solar_lres * trans_updown * rho_obs / π + sif_toa_lres)
     end
 
     return fm_svd, layout
@@ -188,39 +194,87 @@ function xsec_reflectance_and_sif_lres(
     return (K * y_refl_hres, K * y_sif_hres)
 end
 
-"""Split SVD TOA radiance into reflectance-path and SIF-path (same splitting as `make_svd_forward_model`)."""
+"""LUT gas transmittance `trans` on high-res grid (Beer–Lambert); same as reflectance path factor."""
+function xsec_gas_transmittance_hres(ctx, x::AbstractVector{<:Real}, layout)
+    λ_hres        = collect(Float64.(ctx.λ_hres))
+    spectral_axis = collect(Float64.(ctx.spectral_axis))
+    z_hres        = _normalized_grid(λ_hres)
+
+    vcd_o2_intercept = x[layout.idx_vcd_o2_intercept]
+    vcd_o2_slope = x[layout.idx_vcd_o2_slope]
+    vcd_h2o_intercept = x[layout.idx_vcd_h2o_intercept]
+    vcd_h2o_slope = x[layout.idx_vcd_h2o_slope]
+    vcd_o2_sif = x[layout.idx_vcd_o2_sif]
+    vcd_h2o_sif = x[layout.idx_vcd_h2o_sif]
+    p_o2_hpa = x[layout.idx_p_o2_hpa]
+    t_o2_k = x[layout.idx_t_o2_k]
+    p_h2o_hpa = x[layout.idx_p_h2o_hpa]
+    t_h2o_k = x[layout.idx_t_h2o_k]
+
+    xs_o2  = vec(ctx.o2_sitp(spectral_axis, p_o2_hpa, t_o2_k))
+    xs_h2o = vec(ctx.h2o_sitp(spectral_axis, p_h2o_hpa, t_h2o_k))
+
+    vcd_o2_λ  = @. vcd_o2_intercept + vcd_o2_slope * z_hres
+    vcd_h2o_λ = @. vcd_h2o_intercept + vcd_h2o_slope * z_hres
+    trans_updown = @. exp(-(vcd_h2o_λ * xs_h2o + vcd_o2_λ * xs_o2))
+    trans_up     = @. exp(-(vcd_h2o_sif * xs_h2o + vcd_o2_sif * xs_o2))
+
+    return (λ_hres, trans_updown, trans_up)
+end
+
+"""SVD `trans_up`, solar-path `trans_updown`, on `ctx.λ` (same PC basis as `make_svd_forward_model`)."""
+function svd_transmittance_obs(
+    ctx,
+    PCs_obs::Matrix{<:Real},
+    x::AbstractVector{<:Real},
+    layout_svd;
+    n_pc::Int,
+    log_transform::Bool,
+)
+    λ_obs = collect(Float64.(ctx.λ))
+    PCs   = Float64.(PCs_obs[:, 1:n_pc])
+    c_vec = @view x[layout_svd.idx_pc]
+    alpha_coeff = 10.0 ./ (1.0 .+ exp(-x[first(layout_svd.idx_alpha)])) + 1.0
+    trans_up = log_transform ? exp.(PCs * c_vec) : 1.0 .+ PCs * c_vec
+    trans_updown = exp.(alpha_coeff .* log.(max.(trans_up, eps(Float64))))
+    return (λ_obs, trans_up, trans_updown)
+end
+
+"""Split SVD TOA into reflectance-path and SIF-path on the observation grid (matches `make_svd_forward_model`)."""
 function svd_reflectance_and_sif_lres(
     ctx,
     solar_hres::AbstractVector{<:Real},
-    PCs_hres::Matrix{<:Real},
+    PCs_obs::Matrix{<:Real},
     x::AbstractVector{<:Real},
     layout_svd;
     n_pc::Int,
     n_legendre::Int,
     log_transform::Bool,
 )
-    λ_hres         = collect(Float64.(ctx.λ_hres))
+    λ_obs          = collect(Float64.(ctx.λ))
     K              = hasproperty(ctx, :kernel_rsr_out) ? ctx.kernel_rsr_out : ctx.kernel.RSR_out
     sif_basis_hres = Float64.(ctx.sif_basis_hres)
     solar          = Float64.(collect(solar_hres))
-    PCs            = Float64.(PCs_hres[:, 1:n_pc])
+    PCs            = Float64.(PCs_obs[:, 1:n_pc])
 
-    z_hres    = _normalized_grid(λ_hres)
-    leg_basis = _legendre_design_matrix(z_hres, n_legendre)
+    solar_lres = Vector(K * solar)
+    sif_lres = K * sif_basis_hres
+
+    z_obs     = _normalized_grid(λ_obs)
+    leg_basis = _legendre_design_matrix(z_obs, n_legendre)
 
     c_vec       = @view x[layout_svd.idx_pc]
-    alpha_coeff = x[first(layout_svd.idx_alpha)]
+    alpha_coeff = 10.0 ./ (1.0 .+ exp(-x[first(layout_svd.idx_alpha)])) + 1.0
     leg_coeff   = @view x[layout_svd.idx_legendre]
     sif_coeff   = @view x[layout_svd.idx_sif]
 
     trans_up     = log_transform ? exp.(PCs * c_vec) : 1.0 .+ PCs * c_vec
     trans_updown = exp.(alpha_coeff .* log.(max.(trans_up, eps(Float64))))
-    rho_hres     = leg_basis * leg_coeff
-    sif_hres     = trans_up .* (sif_basis_hres * sif_coeff)
+    rho_obs      = leg_basis * leg_coeff
+    sif_lres_toa = trans_up .* (sif_lres * sif_coeff)
 
-    y_refl_hres = @. solar * trans_updown * rho_hres / π
-
-    return (K * y_refl_hres, K * sif_hres)
+    y_refl_lres = @. solar_lres * trans_updown * rho_obs / π
+    return (y_refl_lres, sif_lres_toa)
 end
 
 # ── Generic LM retrieval loop ─────────────────────────────────────────────────
@@ -380,12 +434,42 @@ function run_lm_retrieval(
     )
 end
 
+"""
+Posterior covariance approximation at the final state:
+  S_post = (K' S_e^{-1} K + S_a^{-1})^{-1}
+Returns posterior standard deviations σ_post = sqrt(diag(S_post)).
+"""
+function posterior_sigma_from_jacobian(K::AbstractMatrix, S_e_inv, S_a_inv)
+    H = K' * S_e_inv * K + S_a_inv
+    S_post = Matrix(inv(H))
+    return sqrt.(max.(diag(S_post), 0.0))
+end
+
+"""Column-wise Jacobian normalization: J_norm[:,j] = J[:,j] * σ_post[j]."""
+function normalize_jacobian_by_sigma(J::AbstractMatrix, σ_post::AbstractVector)
+    size(J, 2) == length(σ_post) ||
+        error("σ_post length $(length(σ_post)) must match Jacobian columns $(size(J,2))")
+    return J .* permutedims(collect(Float64.(σ_post)))
+end
+
+"""
+Gain matrix and averaging kernel at final state:
+  G = (S_a^{-1} + K' S_e^{-1} K)^{-1} K' S_e^{-1}
+  A = G K
+"""
+function gain_and_averaging_kernel(K::AbstractMatrix, S_e_inv, S_a_inv)
+    H = S_a_inv + K' * S_e_inv * K
+    G = Matrix(H \ (K' * S_e_inv))
+    A = Matrix(G * K)
+    return G, A
+end
+
 # ── Load transmittance NetCDF and build SVD basis ──────────────────────────────
 
 function load_svd_basis(
     summer_nc::String,
     winter_nc::String,
-    λ_hres::AbstractVector{<:Float64};
+    λ_pc_target::AbstractVector{<:Float64};
     λ_min::Float64,
     λ_max::Float64,
     n_pc::Int,
@@ -427,21 +511,21 @@ function load_svd_basis(
                 k, S_norm[k], S[k], S[k] / sqrt(n_profiles))
     end
 
-    # Interpolate each PC to the high-res wavelength grid
-    n_hres   = length(λ_hres)
-    PCs_hres = zeros(Float64, n_hres, size(U, 2))
+    # Interpolate each PC onto the target grid (OCI band centers = ctx.λ for the forward model)
+    nλ   = length(λ_pc_target)
+    PCs  = zeros(Float64, nλ, size(U, 2))
     for k in eachindex(axes(U, 2))
         itp = LinearInterpolation(bands_sel, U[:, k]; extrapolation_bc=Flat())
-        PCs_hres[:, k] .= itp.(λ_hres)
+        PCs[:, k] .= itp.(λ_pc_target)
     end
 
     return (
-        PCs_hres   = PCs_hres,     # (n_hres, n_svs)
-        S          = S,             # singular values (unnormalised)
-        S_norm     = S_norm,        # % variance
+        PCs        = PCs,          # (nλ, n_svs)
+        S          = S,            # singular values (unnormalised)
+        S_norm     = S_norm,       # % variance
         n_profiles = n_profiles,
         bands_sel  = bands_sel,
-        U          = U,             # (n_bands_sel, n_svs)
+        U          = U,            # (n_bands_sel, n_svs)
     )
 end
 
@@ -556,6 +640,187 @@ function _plot_sif_trans_components(
     savefig(p, path)
 end
 
+"""LUT: one subplot per state — ∂y/∂x_j vs λ (hybrid vs ForwardDiff)."""
+function _plot_jacobian_lut_hybrid_vs_fd(
+    path::String,
+    λ_obs::AbstractVector{<:Real},
+    J_hybrid::AbstractMatrix{<:Real},
+    J_fd::AbstractMatrix{<:Real},
+    state_names::AbstractVector{String};
+    n_cols::Int = 1,
+)
+    size(J_hybrid) == size(J_fd) ||
+        error("Jacobian shapes differ: hybrid $(size(J_hybrid)) vs FD $(size(J_fd))")
+    nb, ns = size(J_hybrid)
+    length(state_names) == ns ||
+        error("state_names length $(length(state_names)) ≠ Jacobian columns $ns")
+    length(λ_obs) == nb ||
+        error("λ_obs length $(length(λ_obs)) ≠ Jacobian rows (bands) $nb")
+
+    _plot_jacobian_columns_spectra(
+        path, λ_obs, state_names, J_hybrid;
+        J_compare = J_fd,
+        supertitle = "LUT xSec final state — normalized Jacobian (∂y/∂x)·σ_post vs λ",
+        label_a = "hybrid norm.",
+        label_b = "ForwardDiff norm.",
+        n_cols = n_cols,
+    )
+end
+
+"""SVD: one subplot per state — ∂y/∂x_j vs λ (ForwardDiff)."""
+function _plot_jacobian_svd_spectra(
+    path::String,
+    λ_obs::AbstractVector{<:Real},
+    J_svd::AbstractMatrix{<:Real},
+    state_names::AbstractVector{String};
+    n_cols::Int = 1,
+)
+    nb, ns = size(J_svd)
+    length(state_names) == ns ||
+        error("state_names length $(length(state_names)) ≠ Jacobian columns $ns")
+    length(λ_obs) == nb ||
+        error("λ_obs length $(length(λ_obs)) ≠ Jacobian rows (bands) $nb")
+
+    _plot_jacobian_columns_spectra(
+        path, λ_obs, state_names, J_svd;
+        J_compare = nothing,
+        supertitle = "SVD transmittance final state — normalized Jacobian (∂y/∂x)·σ_post vs λ",
+        label_a = "ForwardDiff norm.",
+        label_b = "",
+        n_cols = n_cols,
+    )
+end
+
+function _plot_jacobian_columns_spectra(
+    path::String,
+    λ_obs::AbstractVector{<:Real},
+    state_names::AbstractVector{String},
+    J_primary::AbstractMatrix{<:Real};
+    J_compare::Union{Nothing,AbstractMatrix{<:Real}} = nothing,
+    supertitle::String,
+    label_a::String,
+    label_b::String,
+    n_cols::Int,
+)
+    _, ns = size(J_primary)
+    n_cols = max(1, min(n_cols, ns))
+    n_rows = cld(ns, n_cols)
+
+    plots = []
+
+    dual = !isnothing(J_compare)
+    if dual
+        size(J_compare) == size(J_primary) || error("Compare Jacobian shape must match primary")
+    end
+
+    for j in 1:ns
+        col_a = @view J_primary[:, j]
+
+        ylab = "(∂y/∂$(state_names[j]))·σ_post"
+        pj = plot(;
+            title = state_names[j],
+            titlefontsize = 8,
+            ylabel = ylab,
+            yguidefontsize = 6,
+            grid = true,
+            legend = j == 1 ? :topright : nothing,
+            legendfontsize = 5,
+            xlabel = "Wavelength [nm]",
+            xlabelfontsize = 7,
+            left_margin = 10Plots.mm,
+            bottom_margin = 3Plots.mm,
+        )
+
+        if dual
+            m = maximum(abs.(vcat(Vector(col_a), Vector(J_compare[:, j]))))
+            plot!(pj, λ_obs, col_a; label = label_a, color = :royalblue, lw = 1.2)
+            plot!(pj, λ_obs, J_compare[:, j]; label = label_b, color = :firebrick, lw = 1.2, ls = :dash)
+            plot!(pj; ylims = (-max(m, 1e-30), max(m, 1e-30)))
+        else
+            ca = Vector(col_a)
+            m = maximum(abs.(ca))
+            plot!(pj, λ_obs, ca; label = label_a, color = :royalblue, lw = 1.2)
+            plot!(pj; ylims = (-max(m, 1e-30), max(m, 1e-30)))
+        end
+        push!(plots, pj)
+    end
+
+    pw = 360 * n_cols + 80
+    ph = 175 * n_rows + 75
+    p = plot(
+        plots...;
+        layout       = (n_rows, n_cols),
+        size         = (pw, ph),
+        plot_title   = supertitle,
+        plot_titlefontsize = 11,
+        top_margin   = 6Plots.mm,
+    )
+    savefig(p, path)
+end
+
+function _plot_averaging_kernel_heatmap(
+    path::String,
+    A::AbstractMatrix{<:Real},
+    state_names::AbstractVector{String};
+    title::String,
+)
+    n1, n2 = size(A)
+    n1 == n2 || error("Averaging kernel must be square, got size $(size(A))")
+    length(state_names) == n1 ||
+        error("state_names length $(length(state_names)) must match A size $n1")
+
+    h = heatmap(
+        1:n2, 1:n1, A;
+        xlabel = "True state index (x_true)",
+        ylabel = "Retrieved state index (x_ret)",
+        xticks = (1:n2, state_names),
+        yticks = (1:n1, state_names),
+        xrotation = 60,
+        tickfontsize = 7,
+        color = :balance,
+        clims = (-1.0, 1.0),
+        colorbar = true,
+        left_margin = 12Plots.mm,
+        bottom_margin = 10Plots.mm,
+        title = title,
+    )
+    savefig(h, path)
+end
+
+function _plot_transmittance_one_two(
+    path::String,
+    λ_obs::AbstractVector,
+    T_up_xsec_lres::AbstractVector,
+    T_updown_xsec_lres::AbstractVector,
+    T_up_svd::AbstractVector,
+    T_updown_svd::AbstractVector,
+)
+    colors = [:royalblue, :dodgerblue, :firebrick, :orangered, :gray]
+
+    p_lut = plot(
+        xlabel = "Wavelength [nm]",
+        ylabel = "Transmittance (convolved)",
+        title  = "LUT xSec: K×T vs K×T2 on OCI bands (gas, final state)",
+        legend = :outertopright,
+        legendfontsize = 7,
+    )
+    plot!(p_lut, λ_obs, T_up_xsec_lres; label = "One-way lres T (SIF)", color = colors[1], lw = 2.0)
+    plot!(p_lut, λ_obs, T_updown_xsec_lres; label = "Two-way lres T (solar)", color = colors[2], lw = 2.0, ls = :dash)
+
+    p_svd = plot(
+        xlabel = "Wavelength [nm]",
+        ylabel = "Transmittance (PC basis on OCI λ)",
+        title  = "SVD: T_up, T_up^α on observation bands (final state)",
+        legend = :outertopright,
+        legendfontsize = 7,
+    )
+    plot!(p_svd, λ_obs, T_up_svd; label = "One-way T_up (PC basis)", color = colors[3], lw = 2.0)
+    plot!(p_svd, λ_obs, T_updown_svd; label = "Solar-path T_up^α", color = colors[5], lw = 1.8, ls = :dot)
+
+    p = plot(p_lut, p_svd; layout = (2, 1), size = (950, 850), left_margin = 5Plots.mm)
+    savefig(p, path)
+end
+
 function _write_summary(path::String, res_xsec, res_svd)
     open(path, "w") do io
         println(io, "method,n_iter,n_forward,n_jacobian,rmse_prior,rmse_final," *
@@ -662,7 +927,7 @@ function main_compare()
     kernel_cfg     = get(cfg, "kernel", Dict{String,Any}())
     kernel_wants_snr = Bool(get(kernel_cfg, "use_band_snr", true))
     # Retrieval noise: [fit] use_band_snr overrides; if absent, follow [kernel] (same as prepare_mwe_inputs).
-    use_band_snr   = haskey(fit_cfg, "use_band_snr") ? Bool(fit_cfg["use_band_snr"]) : kernel_wants_snr
+    use_band_snr     = haskey(fit_cfg, "use_band_snr") ? Bool(fit_cfg["use_band_snr"]) : kernel_wants_snr
     if use_band_snr && isnothing(ctx.band_snr_coeffs)
         error(
             "Band SNR requested (use_band_snr=true) but SNR coefficients were not loaded. " *
@@ -880,12 +1145,12 @@ function main_compare()
     winter_nc = svd_cfg["winter_nc"]
 
     svd_basis = load_svd_basis(
-        summer_nc, winter_nc, λ_hres;
+        summer_nc, winter_nc, λ_obs;
         λ_min = λ_min, λ_max = λ_max, n_pc = n_pc, log_transform = log_trans,
     )
 
     fm_svd, layout_svd = make_svd_forward_model(
-        ctx, solar_hres, svd_basis.PCs_hres;
+        ctx, solar_hres, svd_basis.PCs;
         n_pc = n_pc, n_legendre = n_leg_svd, log_transform = log_trans,
     )
     n_ev_svd = layout_svd.n_ev
@@ -986,24 +1251,98 @@ function main_compare()
     rmse_png        = joinpath(_OUT_DIR, "rmse_vs_iteration.png")
     spectra_png     = joinpath(_OUT_DIR, "spectra_comparison.png")
     sif_trans_png   = joinpath(_OUT_DIR, "sif_trans_components.png")
+    trans_12_png    = joinpath(_OUT_DIR, "transmittance_one_two.png")
+    jac_png         = joinpath(_OUT_DIR, "jacobian_lut_hybrid_vs_forwarddiff.png")
+    jac_svd_png     = joinpath(_OUT_DIR, "jacobian_svd_forwarddiff.png")
+    ak_lut_png      = joinpath(_OUT_DIR, "averaging_kernel_lut.png")
+    ak_svd_png      = joinpath(_OUT_DIR, "averaging_kernel_svd.png")
     summary_csv     = joinpath(_OUT_DIR, "comparison_summary.csv")
+    n_cols          = 3
+
+    x_lut_final = Float64.(res_xsec.x_final)
+    S_e_inv_lut = if use_band_snr && !isnothing(ctx.band_snr_coeffs)
+        make_Se_inv_from_snr(res_xsec.y_final, ctx.band_snr_coeffs)
+    else
+        spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
+    end
+    jac_hybrid_eval = make_hybrid_jacobian_evaluator(
+        fm_xsec, ctx, solar_hres, layout_xsec; n_legendre = n_leg_xsec,
+    )
+    jac_fd_lut = make_jacobian_evaluator(fm_xsec, x_lut_final)
+    J_hyb = Matrix(jac_hybrid_eval(x_lut_final))
+    J_fd_lut = Matrix(jac_fd_lut(x_lut_final))
+    σ_post_lut = posterior_sigma_from_jacobian(J_fd_lut, S_e_inv_lut, S_a_inv_xsec)
+    J_hyb_norm = normalize_jacobian_by_sigma(J_hyb, σ_post_lut)
+    J_fd_lut_norm = normalize_jacobian_by_sigma(J_fd_lut, σ_post_lut)
+    jac_names_lut = state_names_simple(ctx; n_legendre = n_leg_xsec)
+    _plot_jacobian_lut_hybrid_vs_fd(jac_png, λ_obs, J_hyb_norm, J_fd_lut_norm, jac_names_lut; n_cols = n_cols)
+    jac_rmse_lut = sqrt(mean((J_hyb .- J_fd_lut) .^ 2))
+    @printf("\nLUT Jacobian at final state — hybrid vs ForwardDiff element RMSE: %.6e\n", jac_rmse_lut)
+    @printf("LUT posterior sigma: min %.3e, median %.3e, max %.3e\n",
+            minimum(σ_post_lut), median(σ_post_lut), maximum(σ_post_lut))
+    G_lut, A_lut = gain_and_averaging_kernel(J_fd_lut, S_e_inv_lut, S_a_inv_xsec)
+    _plot_averaging_kernel_heatmap(
+        ak_lut_png, A_lut, jac_names_lut;
+        title = "LUT averaging kernel A = G K (final state)",
+    )
+    Abar_lut = mean(diag(A_lut))
+    @printf("LUT averaging kernel diag: min %.3e, mean %.3e, max %.3e\n",
+            minimum(diag(A_lut)), mean(diag(A_lut)), maximum(diag(A_lut)))
+    @printf("LUT info metric (Ā = mean(diag(A))): %.6f\n", Abar_lut)
+
+    x_svd_final = Float64.(res_svd.x_final)
+    S_e_inv_svd = if use_band_snr && !isnothing(ctx.band_snr_coeffs)
+        make_Se_inv_from_snr(res_svd.y_final, ctx.band_snr_coeffs)
+    else
+        spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
+    end
+    jac_fd_svd = make_jacobian_evaluator(fm_svd, x_svd_final)
+    J_svd = Matrix(jac_fd_svd(x_svd_final))
+    σ_post_svd = posterior_sigma_from_jacobian(J_svd, S_e_inv_svd, S_a_inv_svd)
+    J_svd_norm = normalize_jacobian_by_sigma(J_svd, σ_post_svd)
+    jac_names_svd = _svd_state_names(layout_svd)
+    _plot_jacobian_svd_spectra(jac_svd_png, λ_obs, J_svd_norm, jac_names_svd; n_cols=n_cols)
+    @printf("SVD Jacobian at final state — │∂y/∂x│ mean %.6e max %.6e\n",
+            mean(abs.(J_svd)), maximum(abs.(J_svd)))
+    @printf("SVD posterior sigma: min %.3e, median %.3e, max %.3e\n",
+            minimum(σ_post_svd), median(σ_post_svd), maximum(σ_post_svd))
+    G_svd, A_svd = gain_and_averaging_kernel(J_svd, S_e_inv_svd, S_a_inv_svd)
+    _plot_averaging_kernel_heatmap(
+        ak_svd_png, A_svd, jac_names_svd;
+        title = "SVD averaging kernel A = G K (final state)",
+    )
+    Abar_svd = mean(diag(A_svd))
+    @printf("SVD averaging kernel diag: min %.3e, mean %.3e, max %.3e\n",
+            minimum(diag(A_svd)), mean(diag(A_svd)), maximum(diag(A_svd)))
+    @printf("SVD info metric (Ā = mean(diag(A))): %.6f\n", Abar_svd)
 
     refl_xsec, sif_xsec_band = xsec_reflectance_and_sif_lres(
         ctx, solar_hres, res_xsec.x_final, layout_xsec, n_leg_xsec, model_variant,
     )
     refl_svd, sif_svd_band = svd_reflectance_and_sif_lres(
-        ctx, solar_hres, svd_basis.PCs_hres, res_svd.x_final, layout_svd;
+        ctx, solar_hres, svd_basis.PCs, res_svd.x_final, layout_svd;
         n_pc = n_pc, n_legendre = n_leg_svd, log_transform = log_trans,
+    )
+
+    λ_hres_T, T_up_xsec_final, T_updown_xsec_final = xsec_gas_transmittance_hres(ctx, res_xsec.x_final, layout_xsec)
+    K_T = hasproperty(ctx, :kernel_rsr_out) ? ctx.kernel_rsr_out : ctx.kernel.RSR_out
+    T_up_xsec_lres  = Vector(K_T * T_up_xsec_final)
+    T_updown_xsec_lres = Vector(K_T * T_updown_xsec_final)
+    _, T_up_svd, T_updown_svd = svd_transmittance_obs(
+        ctx, svd_basis.PCs, res_svd.x_final, layout_svd;
+        n_pc = n_pc, log_transform = log_trans,
     )
 
     _plot_svd_basis(basis_png, svd_basis, n_pc)
     _plot_rmse(rmse_png, res_xsec, res_svd)
     _plot_spectra(spectra_png, res_xsec, res_svd)
     _plot_sif_trans_components(sif_trans_png, λ_obs, refl_xsec, sif_xsec_band, refl_svd, sif_svd_band)
+    _plot_transmittance_one_two(trans_12_png, λ_obs, T_up_xsec_lres, T_updown_xsec_lres, T_up_svd, T_updown_svd)
     _write_summary(summary_csv, res_xsec, res_svd)
 
     println("\nOutputs written to: $_OUT_DIR/")
-    for f in [basis_png, rmse_png, spectra_png, sif_trans_png, summary_csv]
+    for f in [basis_png, rmse_png, spectra_png, sif_trans_png, trans_12_png,
+              jac_png, jac_svd_png, ak_lut_png, ak_svd_png, summary_csv]
         println("  ", basename(f))
     end
 end

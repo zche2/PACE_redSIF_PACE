@@ -46,7 +46,7 @@ pace_file      = "sample_granule_20240830T131442_new_chl.nc"
 wavelength_var = "red_wavelength"
 spectrum_var   = "radiance_red"
 pixel_index    = 1260
-scan_index     = 1696
+scan_index     = 1694
 
 # ── Shared optimizer controls (apply to both xsec and SVD fits) ───────────────
 [fit]

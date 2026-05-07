@@ -1,3 +1,6 @@
+# ====== ======
+# This script is written to visualize cross section data of trace gases.
+# ====== ======
 using DelimitedFiles
 using Plots
 
