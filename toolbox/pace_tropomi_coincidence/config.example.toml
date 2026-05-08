@@ -1,0 +1,60 @@
+# Example config: remote fetch only (no pre-populated local dirs).
+# Run:
+#   julia --project=<PACE_redSIF_PACE> toolbox/pace_tropomi_coincidence/run_match.jl --fetch-remote path/to/this_file.toml
+#
+# TROPOMI: EARTHDATA_USERNAME / EARTHDATA_PASSWORD, or cookie_file + curl fallback.
+# PACE: pip install earthaccess; same env vars.
+#
+# With --fetch-remote, cache_dir values are appended to pace_dirs/tropomi_dirs after download.
+# Empty pace_dirs / tropomi_dirs below = use only what remote fetch adds (plus any manifest you set).
+#
+# One UTC interval for match + fetch: set utc_window_* under [match] only. Omit date_start/date_end and
+# temporal_* under [remote.tropomi] / [remote.pace] unless you intentionally want fetch range ≠ filter.
+#
+# remote.*.cache_dir: **your** writable folders (NOT /path/to/... — that tries to mkdir /path and fails).
+# Use `~` for home, or e.g. /scratch/you/..., or ./cache/tropomi relative to where you run julia.
+
+[paths]
+pace_dirs = []
+tropomi_dirs = []
+# pace_manifest = "/path/to/pace_files.txt"
+# tropomi_manifest = "/path/to/tropomi_files.txt"
+
+[match]
+tropomi_band = "BD6"              # "BD5" or "BD6" — must agree with [remote.tropomi] product
+pace_glob = "**/PACE_OCI.*.L1B.V3.nc"
+strict_pace_parse = false
+multi_pace_timestamp = "skip"
+inclusive_endpoints = true
+neighbor_days = 0
+use_netcdf_time_for_pace = false
+pace_basename_strip = []
+
+# Align with the temporal / date range you fetch (optional filter after files exist).
+utc_window_start = "2025-01-26"
+utc_window_end = "2025-01-29"
+utc_day_stride = 1
+
+[output]
+csv_path = "/home/zhe2/FraLab/PACE_redSIF_PACE/toolbox/pace_tropomi_coincidence/coincidences.csv"
+# jsonl_path = "coincidences.jsonl"
+
+[remote.tropomi]
+enabled = true
+base_url = ""                     # empty = default GES DISC URL for tropomi_band + gesdisc_hir
+gesdisc_hir = "HiR.3"             # DAAC folder token: HiR.3, HiR2, HiR.2, …
+# date_start / date_end: optional override; omitted → inferred from [match] utc_window_* (calendar UTC days)
+cache_dir = "~/cache/pace_tropomi_coincidence/tropomi"
+max_downloads = 20                # omit key for no limit (can be huge)
+# cookie_file = "/path/to/.urs_cookies"
+timeout_s = 120
+
+[remote.pace]
+enabled = true
+short_name = "PACE_OCI_L1B_SCI"
+version = "3"
+# temporal_start / temporal_end: optional override; omitted → same UTC interval as [match] utc_window_*
+use_bounding_box = false            # temporal-only search (omit spatial filter); can match many granules
+# bounding_box = [-74.0, 38.0, -72.0, 40.0]   # west, south, east, north — set use_bounding_box = true if you use this
+cache_dir = "~/cache/pace_tropomi_coincidence/pace"
+python = "python3"
