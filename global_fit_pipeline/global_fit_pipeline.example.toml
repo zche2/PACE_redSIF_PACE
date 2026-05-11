@@ -1,0 +1,153 @@
+# Copy to global_fit_pipeline.toml and edit paths.
+#
+# [general] — shared directories for Python download and Julia retrieval (required).
+#
+# --- Download ---
+#   python global_fit_pipeline/download/download_pace_products.py global_fit_pipeline/global_fit_pipeline.toml
+#
+# --- SVD retrieval ---
+#   julia -t 8 global_fit_pipeline/svd_retrieval/run_svd_fit.jl global_fit_pipeline/global_fit_pipeline.toml
+#
+# Retrieval physics: [data], [spectral], [fit], [batch_fit], … SVD swath retrieval is band-native (interim red bands +
+# [spectral] λ window): no high-res grid, no O₂/H₂O LUT or kernel regeneration. Band SNR uses [data].pace_snr_file when
+# [fit].use_band_snr or [kernel].use_band_snr is true.
+# [download], [general], and [svd_retrieval] are orchestration-only; Julia builds the effective retrieval config in memory (no merged TOML).
+
+# =============================================================================
+[general]
+L1B_dir = "/home/zhe2/data/PACE/L1B_V3"
+L2AOP_dir = "/home/zhe2/data/PACE/L2_AOP_V3.1"
+L2BGC_dir = "/home/zhe2/data/PACE/L2_BGC_V3.1"
+
+# =============================================================================
+[download.temporal]
+start = "2025-07-01T00:00:00"
+end = "2025-07-31T23:59:59"
+
+[download.spatial]
+# use_bounding_box = false
+# bounding_box = [-42.0, -55.0, -35.0, -49.5]
+
+[download.collections]
+l1b_short_name = "PACE_OCI_L1B_SCI"
+l1b_version = "3"
+l2_bgc_short_name = "PACE_OCI_L2_BGC"
+l2_bgc_version = "3.1"
+l2_aop_short_name = "PACE_OCI_L2_AOP"
+l2_aop_version = "3.1"
+
+# Optional overrides for download destinations. If omitted or empty, [general] dirs are used:
+#   l1b_dir ← general.L1B_dir, l2_aop_dir ← general.L2AOP_dir, l2_bgc_dir ← general.L2BGC_dir
+[download.paths]
+# l1b_dir = "/custom/L1B"
+# l2_bgc_dir = "/custom/L2_BGC"
+# l2_aop_dir = "/custom/L2_AOP"
+
+[download.options]
+# login_strategy = "all"
+skip_existing = true
+# cloud_cover = [0, 70]
+
+# =============================================================================
+# [svd_retrieval] — mode chooses how inputs are discovered under [general] L1B_dir:
+#   "granule"  → single file: set granule_id = "YYYYMMDDTHHMMSS" (and L2 with same id).
+#   "date"     → all L1B granules for one calendar day: set date = "YYYYMMDD".
+#   "dates"    → either dates = ["20250927", ...] OR date_start + date_end with optional date_interval_days (default 1).
+[svd_retrieval]
+mode = "dates"
+# --- use with mode = "date" ---
+# date = "20250701"
+# --- use with mode = "granule" ---
+# granule_id = "20250927T123954"
+# --- use with mode = "dates" (pick one style) ---
+# dates = ["20250927", "20250928"]
+date_start = "20250716"
+date_end = "20250723"
+date_interval_days = 1
+
+# pixel_start = 1
+# pixel_end = 32
+# scan_start = 1
+# scan_end = 16
+
+output_dir = "/home/zhe2/data/PACE/svd_retrieval_output"
+interim_dir = "/home/zhe2/data/PACE/svd_retrieval_interim"
+# Granules must run sequentially inside one Julia process (HDF5/NetCDF crash if threaded). Use parallel_pixels + `julia -t N`.
+parallel_granules = false
+parallel_pixels = true
+use_in_memory_merge = true
+
+# =============================================================================
+# --- Below: MWE / retrieval configuration (edit paths for your machine) ---
+
+[data]
+base_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use"
+# SVD transmittance PCs (NetCDFs on OCI band grid); interpolated to interim red_wavelength bands inside (λ_min, λ_max).
+summer_nc = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc"
+winter_nc = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_winter_FineWvResModel_FullRange_Aug01.nc"
+sif_file = "SIF_singular_vector.jld2"
+pace_snr_file = "PACE_OCI_L1BLUT_baseline_SNR_1.1.txt"
+
+[numerics]
+float_type = "Float64"
+
+[spectral]
+lambda_min_nm = 640.0
+lambda_max_nm = 756.0
+sif_nev = 1
+normalize_sif_first_ev = true
+
+[kernel]
+# Default for band SNR when [fit] omits use_band_snr (SVD reads pace_snr_file directly; no kernel/LUT).
+use_band_snr = true
+
+[fit]
+fit_method = "lm"
+use_band_snr = true
+n_plot_steps = 50
+conv_dx_rel_tol = 1e-6
+conv_rmse_rel_tol = 1e-6
+conv_rmse_abs_tol = 1e-6
+lm_lambda0 = 1.0
+lm_lambda_up = 5.0
+lm_lambda_down = 0.7
+lm_lambda_min = 1e-8
+lm_lambda_max = 1e8
+lm_max_inner = 40
+conv_stall_enable = true
+conv_stall_window = 3
+conv_stall_redchi2_target = 5.0
+conv_stall_redchi2_abs_tol = 0.1
+conv_stall_redchi2_rel_tol = 0.03
+conv_stall_dx_rel_tol = 5e-3
+prior_min_sigma = 0.001
+prior_sigma_default = 1e12
+sif_sigma = 1e12
+gn_damping = 1.0
+lbfgs_m = 5
+lbfgs_c1 = 1.0e-4
+lbfgs_max_backtrack = 40
+
+[fit.svd]
+alpha_prior_mean = 1.5
+alpha_prior_sigma = 0.5
+n_legendre = 5
+use_legendre01_prior = true
+legendre01_prior_sigma_fraction = 1.0
+use_legendre_higher_prior = true
+legendre_higher_sigma = 1.0
+n_pc = 15
+svd_log_transform = true
+pc_prior_mode = "loading_variance"
+pc_prior_sigma_scale = 1.0
+
+[batch_fit]
+output_suffix_parallel = "_svd_retrieval_full_parallel.nc"
+# Pixels must have non-missing values for each listed 2D variable in the interim file. nflh is optional (merged only if present in L2 OC_AOP); use [] when you do not need L2-based masking.
+pixel_filter_vars = []
+use_threads = true
+max_outer_steps = 10
+dark_filter_enabled = false
+ocean_filter_enabled = false
+watermask_var = "watermask"
+ocean_mask_values = [1]

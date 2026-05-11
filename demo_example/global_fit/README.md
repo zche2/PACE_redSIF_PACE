@@ -69,3 +69,4 @@ Retrieval NetCDF files are written to `output_dir` with the same naming as the b
 
 - Uses `demo_example/batch_fit/Run_batch_full_nc_parallel.jl` (via include)
 - NCDatasets, TOML, Glob, Base.Threads
+- PACE L1B/L2 downloads: [`global_fit_pipeline`](../../global_fit_pipeline/README.md)
