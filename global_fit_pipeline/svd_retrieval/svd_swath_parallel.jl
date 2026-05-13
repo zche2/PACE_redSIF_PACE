@@ -10,8 +10,10 @@ using Dates
 using ForwardDiff
 using LinearAlgebra
 using NCDatasets
+using SparseArrays
 using Statistics
 using TOML
+using CUDA
 
 const _SVD_DIR = @__DIR__
 const _PIPE_DIR = dirname(_SVD_DIR)
@@ -21,6 +23,7 @@ const _PIPELINE_JULIA_DIR = joinpath(_PIPE_DIR, "julia")
 include(joinpath(_PIPELINE_JULIA_DIR, "Simple_PACE_xSecFit_MWE_Functions.jl"))
 using .SimplePACEXSecFitMWEFunctions
 include(joinpath(_SVD_DIR, "svd_helpers.jl"))
+include(joinpath(_SVD_DIR, "gpu", "SvdLmTile.jl"))
 
 const STATUS_PIXEL_FILTER_SKIPPED = Int16(7)
 
@@ -173,7 +176,8 @@ function _create_output_dataset(
     pace_path::AbstractString,
     config_path::AbstractString,
     pixel_range::UnitRange{Int},
-    scan_range::UnitRange{Int},
+    scan_range::UnitRange{Int};
+    compression_level::Int = 1,
 )
     ds = Dataset(output_path, "c")
     defDim(ds, "pixels", n_pix)
@@ -190,7 +194,7 @@ function _create_output_dataset(
     ds.attrib["pixel_end"] = last(pixel_range)
     ds.attrib["scan_start"] = first(scan_range)
     ds.attrib["scan_end"] = last(scan_range)
-    comp = (shuffle = true, deflatelevel = 4)
+    comp = (shuffle = true, deflatelevel = compression_level)
     defVar(ds, "latitude", Float32, ("pixels", "scans"); comp...)
     defVar(ds, "longitude", Float32, ("pixels", "scans"); comp...)
     defVar(ds, "x_hat", Float32, ("pixels", "scans", "state"); comp...)
@@ -261,6 +265,7 @@ mutable struct SvdSwathShared
     PCs::Matrix{Float64}
     sif_basis::Matrix{Float64}
     sif_basis_678::Vector{Float64}
+    leg_basis::Matrix{Float64}
     n_pc::Int
     n_legendre::Int
     log_transform::Bool
@@ -294,6 +299,8 @@ mutable struct SvdSwathShared
     sza::Array{Float64,2}
     slice_sorted::Vector{Int}
     perm::Vector{Int}
+    use_gpu::Bool
+    gpu_tile_pixels::Int
     state_names::Vector{String}
 end
 
@@ -383,6 +390,7 @@ function _build_svd_swath_shared(interim_nc::AbstractString, l1b_path::AbstractS
     prior_sigma[layout.idx_sif] .= max(sif_sigma, prior_min_sigma)
 
     z = _normalized_grid(λ_ctx)
+    leg_basis = Float64.(_legendre_design_matrix(z, n_leg))
     A01 = hcat(ones(length(z)), z)
     lower = fill(-Inf, layout.n_state)
     upper = fill(Inf, layout.n_state)
@@ -424,6 +432,9 @@ function _build_svd_swath_shared(interim_nc::AbstractString, l1b_path::AbstractS
     )
 
     names = svd_state_names(layout)
+    batch_cfg = get(cfg, "batch_fit", Dict{String, Any}())
+    use_gpu = Bool(get(batch_cfg, "use_gpu", false))
+    gpu_tile_pixels = max(1, Int(get(batch_cfg, "gpu_tile_pixels", 256)))
     println(
         "SVD band-only setup (no LUT): ",
         length(λ_ctx),
@@ -434,13 +445,15 @@ function _build_svd_swath_shared(interim_nc::AbstractString, l1b_path::AbstractS
         ") nm; ",
         length(perm),
         " raw bands sorted.",
+        use_gpu ? "; GPU tile retrieval enabled (tile=$(gpu_tile_pixels))" : "",
     )
     return SvdSwathShared(
-        λ_ctx, PCs, sif_basis, sif_basis_678, n_pc, n_leg, log_trans, layout, x0, prior_sigma,
+        λ_ctx, PCs, sif_basis, sif_basis_678, leg_basis, n_pc, n_leg, log_trans, layout, x0, prior_sigma,
         alpha_mean, alpha_sigma, use_leg01, leg01_frac, use_leghig, leg_higher_sigma,
         pc_prior_mode, pc_sigma_scale, collect(Float64.(svd_basis.S)), svd_basis.n_profiles,
         prior_min_sigma, sif_sigma, prior_sigma_default, A01, lower, upper, x_scale,
-        use_band_snr, band_snr_coeffs, meas_sigma, lm, conv, solar_band_ctx, es, sza, slice_sorted, perm, names,
+        use_band_snr, band_snr_coeffs, meas_sigma, lm, conv, solar_band_ctx, es, sza, slice_sorted, perm,
+        use_gpu, gpu_tile_pixels, names,
     )
 end
 
@@ -581,6 +594,101 @@ function _process_one_pixel_svd!(
     return
 end
 
+function _flush_svd_tile!(
+    K::Int,
+    idx_out::Vector{Int},
+    idx_src::Vector{Int},
+    Yb::AbstractMatrix{Float64},
+    Sb::AbstractMatrix{Float64},
+    dark_b::Vector{UInt8},
+    ocean_b::Vector{UInt8},
+    sh::SvdSwathShared,
+    layout,
+    max_outer_steps::Int,
+    state_scan::Matrix{Float32},
+    conv_scan::Vector{UInt8},
+    status_scan::Vector{Int16},
+    steps_scan::Vector{Int16},
+    rmse_scan::Vector{Float32},
+    rchi2_scan::Vector{Float32},
+    obj_scan::Vector{Float32},
+    sif1_scan::Vector{Float32},
+    sif_coeffs_scan::Matrix{Float32},
+    sif_678_scan::Vector{Float32},
+    dark_scan::Vector{UInt8},
+    ocean_scan::Vector{UInt8},
+    use_cuda::Bool,
+)
+    K == 0 && return
+    n_state = layout.n_state
+    nλ = size(Yb, 1)
+    x_out = zeros(Float64, n_state, K)
+    y_t = Yb[:, 1:K]
+    s_t = Sb[:, 1:K]
+    ret = run_tile_svd_retrieval!(
+        x_out,
+        y_t,
+        s_t,
+        sh.PCs,
+        sh.sif_basis,
+        sh.leg_basis,
+        sh.log_transform,
+        layout,
+        sh.x0,
+        sh.prior_sigma_template,
+        sh.lower,
+        sh.upper,
+        sh.x_scale_template,
+        sh.use_leg01,
+        sh.A01,
+        sh.prior_min_sigma,
+        sh.leg01_frac,
+        sh.use_band_snr,
+        sh.band_snr_coeffs,
+        sh.meas_sigma,
+        sh.lm,
+        sh.conv,
+        sh.conv.dx_rel_tol_stall,
+        max_outer_steps;
+        use_cuda = use_cuda,
+    )
+    Yhat = predict_svd_batched(x_out, s_t, sh.PCs, sh.sif_basis, sh.leg_basis, sh.log_transform, layout)
+    dof = max(nλ - n_state, 1)
+    for k in 1:K
+        io = idx_out[k]
+        y_o = view(y_t, :, k)
+        y_m = view(Yhat, :, k)
+        xv = view(x_out, :, k)
+        x_a = view(ret.x_a_mat, :, k)
+        σv = view(ret.sigma_mat, :, k)
+        Se = if sh.use_band_snr && sh.band_snr_coeffs !== nothing
+            make_Se_inv_from_snr(collect(y_m), sh.band_snr_coeffs)
+        else
+            spdiagm(0 => fill(1.0 / sh.meas_sigma^2, nλ))
+        end
+        S_a_inv = _spdiag_invvar(collect(σv))
+        resid = y_o .- y_m
+        rm = sqrt(mean(resid .^ 2))
+        χ = dot(resid, Se * resid)
+        rmse_scan[io] = Float32(rm)
+        rchi2_scan[io] = Float32(χ / dof)
+        obj_scan[io] = Float32(_cost_with_prior(collect(y_o), collect(y_m), collect(xv), collect(x_a), Se, S_a_inv))
+        state_scan[io, :] .= Float32.(xv)
+        conv_scan[io] = ret.converged[k] ? UInt8(1) : UInt8(0)
+        status_scan[io] = ret.status[k]
+        steps_scan[io] = Int16(ret.n_steps[k])
+        sc = xv[layout.idx_sif]
+        if length(sc) >= 1
+            sif1_scan[io] = Float32(sc[1])
+        end
+        sif_coeffs_scan[io, :] .= Float32.(sc)
+        sif_678_scan[io] = Float32(dot(sh.sif_basis_678, sc))
+        dark_scan[io] = dark_b[k]
+        ocean_scan[io] = ocean_b[k]
+    end
+    return
+end
+
 function run_svd_orbit_full_nc_parallel(
     interim_nc::AbstractString,
     l1b_path::AbstractString,
@@ -597,6 +705,9 @@ function run_svd_orbit_full_nc_parallel(
     n_threads = use_threads ? Threads.nthreads() : 1
     # Buffers indexed by threadid(); maxthreadid() can exceed nthreads() (e.g. spare thread slots).
     n_buf = use_threads ? max(1, Base.Threads.maxthreadid()) : 1
+    prefetch_input = Bool(get(batch_cfg, "prefetch_input", true))
+    compression_level = Int(get(batch_cfg, "output_compression_level", 1))
+    deferred_write = Bool(get(batch_cfg, "deferred_write", true))
 
     wavelength_var = String(get(pace_cfg, "wavelength_var", "red_wavelength"))
     spectrum_var = String(get(pace_cfg, "spectrum_var", "Rtoa_red"))
@@ -655,7 +766,8 @@ function run_svd_orbit_full_nc_parallel(
         interim_nc,
         pipeline_config_path,
         pixel_range,
-        scan_range,
+        scan_range;
+        compression_level = compression_level,
     )
     ds_out["latitude"][:, :] = lat[pixel_range, scan_range]
     ds_out["longitude"][:, :] = lon[pixel_range, scan_range]
@@ -674,11 +786,56 @@ function run_svd_orbit_full_nc_parallel(
     println("  pixels: ", first(pixel_range), ":", last(pixel_range), " (", length(pixel_range), ")")
     println("  scans:  ", first(scan_range), ":", last(scan_range), " (", length(scan_range), ")")
     println("  output: ", output_path)
+    println("  prefetch_input: ", prefetch_input, "  deferred_write: ", deferred_write, "  compression_level: ", compression_level)
+
+    use_cuda_eff = sh.use_gpu && CUDA.functional()
+    if sh.use_gpu && !CUDA.functional()
+        @warn "[batch_fit].use_gpu=true but CUDA.functional() is false; using CPU pixel path."
+    end
+
+    # --- I/O acceleration: prefetch full spectrum array ---
+    # Replaces ~N_scan serial NCDatasets reads with a single bulk read.
+    spectra_prefetched = if prefetch_input
+        t_pf = @elapsed begin
+            raw = v_spec[:, :, :]
+            raw isa Array ? raw : Array(raw)
+        end
+        @info "Input prefetch done" size_MB=round(sizeof(raw)/1e6; digits=1) t_s=round(t_pf; digits=2)
+        raw
+    else
+        nothing
+    end
+
+    # --- I/O acceleration: deferred write buffers ---
+    # Accumulate all scan outputs in memory; write once after the loop.
+    n_pix_out  = length(pixel_range)
+    n_scan_out = length(scan_range)
+    n_state    = sh.layout.n_state
+    buf_state    = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out, n_state) : nothing
+    buf_conv     = deferred_write ? fill(UInt8(0),     n_pix_out, n_scan_out)          : nothing
+    buf_status   = deferred_write ? fill(Int16(3),     n_pix_out, n_scan_out)          : nothing
+    buf_steps    = deferred_write ? fill(Int16(0),     n_pix_out, n_scan_out)          : nothing
+    buf_rmse     = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
+    buf_rchi2    = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
+    buf_obj      = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
+    buf_sif1     = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
+    buf_sifcoeff = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out, n_sif_ev) : nothing
+    buf_sif678   = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
+    buf_dark     = deferred_write ? fill(UInt8(0),     n_pix_out, n_scan_out)          : nothing
+    buf_ocean    = deferred_write ? fill(UInt8(0),     n_pix_out, n_scan_out)          : nothing
+
+    t_read_total    = 0.0
+    t_compute_total = 0.0
+    t_write_total   = 0.0
 
     for (j_scan_out, j_scan_src) in enumerate(scan_range)
         inds = Any[Colon() for _ in 1:3]
         inds[axes_info.i_scan] = j_scan_src
-        slab = v_spec[inds...]
+        t_read_total += if prefetch_input
+            @elapsed slab = spectra_prefetched[inds...]
+        else
+            @elapsed slab = v_spec[inds...]
+        end
         slab_is_pix_band = size(slab) == (axes_info.n_pix, axes_info.n_band)
         slab_is_band_pix = size(slab) == (axes_info.n_band, axes_info.n_pix)
         (slab_is_pix_band || slab_is_band_pix) ||
@@ -697,7 +854,99 @@ function run_svd_orbit_full_nc_parallel(
         dark_scan = fill(UInt8(0), length(pixel_range))
         ocean_scan = fill(UInt8(0), length(pixel_range))
 
-        if use_threads && n_threads > 1
+        layout = sh.layout
+        t_compute_total += @elapsed if sh.use_gpu && use_cuda_eff
+            nλ = length(sh.λ_ctx)
+            Kmax = sh.gpu_tile_pixels
+            Yb = zeros(nλ, Kmax)
+            Sb = zeros(nλ, Kmax)
+            dark_b = zeros(UInt8, Kmax)
+            ocean_b = zeros(UInt8, Kmax)
+            idx_out = Int[]
+            idx_src = Int[]
+            y_sorted_buf = zeros(Float64, n_band)
+            y_obs_vec = zeros(Float64, nλ)
+            function flush_tile!()
+                k = length(idx_out)
+                k == 0 && return
+                _flush_svd_tile!(
+                    k,
+                    idx_out,
+                    idx_src,
+                    Yb,
+                    Sb,
+                    dark_b,
+                    ocean_b,
+                    sh,
+                    layout,
+                    max_outer_steps,
+                    state_scan,
+                    conv_scan,
+                    status_scan,
+                    steps_scan,
+                    rmse_scan,
+                    rchi2_scan,
+                    obj_scan,
+                    sif1_scan,
+                    sif_coeffs_scan,
+                    sif_678_scan,
+                    dark_scan,
+                    ocean_scan,
+                    true,
+                )
+                empty!(idx_out)
+                empty!(idx_src)
+            end
+            for (i_pix_out, i_pix_src) in enumerate(pixel_range)
+                if !eligible[i_pix_src, j_scan_src]
+                    flush_tile!()
+                    status_scan[i_pix_out] = STATUS_PIXEL_FILTER_SKIPPED
+                    continue
+                end
+                wm_val = watermask[i_pix_src, j_scan_src]
+                is_ocean = !ismissing(wm_val) && (Int(wm_val) in ocean_mask_values)
+                ocean_byte = is_ocean ? UInt8(1) : UInt8(0)
+                ocean_scan[i_pix_out] = ocean_byte
+                if ocean_filter_enabled && !is_ocean
+                    flush_tile!()
+                    status_scan[i_pix_out] = Int16(6)
+                    continue
+                end
+                spec_raw = slab_is_pix_band ? view(slab, i_pix_src, :) : view(slab, :, i_pix_src)
+                if !_copy_sorted_spectrum!(y_sorted_buf, spec_raw, sh.perm)
+                    flush_tile!()
+                    status_scan[i_pix_out] = Int16(3)
+                    continue
+                end
+                y_obs_vec .= y_sorted_buf[sh.slice_sorted]
+                is_dark = maximum(y_obs_vec) <= dark_max_radiance
+                dark_byte = is_dark ? UInt8(1) : UInt8(0)
+                dark_scan[i_pix_out] = dark_byte
+                if dark_filter_enabled && !is_dark
+                    flush_tile!()
+                    status_scan[i_pix_out] = Int16(5)
+                    continue
+                end
+                cosz = sh.sza[i_pix_src, j_scan_src]
+                if !isfinite(cosz)
+                    flush_tile!()
+                    status_scan[i_pix_out] = Int16(3)
+                    continue
+                end
+                se = @. sh.solar_band_ctx * cosd(cosz) / π / sh.es
+                push!(idx_out, i_pix_out)
+                push!(idx_src, i_pix_src)
+                k = length(idx_out)
+                Yb[:, k] .= y_obs_vec
+                Sb[:, k] .= se
+                dark_b[k] = dark_byte
+                ocean_b[k] = ocean_byte
+                if k == Kmax
+                    flush_tile!()
+                end
+            end
+            flush_tile!()
+        elseif use_threads && n_threads > 1
             Threads.@threads for i_pix_out in 1:length(pixel_range)
                 tid = Threads.threadid()
                 i_pix_src = pixel_range[i_pix_out]
@@ -764,21 +1013,60 @@ function run_svd_orbit_full_nc_parallel(
                     ocean_scan,
                 )
             end
-        end
+        end  # @elapsed compute
 
-        ds_out["x_hat"][:, j_scan_out, :] = state_scan
-        ds_out["converged"][:, j_scan_out] = conv_scan
-        ds_out["status_code"][:, j_scan_out] = status_scan
-        ds_out["n_steps"][:, j_scan_out] = steps_scan
-        ds_out["rmse"][:, j_scan_out] = rmse_scan
-        ds_out["reduced_chi2"][:, j_scan_out] = rchi2_scan
-        ds_out["objective"][:, j_scan_out] = obj_scan
-        ds_out["sif_ev1"][:, j_scan_out] = sif1_scan
-        ds_out["sif_coeffs"][:, j_scan_out, :] = sif_coeffs_scan
-        ds_out["sif_radiance_678nm"][:, j_scan_out] = sif_678_scan
-        ds_out["is_dark"][:, j_scan_out] = dark_scan
-        ds_out["is_ocean"][:, j_scan_out] = ocean_scan
+        t_write_total += @elapsed if deferred_write
+            buf_state[:, j_scan_out, :]    = state_scan
+            buf_conv[:, j_scan_out]        = conv_scan
+            buf_status[:, j_scan_out]      = status_scan
+            buf_steps[:, j_scan_out]       = steps_scan
+            buf_rmse[:, j_scan_out]        = rmse_scan
+            buf_rchi2[:, j_scan_out]       = rchi2_scan
+            buf_obj[:, j_scan_out]         = obj_scan
+            buf_sif1[:, j_scan_out]        = sif1_scan
+            buf_sifcoeff[:, j_scan_out, :] = sif_coeffs_scan
+            buf_sif678[:, j_scan_out]      = sif_678_scan
+            buf_dark[:, j_scan_out]        = dark_scan
+            buf_ocean[:, j_scan_out]       = ocean_scan
+        else
+            ds_out["x_hat"][:, j_scan_out, :]         = state_scan
+            ds_out["converged"][:, j_scan_out]         = conv_scan
+            ds_out["status_code"][:, j_scan_out]       = status_scan
+            ds_out["n_steps"][:, j_scan_out]           = steps_scan
+            ds_out["rmse"][:, j_scan_out]              = rmse_scan
+            ds_out["reduced_chi2"][:, j_scan_out]      = rchi2_scan
+            ds_out["objective"][:, j_scan_out]         = obj_scan
+            ds_out["sif_ev1"][:, j_scan_out]           = sif1_scan
+            ds_out["sif_coeffs"][:, j_scan_out, :]     = sif_coeffs_scan
+            ds_out["sif_radiance_678nm"][:, j_scan_out] = sif_678_scan
+            ds_out["is_dark"][:, j_scan_out]           = dark_scan
+            ds_out["is_ocean"][:, j_scan_out]          = ocean_scan
+        end
     end
+
+    # Bulk write all accumulated results in one pass (only when deferred_write=true).
+    if deferred_write
+        t_bulk_write = @elapsed begin
+            ds_out["x_hat"][:, :, :]            = buf_state
+            ds_out["converged"][:, :]            = buf_conv
+            ds_out["status_code"][:, :]          = buf_status
+            ds_out["n_steps"][:, :]              = buf_steps
+            ds_out["rmse"][:, :]                 = buf_rmse
+            ds_out["reduced_chi2"][:, :]         = buf_rchi2
+            ds_out["objective"][:, :]            = buf_obj
+            ds_out["sif_ev1"][:, :]              = buf_sif1
+            ds_out["sif_coeffs"][:, :, :]        = buf_sifcoeff
+            ds_out["sif_radiance_678nm"][:, :]   = buf_sif678
+            ds_out["is_dark"][:, :]              = buf_dark
+            ds_out["is_ocean"][:, :]             = buf_ocean
+        end
+        @info "Bulk write done" t_s=round(t_bulk_write; digits=2)
+        t_write_total += t_bulk_write
+    end
+
+    t_total = t_read_total + t_compute_total + t_write_total
+    safe_total = max(t_total, eps())
+    @info "Scan loop timing breakdown" scans=length(scan_range) t_read_s=round(t_read_total; digits=2) t_compute_s=round(t_compute_total; digits=2) t_write_s=round(t_write_total; digits=2) pct_read=round(100*t_read_total/safe_total; digits=1) pct_compute=round(100*t_compute_total/safe_total; digits=1) pct_write=round(100*t_write_total/safe_total; digits=1)
     close(ds_out)
     close(ds)
     println("Saved SVD retrieval to: ", output_path)

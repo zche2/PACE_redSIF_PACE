@@ -228,6 +228,133 @@ function lm_one_step(
     )
 end
 
+"""
+    lm_one_step_from_J(fm, x_curr, y_obs, y_at_x, J_at_x; ...)
+
+Same as [`lm_one_step`](@ref) but uses precomputed `y_at_x = fm(x_curr)` and `J_at_x` Jacobian at `x_curr`
+(so the caller can supply a batched Jacobian). The inner loop still calls `fm(x_try)` for trial states.
+"""
+function lm_one_step_from_J(
+    fm,
+    x_curr::AbstractVector{<:Real},
+    y_obs::AbstractVector{<:Real},
+    y_at_x::AbstractVector{<:Real},
+    J_at_x::AbstractMatrix{<:Real};
+    x_a::AbstractVector{<:Real},
+    S_a_inv,
+    lambda::Float64,
+    lambda_up::Float64 = 10.0,
+    lambda_down::Float64 = 0.3,
+    lambda_min::Float64 = 1e-8,
+    lambda_max::Float64 = 1e8,
+    max_inner::Int = 8,
+    x_scale = nothing,
+    lower_bounds = nothing,
+    upper_bounds = nothing,
+    use_band_snr::Bool = false,
+    band_snr_coeffs = nothing,
+    meas_sigma::Float64 = 0.01,
+)
+    x = collect(Float64.(x_curr))
+    y = collect(Float64.(y_at_x))
+    r0 = y_obs .- y
+    ssr0 = 0.5 * dot(r0, r0)
+    rmse0 = sqrt(mean(r0 .^ 2))
+    Se_inv = if use_band_snr && !isnothing(band_snr_coeffs)
+        make_Se_inv_from_snr(y, band_snr_coeffs)
+    else
+        spdiagm(0 => fill(1.0 / meas_sigma^2, length(y_obs)))
+    end
+    J = collect(Float64.(J_at_x))
+    H_obs = J' * Se_inv * J
+    g_obs = J' * Se_inv * (y_obs .- y)
+    g_pri = S_a_inv * (x_a .- x)
+    s = isnothing(x_scale) ? ones(Float64, length(x)) : collect(Float64.(x_scale))
+    length(s) == length(x) || error("x_scale length must match state length")
+    s .= max.(abs.(s), 1e-12)
+    S = Diagonal(s)
+    Hs_obs = S * H_obs * S
+    S_as = S * S_a_inv * S
+    λ = clamp(lambda, lambda_min, lambda_max)
+    accepted = false
+    x_best = x
+    y_best = y
+    cost_best = ssr0
+    dx_best = zeros(Float64, length(x))
+    cond_A_best = NaN
+    rmse_lin_best = NaN
+    rmse_try_best = rmse0
+    pred_red_best = NaN
+    act_red_best = NaN
+    rho_best = NaN
+    n_try = 0
+    for _ in 1:max_inner
+        n_try += 1
+        A = Hs_obs + λ * S_as
+        cond_A_try = cond(Matrix(A))
+        rhs = S * (g_obs .+ λ .* g_pri)
+        du = A \ rhs
+        dx = S * du
+        r_lin = r0 .- J * dx
+        ssr_lin = 0.5 * dot(r_lin, r_lin)
+        rmse_lin = sqrt(mean(r_lin .^ 2))
+        x_try = x .+ dx
+        if !isnothing(lower_bounds) && !isnothing(upper_bounds)
+            _apply_box_constraints!(x_try, lower_bounds, upper_bounds)
+        end
+        y_try = try
+            fm(x_try)
+        catch
+            λ = clamp(λ * lambda_up, lambda_min, lambda_max)
+            continue
+        end
+        r_try = y_obs .- y_try
+        ssr_try = 0.5 * dot(r_try, r_try)
+        rmse_try = sqrt(mean(r_try .^ 2))
+        pred_red = ssr0 - ssr_lin
+        act_red = ssr0 - ssr_try
+        rho = pred_red > 0 ? act_red / pred_red : -Inf
+        if isfinite(rmse_try) && rmse_try < rmse0
+            accepted = true
+            x_best = x_try
+            y_best = y_try
+            cost_best = ssr_try
+            dx_best = x_best .- x
+            cond_A_best = cond_A_try
+            rmse_lin_best = rmse_lin
+            rmse_try_best = rmse_try
+            pred_red_best = pred_red
+            act_red_best = act_red
+            rho_best = rho
+            λ = clamp(λ * lambda_down, lambda_min, lambda_max)
+            break
+        else
+            λ = clamp(λ * lambda_up, lambda_min, lambda_max)
+        end
+    end
+    chi2_curr = dot(y_obs .- y_best, Se_inv * (y_obs .- y_best))
+    return (
+        x_next = x_best,
+        y_prior = y,
+        y_next = y_best,
+        dx = dx_best,
+        cost_prior = ssr0,
+        cost_next = cost_best,
+        chi2_next = chi2_curr,
+        accepted = accepted,
+        lambda_next = λ,
+        inner_tries = n_try,
+        cond_A = cond_A_best,
+        rmse_prior = rmse0,
+        rmse_linear = rmse_lin_best,
+        rmse_next = rmse_try_best,
+        pred_reduction = pred_red_best,
+        act_reduction = act_red_best,
+        rho = rho_best,
+        J = J,
+    )
+end
+
 # ── Spectral design (from toy_forward_model.jl) ───────────────────────────────
 
 function _normalized_grid(λ::AbstractVector{<:Real})

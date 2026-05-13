@@ -54,9 +54,9 @@ skip_existing = true
 #   "date"     → all L1B granules for one calendar day: set date = "YYYYMMDD".
 #   "dates"    → either dates = ["20250927", ...] OR date_start + date_end with optional date_interval_days (default 1).
 [svd_retrieval]
-mode = "dates"
+mode = "date"
 # --- use with mode = "date" ---
-# date = "20250701"
+date = "20250702"
 # --- use with mode = "granule" ---
 # granule_id = "20250927T123954"
 # --- use with mode = "dates" (pick one style) ---
@@ -72,10 +72,16 @@ date_interval_days = 1
 
 output_dir = "/home/zhe2/data/PACE/svd_retrieval_output"
 interim_dir = "/home/zhe2/data/PACE/svd_retrieval_interim"
+
 # Granules must run sequentially inside one Julia process (HDF5/NetCDF crash if threaded). Use parallel_pixels + `julia -t N`.
 parallel_granules = false
 parallel_pixels = true
 use_in_memory_merge = true
+
+# Optional GPU batched SVD tile path: requires a working CUDA driver + GPU (CUDA.jl). Uses Float64 on device until you change code.
+# If use_gpu=true but CUDA.functional() is false, retrieval falls back to the CPU per-pixel path with a @warn.
+use_gpu = true
+gpu_tile_pixels = 256   # cap tile size for VRAM (Jacobian work scales with n_λ × n_state × active columns per outer step)
 
 # =============================================================================
 # --- Below: MWE / retrieval configuration (edit paths for your machine) ---
@@ -142,7 +148,9 @@ pc_prior_mode = "loading_variance"
 pc_prior_sigma_scale = 1.0
 
 [batch_fit]
-output_suffix_parallel = "_svd_retrieval_full_parallel.nc"
+output_suffix_parallel = "_svd_retrieval_full_gpu.nc"
+# GPU orchestration normally lives under [svd_retrieval] (use_gpu, gpu_tile_pixels). You may duplicate keys here; when a key
+# exists in [svd_retrieval], that value wins for the merged effective batch_fit dict (see run_svd_fit.jl).
 # Pixels must have non-missing values for each listed 2D variable in the interim file. nflh is optional (merged only if present in L2 OC_AOP); use [] when you do not need L2-based masking.
 pixel_filter_vars = []
 use_threads = true
@@ -151,3 +159,13 @@ dark_filter_enabled = false
 ocean_filter_enabled = false
 watermask_var = "watermask"
 ocean_mask_values = [1]
+
+# --- I/O acceleration options ---
+# prefetch_input: read full Rtoa_red into RAM before the scan loop (eliminates ~N_scan serial NetCDF reads). Default: true.
+prefetch_input = true
+# deferred_write: accumulate all per-scan outputs in memory, write in one bulk pass after the loop (eliminates ~N_scan × 12
+# serial NetCDF writes; also lets the compressor see the full array rather than tiny scan slices). Default: true.
+deferred_write = true
+# output_compression_level: zlib deflate level 0–9 for output NetCDF variables (0 = no compression, 1 = fastest, 9 = best).
+# Level 1 on large bulk arrays is far faster than level 4 on tiny per-scan slices and still achieves good compression ratios.
+output_compression_level = 1

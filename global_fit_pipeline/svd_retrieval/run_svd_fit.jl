@@ -181,6 +181,17 @@ function _prepare_run_env!(pipe::Dict, pipeline_path::AbstractString)
     )
 
     retrieval_eff = _effective_retrieval_cfg_dict(retrieval_cfg, output_dir, parallel_pixels)
+    bf = get(retrieval_eff, "batch_fit", Dict{String, Any}())
+    use_gpu_merged = haskey(svd, "use_gpu") ? Bool(svd["use_gpu"]) : Bool(get(bf, "use_gpu", false))
+    gpu_tile_merged =
+        haskey(svd, "gpu_tile_pixels") ? Int(svd["gpu_tile_pixels"]) : Int(get(bf, "gpu_tile_pixels", 256))
+    retrieval_eff["batch_fit"] = merge(
+        bf,
+        Dict{String, Any}(
+            "use_gpu" => use_gpu_merged,
+            "gpu_tile_pixels" => max(1, gpu_tile_merged),
+        ),
+    )
     mkpath(output_dir)
     mkpath(interim_dir)
     if parallel_granules && Threads.nthreads() > 1
