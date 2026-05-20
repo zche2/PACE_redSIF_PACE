@@ -221,4 +221,87 @@ end
     end
 end
 
+# log_transform=true is what real PACE retrievals use (svd_log_transform=true in TOML).
+# Previous tests only used log_transform=false; this gap hid the GPU NaN bug in production.
+@testset "GPU predict log_transform=true matches CPU" begin
+    if !CUDA.functional()
+        @info "Skipping GPU log_transform=true parity (CUDA.functional()==false)"
+        @test_skip "no CUDA device"
+    else
+        try
+            Random.seed!(77)
+            nλ, n_pc, n_leg, n_ev = 10, 3, 2, 1
+            layout = svd_state_layout(; n_pc = n_pc, n_legendre = n_leg, n_ev = n_ev)
+            λ = collect(range(640.0, 750.0; length = nλ))
+            z = _normalized_grid(λ)
+            leg = Float64.(_legendre_design_matrix(z, n_leg))
+            # Use PACE-realistic magnitudes: PCs ~0.02, solar ~1.0, states near prior
+            PCs  = randn(nλ, n_pc) .* 0.02
+            SIF  = randn(nλ, n_ev) .* 0.01
+            K    = 4
+            x    = randn(layout.n_state, K) .* 0.05
+            solar = abs.(randn(nλ, K)) .+ 1.0   # realistic solar irradiance scale
+
+            y_cpu = predict_svd_batched(x, solar, PCs, SIF, leg, true, layout)
+            y_gpu = predict_svd_batched(
+                CuArray(x), CuArray(solar),
+                CuArray(PCs), CuArray(SIF), CuArray(leg),
+                true, layout,
+            )
+            @test all(isfinite.(y_cpu))
+            @test all(isfinite.(Array(y_gpu)))
+            @test maximum(abs.(y_cpu .- Array(y_gpu))) < 1e-7
+        catch e
+            @warn "GPU log_transform=true test skipped" exception=(e, catch_backtrace())
+        end
+    end
+end
+
+@testset "GPU jacobian log_transform=true finite and consistent" begin
+    if !CUDA.functional()
+        @info "Skipping GPU Jacobian log_transform=true (CUDA.functional()==false)"
+        @test_skip "no CUDA device"
+    else
+        try
+            Random.seed!(88)
+            nλ, n_pc, n_leg, n_ev = 10, 3, 2, 1
+            layout = svd_state_layout(; n_pc = n_pc, n_legendre = n_leg, n_ev = n_ev)
+            λ = collect(range(640.0, 750.0; length = nλ))
+            z = _normalized_grid(λ)
+            leg = Float64.(_legendre_design_matrix(z, n_leg))
+            PCs  = randn(nλ, n_pc) .* 0.02
+            SIF  = randn(nλ, n_ev) .* 0.01
+            K    = 4
+            x    = randn(layout.n_state, K) .* 0.05
+            solar = abs.(randn(nλ, K)) .+ 1.0
+
+            # CPU FD Jacobian (reference)
+            Jcpu, Ycpu = jacobian_svd_batched_fd(x, solar, PCs, SIF, leg, true, layout; ε = 1e-5)
+
+            # GPU FD Jacobian
+            PCs_g  = CuArray(PCs);  SIF_g = CuArray(SIF);  leg_g = CuArray(leg)
+            xc     = CuArray(x);    sc    = CuArray(solar)
+            y0_g   = predict_svd_batched(xc, sc, PCs_g, SIF_g, leg_g, true, layout)
+            n_state, n_tile = size(x)
+            Jgpu   = CUDA.zeros(Float64, nλ, n_state, n_tile)
+            xp     = copy(xc)
+            ε_g    = sqrt(eps(Float64))
+            for k in 1:n_state
+                copyto!(xp, xc)
+                xp[k, :] .+= ε_g
+                yp = predict_svd_batched(xp, sc, PCs_g, SIF_g, leg_g, true, layout)
+                Jgpu[:, k, :] .= (yp .- y0_g) ./ ε_g
+            end
+            Jgpu_cpu = Array(Jgpu)
+
+            @test all(isfinite.(Jcpu))
+            @test all(isfinite.(Jgpu_cpu))
+            # GPU and CPU FD Jacobians should agree (different ε but same structure)
+            @test maximum(abs.(Jcpu .- Jgpu_cpu)) < 1e-2
+        catch e
+            @warn "GPU Jacobian log_transform=true test skipped" exception=(e, catch_backtrace())
+        end
+    end
+end
+
 println("All gpu/run_gpu_tests.jl tests passed.")

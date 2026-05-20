@@ -91,6 +91,21 @@ function _to_pixels_scans_2d(arr, dnames)
     return permutedims(arr, perm)
 end
 
+"""Replace `missing` with `NaN` so trig and arithmetic do not call `cosd(::Missing)`."""
+function _as_float_array(x)
+    return Float64.(replace(x, missing => NaN))
+end
+
+function _watermask_fill_value(v)
+    fv = get(v.attrib, "_FillValue", nothing)
+    if fv !== nothing
+        return fv isa AbstractArray ? first(fv) : fv
+    end
+    T = eltype(v)
+    T <: Unsigned && return typemax(T)
+    return typemin(T)
+end
+
 """
     preprocess_and_merge_in_memory(L1B_path, L2AOP_path, L2BGC_path, output_path)
 
@@ -113,9 +128,13 @@ function preprocess_and_merge_in_memory(
         sza = sza_info.var[:]
         earth_sun = ds_l1b.attrib["earth_sun_distance_correction"]
 
-        solar_irrad = reshape(solar_irrad, (1, 1, size(solar_irrad)...))
-        sza = reshape(sza, (size(sza)..., 1))
-        Rtoa = Float32.(replace(rhot_raw .* solar_irrad .* cosd.(sza) ./ π / earth_sun, missing => NaN))
+        rhot_f = _as_float_array(rhot_raw)
+        solar_f = _as_float_array(solar_irrad)
+        sza_f = _as_float_array(sza)
+        solar_f = reshape(solar_f, (1, 1, size(solar_f)...))
+        sza_f = reshape(sza_f, (size(sza_f)..., 1))
+        # Missing L1B inputs → NaN Rtoa; retrieval skips those pixels (status 3).
+        Rtoa = Float32.(rhot_f .* solar_f .* cosd.(sza_f) ./ π ./ Float64(earth_sun))
         Rtoa = _to_pixels_scans_bands(Rtoa, rhot_info.dims)
 
         wl_info = _find_var_from_dataset(ds_l1b, "red_wavelength")
@@ -127,11 +146,15 @@ function preprocess_and_merge_in_memory(
         lon = Float32.(replace(_to_pixels_scans_2d(lon_info.var[:], lon_info.dims), missing => NaN))
 
         wm = nothing
-        if haskey(ds_l1b, "watermask")
-            wm_info = _find_var_from_dataset(ds_l1b, "watermask")
-            wm_raw = wm_info.var[:]
+        wm_fill = nothing
+        wm_info = _find_var_from_dataset_optional(ds_l1b, "watermask")
+        if wm_info !== nothing
+            wm_var = wm_info.var
+            wm_fill = _watermask_fill_value(wm_var)
+            wm_raw = wm_var[:]
             T = Base.nonmissingtype(eltype(wm_raw))
-            wm = T.(replace(_to_pixels_scans_2d(wm_raw, wm_info.dims), missing => typemin(T)))
+            wm_arr = _to_pixels_scans_2d(wm_raw, wm_info.dims)
+            wm = T.(replace(wm_arr, missing => T(wm_fill)))
         end
 
         # Optional L2 OC_AOP field: used only if [batch_fit].pixel_filter_vars includes "nflh".
@@ -178,8 +201,11 @@ function preprocess_and_merge_in_memory(
         v_lon[:, :] = lon
 
         if wm !== nothing
-            v_wm = defVar(merged, "watermask", eltype(wm), ("pixels", "scans"), fillvalue = typemin(eltype(wm)); comp...)
+            wm_fill_out = wm_fill !== nothing ? wm_fill : typemin(eltype(wm))
+            v_wm = defVar(merged, "watermask", eltype(wm), ("pixels", "scans"), fillvalue = wm_fill_out; comp...)
+            v_wm.attrib["long_name"] = "PACE L1B watermask (0=land, 1=water)"
             v_wm[:, :] = wm
+            merged.attrib["watermask_fill_value"] = string(wm_fill_out)
         end
 
         if nflh !== nothing

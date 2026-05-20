@@ -1,6 +1,7 @@
 # particular file forms
 *.jld2
 *.log
+*.out
 *.png
 *.gif
 *.nc
@@ -12,3 +13,4 @@ Manifest.toml
 
 # archive
 archive/
+configs/

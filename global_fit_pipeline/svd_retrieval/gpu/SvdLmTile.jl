@@ -166,7 +166,10 @@ function run_tile_svd_retrieval!(
         chi0 = dot(r0, Se0 * r0)
         push!(redchi2_hist[t], chi0 / dof)
     end
-    active = trues(K)
+    # Vector{Bool} instead of BitVector (trues) to avoid data race:
+    # concurrent @threads writes to different indices of a BitVector can corrupt
+    # adjacent bits in the same 64-bit word.
+    active = Vector{Bool}(trues(K))
     status = fill(Int16(0), K)
     n_acc = zeros(Int, K)
     converged = falses(K)
@@ -180,7 +183,9 @@ function run_tile_svd_retrieval!(
         idx = findall(active)
         Xsub = X[:, idx]
         ssub = solar_eff[:, idx]
-        Ysub, Jsub = jacobian_svd_batched_fd_maybe_gpu(
+        # jacobian_svd_batched_fd_maybe_gpu returns (J, y0): Jacobian (3D) first,
+        # prediction (2D) second.  Keep assignment order consistent.
+        Jsub, Ysub = jacobian_svd_batched_fd_maybe_gpu(
             Xsub,
             ssub,
             PCs_g,
@@ -191,6 +196,24 @@ function run_tile_svd_retrieval!(
             use_cuda,
             ε,
         )
+        # NaN/Inf guard: mark columns with non-finite Jacobian or prediction
+        # as failed before entering the threaded loop.  This surfaces GPU
+        # numerical issues (overflow, log of negative, etc.) explicitly rather
+        # than letting them silently propagate into a singular linear solve.
+        _n_nonfinite = Ref(0)
+        for k in eachindex(idx)
+            t = idx[k]
+            if !all(isfinite, view(Jsub, :, :, k)) || !all(isfinite, view(Ysub, :, k))
+                _n_nonfinite[] += 1
+                status[t] = Int16(4)
+                active[t] = false
+            end
+        end
+        if _n_nonfinite[] > 0
+            @warn "Non-finite GPU Jacobian/prediction" n_columns=_n_nonfinite[] use_cuda=use_cuda
+        end
+        idx = findall(active)
+        any(active) || break
         X_next = copy(X)
         Base.Threads.@threads for k in eachindex(idx)
             t = idx[k]
@@ -218,7 +241,8 @@ function run_tile_svd_retrieval!(
                     band_snr_coeffs = band_snr_coeffs,
                     meas_sigma = meas_sigma,
                 )
-            catch
+            catch e
+                @warn "GPU tile LM step failed" column=t exception=(e, catch_backtrace())
                 status[t] = Int16(4)
                 active[t] = false
                 continue

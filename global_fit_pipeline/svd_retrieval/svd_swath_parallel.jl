@@ -9,7 +9,9 @@ using Base.Threads
 using Dates
 using ForwardDiff
 using LinearAlgebra
+using Glob
 using NCDatasets
+using ProgressMeter
 using SparseArrays
 using Statistics
 using TOML
@@ -26,6 +28,17 @@ include(joinpath(_SVD_DIR, "svd_helpers.jl"))
 include(joinpath(_SVD_DIR, "gpu", "SvdLmTile.jl"))
 
 const STATUS_PIXEL_FILTER_SKIPPED = Int16(7)
+
+"""Default: show progress when stdout is a TTY (off under nohup / redirected logs)."""
+function _default_show_progress()
+    return stdout isa Base.TTY
+end
+
+function _granule_id_from_interim_path(interim_nc::AbstractString)
+    stem = splitext(basename(interim_nc))[1]
+    startswith(stem, "interim_") && return stem[8:end]
+    return stem
+end
 
 """Find a variable in NetCDF4 child groups or at dataset root (PACE L1B often uses e.g. `sensor_band_parameters/red_solar_irradiance`)."""
 function _find_var_in_dataset(ds, varname::String)
@@ -54,6 +67,73 @@ function _find_var_in_dataset(ds, varname::String)
     end
     haskey(ds, varname) || error("Variable '$varname' not found in L1B (searched child groups and root)")
     return ds[varname]
+end
+
+"""Group-aware variable lookup; returns `nothing` if absent (PACE L1B: e.g. `geolocation_data/watermask`)."""
+function _find_var_in_dataset_optional(ds, varname::String)
+    groups_to_check = Pair{String, Any}[]
+    try
+        if hasproperty(ds, :group)
+            for group_name in keys(ds.group)
+                push!(groups_to_check, group_name => ds.group[group_name])
+            end
+        end
+    catch
+        nothing
+    end
+    if isempty(groups_to_check)
+        push!(groups_to_check, "" => ds)
+    end
+    for (_, group) in groups_to_check
+        haskey(group, varname) || continue
+        var = group[varname]
+        try
+            dimnames(var)
+        catch
+            continue
+        end
+        return var
+    end
+    return haskey(ds, varname) ? ds[varname] : nothing
+end
+
+function _read_watermask_2d(ds::NCDataset, varname::AbstractString, n_pix::Int, n_scan::Int)
+    v = _find_var_in_dataset_optional(ds, String(varname))
+    v === nothing && return fill(missing, n_pix, n_scan)
+    ndims(v) == 2 || error("Expected 2D watermask variable '$varname', got ndims=$(ndims(v))")
+    d = collect(String.(dimnames(v)))
+    raw = v[:, :]
+    arr = if d == ["pixels", "scans"]
+        raw
+    elseif d == ["scans", "pixels"]
+        permutedims(raw, (2, 1))
+    else
+        error("Unsupported watermask dims for '$varname': $d")
+    end
+    out = Matrix{Union{Missing, Int}}(undef, size(arr)...)
+    fillv = get(v.attrib, "_FillValue", nothing)
+    if fillv === nothing && haskey(ds.attrib, "watermask_fill_value")
+        fillv = parse(Int, String(ds.attrib["watermask_fill_value"]))
+    end
+    if fillv === nothing
+        T = eltype(arr)
+        fillv = T <: Unsigned ? typemax(T) : typemin(T)
+    else
+        fillv = fillv isa AbstractArray ? first(fillv) : fillv
+    end
+    @inbounds for j in axes(arr, 2), i in axes(arr, 1)
+        a = arr[i, j]
+        if ismissing(a) || a == fillv
+            out[i, j] = missing
+        else
+            out[i, j] = Int(a)
+        end
+    end
+    return out
+end
+
+@inline function _is_ocean_pixel(wm_val, ocean_mask_values::Set{Int})
+    return !ismissing(wm_val) && Int(wm_val) in ocean_mask_values
 end
 
 # ----- NC / axis helpers (same layout as batch_fit Run_batch_full_nc) -----
@@ -117,7 +197,8 @@ end
             return false
         end
         vf = Float64(v)
-        if !isfinite(vf)
+        # Interim Rtoa_red uses _FillValue ≈ -9999 for missing L1B inputs
+        if !isfinite(vf) || vf <= -9000.0
             return false
         end
         y_sorted[i] = vf
@@ -216,14 +297,38 @@ function _create_output_dataset(
     return ds
 end
 
-function _make_svd_output_path(interim_path::AbstractString, cfg::Dict)
+function _svd_output_dir(cfg::AbstractDict)
     batch_cfg = get(cfg, "batch_fit", Dict{String, Any}())
     out_dir_cfg = String(get(batch_cfg, "output_dir", joinpath(_REPO_ROOT, "svd_retrieval_output")))
-    out_dir = isabspath(out_dir_cfg) ? out_dir_cfg : joinpath(_REPO_ROOT, out_dir_cfg)
+    return isabspath(out_dir_cfg) ? out_dir_cfg : joinpath(_REPO_ROOT, out_dir_cfg)
+end
+
+function _make_svd_output_path(interim_path::AbstractString, cfg::Dict)
+    out_dir = _svd_output_dir(cfg)
     mkpath(out_dir)
+    batch_cfg = get(cfg, "batch_fit", Dict{String, Any}())
     suffix = String(get(batch_cfg, "output_suffix_parallel", "_svd_retrieval_full_parallel.nc"))
     stem = splitext(basename(interim_path))[1]
     return joinpath(out_dir, stem * suffix)
+end
+
+"""Expected retrieval NetCDF for a granule (uses `[batch_fit].output_dir` and `output_suffix_parallel`)."""
+function svd_expected_output_path(granule_id::AbstractString, interim_dir::AbstractString, cfg::AbstractDict)
+    interim_path = joinpath(interim_dir, "interim_$(granule_id).nc")
+    return _make_svd_output_path(interim_path, cfg)
+end
+
+"""
+Find an existing retrieval file for `granule_id` under `[batch_fit].output_dir`.
+Matches `interim_<granule_id>_*.nc` (any suffix). Returns `nothing` if none.
+"""
+function svd_find_existing_retrieval(granule_id::AbstractString, cfg::AbstractDict)
+    out_dir = _svd_output_dir(cfg)
+    isdir(out_dir) || return nothing
+    pattern = "interim_$(granule_id)_*.nc"
+    files = Glob.glob(pattern, out_dir)
+    isempty(files) && return nothing
+    return String(sort(files)[1])
 end
 
 function _read_l1b_extras(
@@ -491,7 +596,7 @@ function _process_one_pixel_svd!(
         return
     end
     wm_val = watermask[i_pix_src, j_scan_src]
-    is_ocean = !ismissing(wm_val) && (Int(wm_val) in ocean_mask_values)
+    is_ocean = _is_ocean_pixel(wm_val, ocean_mask_values)
     ocean_scan[i_pix_out] = is_ocean ? UInt8(1) : UInt8(0)
     if ocean_filter_enabled && !is_ocean
         status_scan[i_pix_out] = Int16(6)
@@ -708,6 +813,7 @@ function run_svd_orbit_full_nc_parallel(
     prefetch_input = Bool(get(batch_cfg, "prefetch_input", true))
     compression_level = Int(get(batch_cfg, "output_compression_level", 1))
     deferred_write = Bool(get(batch_cfg, "deferred_write", true))
+    show_progress = Bool(get(batch_cfg, "show_progress", _default_show_progress()))
 
     wavelength_var = String(get(pace_cfg, "wavelength_var", "red_wavelength"))
     spectrum_var = String(get(pace_cfg, "spectrum_var", "Rtoa_red"))
@@ -736,23 +842,9 @@ function run_svd_orbit_full_nc_parallel(
     eligible = build_pixel_eligible_mask(ds, n_pix, n_scan, pixel_filter_vars)
     lat = _read_geo_2d(ds, "latitude", n_pix, n_scan)
     lon = _read_geo_2d(ds, "longitude", n_pix, n_scan)
-    watermask = if haskey(ds, watermask_var)
-        wm = ds[watermask_var]
-        ndims(wm) == 2 || error("Expected 2D watermask variable '$watermask_var', got ndims=$(ndims(wm))")
-        d = collect(String.(dimnames(wm)))
-        raw = wm[:, :]
-        if d == ["pixels", "scans"]
-            raw
-        elseif d == ["scans", "pixels"]
-            permutedims(raw, (2, 1))
-        else
-            error("Unsupported watermask dims for '$watermask_var': $d")
-        end
-    else
-        if ocean_filter_enabled
-            error("Ocean filter enabled but variable '$watermask_var' is missing in $interim_nc")
-        end
-        fill(missing, n_pix, n_scan)
+    watermask = _read_watermask_2d(ds, watermask_var, n_pix, n_scan)
+    if ocean_filter_enabled && _find_var_in_dataset_optional(ds, watermask_var) === nothing
+        error("Ocean filter enabled but variable '$watermask_var' is missing in $interim_nc")
     end
 
     n_sif_ev = sh.layout.n_ev
@@ -827,6 +919,13 @@ function run_svd_orbit_full_nc_parallel(
     t_read_total    = 0.0
     t_compute_total = 0.0
     t_write_total   = 0.0
+
+    gid = _granule_id_from_interim_path(interim_nc)
+    scan_prog = if show_progress
+        Progress(length(scan_range); desc = "scans $gid")
+    else
+        nothing
+    end
 
     for (j_scan_out, j_scan_src) in enumerate(scan_range)
         inds = Any[Colon() for _ in 1:3]
@@ -904,7 +1003,7 @@ function run_svd_orbit_full_nc_parallel(
                     continue
                 end
                 wm_val = watermask[i_pix_src, j_scan_src]
-                is_ocean = !ismissing(wm_val) && (Int(wm_val) in ocean_mask_values)
+                is_ocean = _is_ocean_pixel(wm_val, ocean_mask_values)
                 ocean_byte = is_ocean ? UInt8(1) : UInt8(0)
                 ocean_scan[i_pix_out] = ocean_byte
                 if ocean_filter_enabled && !is_ocean
@@ -1042,6 +1141,12 @@ function run_svd_orbit_full_nc_parallel(
             ds_out["is_dark"][:, j_scan_out]           = dark_scan
             ds_out["is_ocean"][:, j_scan_out]          = ocean_scan
         end
+        if scan_prog !== nothing
+            next!(scan_prog; showvalues = [(:scan, j_scan_src)])
+        end
+    end
+    if scan_prog !== nothing
+        finish!(scan_prog)
     end
 
     # Bulk write all accumulated results in one pass (only when deferred_write=true).

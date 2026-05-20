@@ -18,6 +18,7 @@ function run_svd_granule(
     retrieval_cfg::AbstractDict,
     pipeline_config_path::AbstractString;
     use_in_memory_merge::Bool = true,
+    skip_existing::Bool = false,
     pixel_range::Union{Nothing,UnitRange{Int}} = nothing,
     scan_range::Union{Nothing,UnitRange{Int}} = nothing,
 )
@@ -28,6 +29,16 @@ function run_svd_granule(
     m = match(r"^PACE_OCI\.(.+)\.L1B\.V3$", stem)
     granule_id = m !== nothing ? m.captures[1] : stem
     interim_path = joinpath(interim_dir, "interim_$(granule_id).nc")
+    output_path = svd_expected_output_path(granule_id, interim_dir, retrieval_cfg)
+
+    if skip_existing
+        existing = svd_find_existing_retrieval(granule_id, retrieval_cfg)
+        if existing !== nothing
+            println("  skip_existing: retrieval exists for granule $granule_id — skipping")
+            println("    ", existing)
+            return existing
+        end
+    end
 
     if use_in_memory_merge
         preprocess_and_merge_in_memory(L1B_path, L2AOP_path, L2BGC_path, interim_path)
@@ -45,5 +56,5 @@ function run_svd_granule(
     )
 
     rm(interim_path, force = true)
-    return output_dir
+    return output_path
 end

@@ -8,6 +8,7 @@
 using Base.Threads
 using Dates
 using Glob
+using ProgressMeter
 using TOML
 
 const _SVD_SCRIPT_DIR = @__DIR__
@@ -173,6 +174,12 @@ function _prepare_run_env!(pipe::Dict, pipeline_path::AbstractString)
     parallel_granules = Bool(get(svd, "parallel_granules", false))
     parallel_pixels = Bool(get(svd, "parallel_pixels", true))
     use_in_memory_merge = Bool(get(svd, "use_in_memory_merge", true))
+    skip_existing = Bool(get(svd, "skip_existing", false))
+    show_progress = if haskey(svd, "show_progress")
+        Bool(svd["show_progress"])
+    else
+        stdout isa Base.TTY
+    end
 
     retrieval_cfg = _retrieval_cfg_from_pipeline(pipe)
     isempty(retrieval_cfg) && error(
@@ -190,6 +197,7 @@ function _prepare_run_env!(pipe::Dict, pipeline_path::AbstractString)
         Dict{String, Any}(
             "use_gpu" => use_gpu_merged,
             "gpu_tile_pixels" => max(1, gpu_tile_merged),
+            "show_progress" => show_progress,
         ),
     )
     mkpath(output_dir)
@@ -207,6 +215,8 @@ function _prepare_run_env!(pipe::Dict, pipeline_path::AbstractString)
         retrieval_cfg = retrieval_eff,
         pipeline_path = pipeline_abspath,
         use_in_memory_merge,
+        skip_existing,
+        show_progress,
         parallel_granules,
     )
 end
@@ -234,7 +244,10 @@ function run_svd_global_fit_date(pipeline_path::AbstractString; date_override::U
         "SVD global fit (date=$date): $(length(granules)) granule(s); granule concurrency=sequential (NetCDF/HDF5-safe)",
     )
     println("  pipeline config: ", env.pipeline_path)
+    println("  skip_existing: ", env.skip_existing)
+    println("  show_progress: ", env.show_progress)
     results_per_k = Vector{Union{Nothing,String}}(nothing, length(granules))
+    granule_prog = env.show_progress ? Progress(length(granules); desc = "granules $date") : nothing
     for k in eachindex(granules)
         L1B_path, gid = granules[k]
         L2AOP_path, L2BGC_path = _resolve_granule_paths(env.L1B_dir, env.L2AOP_dir, env.L2BGC_dir, gid)
@@ -249,10 +262,17 @@ function run_svd_global_fit_date(pipeline_path::AbstractString; date_override::U
             env.retrieval_cfg,
             env.pipeline_path;
             use_in_memory_merge = env.use_in_memory_merge,
+            skip_existing = env.skip_existing,
             pixel_range = pr.pixel_range,
             scan_range = pr.scan_range,
         )
         results_per_k[k] = L1B_path
+        if granule_prog !== nothing
+            next!(granule_prog; showvalues = [(:granule, gid)])
+        end
+    end
+    if granule_prog !== nothing
+        finish!(granule_prog)
     end
     return String[r for r in results_per_k if r !== nothing]
 end
@@ -261,7 +281,10 @@ function run_svd_global_fit_dates(pipeline_path::AbstractString)
     cfg = TOML.parsefile(pipeline_path)
     svd = get(cfg, "svd_retrieval", Dict{String, Any}())
     dates = _resolve_dates_mode_list(svd)
+    env = _prepare_run_env!(cfg, pipeline_path)
     println("SVD global fit (dates mode): $(length(dates)) calendar day(s): ", join(dates, ", "))
+    println("  skip_existing: ", env.skip_existing)
+    println("  show_progress: ", env.show_progress)
     all_results = String[]
     for d in dates
         append!(all_results, run_svd_global_fit_date(pipeline_path; date_override = d))
@@ -279,6 +302,8 @@ function run_svd_global_fit_granule(pipeline_path::AbstractString, granule_id::A
     isfile(L2AOP_path) || error("L2AOP not found: $L2AOP_path")
     println("SVD global fit (granule=$granule_id)")
     println("  pipeline config: ", env.pipeline_path)
+    println("  skip_existing: ", env.skip_existing)
+    println("  show_progress: ", env.show_progress)
     run_svd_granule(
         L1B_path,
         L2AOP_path,
@@ -288,6 +313,7 @@ function run_svd_global_fit_granule(pipeline_path::AbstractString, granule_id::A
         env.retrieval_cfg,
         env.pipeline_path;
         use_in_memory_merge = env.use_in_memory_merge,
+        skip_existing = env.skip_existing,
         pixel_range = pr.pixel_range,
         scan_range = pr.scan_range,
     )
