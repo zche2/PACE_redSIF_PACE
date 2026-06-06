@@ -11,6 +11,6 @@
 PACE_proposal_materials/
 Manifest.toml
 
-# archive
+# archive & configs
 archive/
-configs/
+*/configs*/

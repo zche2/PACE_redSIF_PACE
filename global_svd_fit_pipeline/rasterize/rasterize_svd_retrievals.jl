@@ -13,6 +13,7 @@ Usage:
 Input files must match:  interim_<YYYYMMDDTHHmmss>_svd_retrieval_*.nc
 Output files are named:  sif678_raster_<YYYYMMDD>_<YYYYMMDD>.nc
 Filters: [rasterize.filters].status_codes = [1, ...] (or legacy valid_status_only).
+         [rasterize.filters].l2_flags_reject = "ALL" | ["FLAG1","FLAG2"] | omit
 output_dir is created with mkpath if missing; each window prints granule file count.
 """
 
@@ -39,7 +40,7 @@ end
 struct RasterConfig
     input_dir::String
     output_dir::String
-    l2aop_dir::String        # required when exclude_missing_nflh
+    l2aop_dir::String        # required when exclude_missing_nflh or l2_flags_reject_mask != 0
     start_date::Date
     end_date::Date
     chunk_frequency_days::Int
@@ -51,6 +52,7 @@ struct RasterConfig
     ocean_only::Bool       # keep only is_ocean == 1 (mutually exclusive with exclude_ocean)
     exclude_missing_nflh::Bool
     nflh_var::String
+    l2_flags_reject_mask::UInt32  # 0x00000000 = disabled; 0xFFFFFFFF = require flag==0
     max_sif::Float64
     max_chi2::Float64        # Inf → disabled
 end
@@ -91,6 +93,9 @@ function parse_config(path::String)::RasterConfig
     nflh_var = String(_get(filt, "nflh_var", "nflh"))
     exclude_missing_nflh && isempty(l2aop_dir) &&
         _die("[rasterize] l2aop_dir is required when [rasterize.filters].exclude_missing_nflh = true")
+    l2_flags_reject_mask = _parse_l2_flags_mask(filt)
+    l2_flags_reject_mask != 0 && isempty(l2aop_dir) &&
+        _die("[rasterize] l2aop_dir is required when [rasterize.filters].l2_flags_reject is set")
     max_sif  = Float64(_get(filt, "max_sif",  Inf))
     max_chi2 = Float64(_get(filt, "max_chi2", Inf))
 
@@ -99,6 +104,7 @@ function parse_config(path::String)::RasterConfig
         t0, t1, freq, half, res,
         status_codes, exclude_dark, exclude_ocean, ocean_only,
         exclude_missing_nflh, nflh_var,
+        l2_flags_reject_mask,
         max_sif, max_chi2,
     )
 end
@@ -116,6 +122,56 @@ function _parse_status_codes(filt::Dict)
         return Set{Int16}([Int16(1)])
     end
     return nothing
+end
+
+# Bit positions of named L2 AOP flags (flag_meanings order from PACE OCI L2 files).
+const _L2_FLAG_BITS = Dict{String, Int}(
+    "ATMFAIL"    => 0,   "LAND"       => 1,   "PRODWARN"   => 2,   "HIGLINT"    => 3,
+    "HILT"       => 4,   "HISATZEN"   => 5,   "COASTZ"     => 6,
+    "STRAYLIGHT" => 8,   "CLDICE"     => 9,   "COCCOLITH"  => 10,  "TURBIDW"    => 11,
+    "HISOLZEN"   => 12,  "LOWLW"      => 14,  "CHLFAIL"    => 15,  "NAVWARN"    => 16,
+    "ABSAER"     => 17,  "MAXAERITER" => 19,  "MODGLINT"   => 20,  "CHLWARN"    => 21,
+    "ATMWARN"    => 22,  "OPSHAL"     => 23,  "SEAICE"     => 24,  "NAVFAIL"    => 25,
+    "FILTER"     => 26,  "BOWTIEDEL"  => 28,  "HIPOL"      => 29,  "PRODFAIL"   => 30,
+)
+
+"""Parse `[rasterize.filters].l2_flags_reject` into a UInt32 bitmask.
+
+  - `"ALL"` or `true`       → 0xFFFFFFFF  (reject any pixel with any flag set; only flag==0 passes)
+  - `["CLDICE", "LAND"]`    → bitmask of those named flags
+  - `[9, 1]`                → bitmask from raw bit positions
+  - missing / `false` / `""` → 0x00000000 (disabled)
+"""
+function _parse_l2_flags_mask(filt::Dict)::UInt32
+    raw = get(filt, "l2_flags_reject", nothing)
+    raw === nothing && return UInt32(0)
+    if raw isa Bool
+        return raw ? typemax(UInt32) : UInt32(0)
+    end
+    if raw isa String
+        s = uppercase(strip(raw))
+        isempty(s) && return UInt32(0)
+        s == "ALL" && return typemax(UInt32)
+        _die("[rasterize.filters] l2_flags_reject string must be \"ALL\" (got \"$raw\")")
+    end
+    if raw isa AbstractVector
+        mask = UInt32(0)
+        for entry in raw
+            if entry isa Integer
+                (0 <= entry <= 31) || _die("[rasterize.filters] l2_flags_reject bit $entry out of range 0–31")
+                mask |= UInt32(1) << entry
+            elseif entry isa String
+                bit = get(_L2_FLAG_BITS, uppercase(strip(entry)), nothing)
+                bit === nothing && _die("[rasterize.filters] unknown l2_flags_reject flag name: \"$entry\"\n" *
+                    "  Known names: $(join(sort(collect(keys(_L2_FLAG_BITS))), ", "))")
+                mask |= UInt32(1) << bit
+            else
+                _die("[rasterize.filters] l2_flags_reject entries must be strings or integers, got $(typeof(entry))")
+            end
+        end
+        return mask
+    end
+    _die("[rasterize.filters] l2_flags_reject must be \"ALL\", a list of flag names/bit integers, or omitted")
 end
 
 
@@ -239,44 +295,78 @@ function _nflh_value_present(v, fillv)
 end
 
 """`BitMatrix` (pixels × scans) aligned with retrieval swath variables."""
-function _nflh_present_mask(retrieval_ds, l2aop_path::String, nflh_var::String)
-    nflh_l2 = NCDatasets.Dataset(l2aop_path, "r") do l2ds
-        v = _find_ncvar_optional(l2ds, nflh_var)
-        v === nothing && return nothing
-        fillv = _nc_fill_value(v)
-        raw = _read_pixels_scans_2d(l2ds, nflh_var)
-        raw === nothing && return nothing
-        present = falses(size(raw)...)
-        @inbounds for j in axes(raw, 2), i in axes(raw, 1)
-            present[i, j] = _nflh_value_present(raw[i, j], fillv)
+function _read_l2aop_masks(
+    retrieval_ds,
+    l2aop_path::String,
+    nflh_var::String,
+    need_nflh::Bool,
+    l2_flags_reject_mask::UInt32,
+)
+    need_flags = l2_flags_reject_mask != 0
+
+    nflh_raw, flags_raw = NCDatasets.Dataset(l2aop_path, "r") do l2ds
+        # --- nFLH ---
+        nflh_mat = nothing
+        if need_nflh
+            v = _find_ncvar_optional(l2ds, nflh_var)
+            if v !== nothing
+                fillv = _nc_fill_value(v)
+                raw = _read_pixels_scans_2d(l2ds, nflh_var)
+                if raw !== nothing
+                    present = falses(size(raw)...)
+                    @inbounds for j in axes(raw, 2), i in axes(raw, 1)
+                        present[i, j] = _nflh_value_present(raw[i, j], fillv)
+                    end
+                    nflh_mat = present
+                end
+            end
         end
-        return present
-    end
-    nflh_l2 === nothing && return nothing
-    n_pix, n_scan = size(nflh_l2)
-    src_pix = if haskey(retrieval_ds, "source_pixel_index")
-        Vector{Int}(Array(retrieval_ds["source_pixel_index"]))
-    else
-        collect(1:n_pix)
-    end
-    src_scan = if haskey(retrieval_ds, "source_scan_index")
-        Vector{Int}(Array(retrieval_ds["source_scan_index"]))
-    else
-        collect(1:n_scan)
-    end
-    length(src_pix) == n_pix && length(src_scan) == n_scan ||
-        error("source_*_index length does not match retrieval swath size")
-    out = falses(n_pix, n_scan)
-    @inbounds for j in 1:n_scan, i in 1:n_pix
-        ip = src_pix[i]
-        js = src_scan[j]
-        if 1 <= ip <= size(nflh_l2, 1) && 1 <= js <= size(nflh_l2, 2)
-            out[i, j] = nflh_l2[ip, js]
-        else
-            out[i, j] = false
+
+        # --- l2_flags ---
+        flags_mat = nothing
+        if need_flags
+            v = _find_ncvar_optional(l2ds, "l2_flags")
+            if v !== nothing
+                raw = _read_pixels_scans_2d(l2ds, "l2_flags")
+                if raw !== nothing
+                    ok = trues(size(raw)...)
+                    @inbounds for j in axes(raw, 2), i in axes(raw, 1)
+                        ok[i, j] = (UInt32(raw[i, j]) & l2_flags_reject_mask) == 0
+                    end
+                    flags_mat = ok
+                end
+            end
         end
+
+        (nflh_mat, flags_mat)
     end
-    return out
+
+    # Nothing to align
+    nflh_raw === nothing && flags_raw === nothing && return nothing, nothing
+
+    # Build source index arrays (same for both masks — compute once)
+    ref_size = nflh_raw !== nothing ? size(nflh_raw) : size(flags_raw)
+    n_pix_l2, n_scan_l2 = ref_size
+    src_pix = haskey(retrieval_ds, "source_pixel_index") ?
+        Vector{Int}(Array(retrieval_ds["source_pixel_index"])) : collect(1:n_pix_l2)
+    src_scan = haskey(retrieval_ds, "source_scan_index") ?
+        Vector{Int}(Array(retrieval_ds["source_scan_index"])) : collect(1:n_scan_l2)
+    n_pix_r  = length(src_pix)
+    n_scan_r = length(src_scan)
+
+    function _align(mat)
+        mat === nothing && return nothing
+        out = falses(n_pix_r, n_scan_r)
+        @inbounds for j in 1:n_scan_r, i in 1:n_pix_r
+            ip = src_pix[i];  js = src_scan[j]
+            if 1 <= ip <= size(mat, 1) && 1 <= js <= size(mat, 2)
+                out[i, j] = mat[ip, js]
+            end
+        end
+        return out
+    end
+
+    return _align(nflh_raw), _align(flags_raw)
 end
 
 """Return Dict{Date, Vector{String}}: sensing date → list of matching file paths."""
@@ -331,19 +421,23 @@ function accumulate_file!(g::Grid, fpath::String, cfg::RasterConfig)
         chi2 = Float64.(_read_pixels_scans_2d(ds, "reduced_chi2"))
         lat = Float64.(lat_raw)
 
-        nflh_ok = nothing
-        if cfg.exclude_missing_nflh
+        flags_ok = nothing
+        if cfg.l2_flags_reject_mask != 0
             gid = _granule_id_from_retrieval_path(fpath)
             gid === nothing && error("Cannot parse granule id from $(basename(fpath))")
             l2_path = _resolve_l2aop_path(cfg.l2aop_dir, gid)
             l2_path === nothing && error("L2 AOP not found for granule $gid in $(cfg.l2aop_dir)")
-            nflh_ok = _nflh_present_mask(ds, l2_path, cfg.nflh_var)
-            nflh_ok === nothing && error("Variable '$(cfg.nflh_var)' not found in $l2_path")
+            _, flags_ok = _read_l2aop_masks(
+                ds, l2_path, cfg.nflh_var,
+                false, cfg.l2_flags_reject_mask,
+            )
+            cfg.l2_flags_reject_mask != 0 && flags_ok === nothing &&
+                @warn "l2_flags not found in L2 AOP file — flag filter skipped" file=basename(l2_path)
         end
 
         for idx in eachindex(lat)
             (isnan(lat[idx]) || isnan(lon[idx]) || isnan(sif[idx])) && continue
-            nflh_ok !== nothing && !nflh_ok[idx] && continue
+            flags_ok !== nothing && !flags_ok[idx] && continue
             if cfg.status_codes !== nothing && !(Int16(stat[idx]) in cfg.status_codes)
                 continue
             end
@@ -424,6 +518,16 @@ function save_netcdf(g::Grid, win_start::Date, win_end::Date,
             ds.attrib["l2aop_dir"] = cfg.l2aop_dir
             ds.attrib["nflh_var"]  = cfg.nflh_var
         end
+        if cfg.l2_flags_reject_mask != 0
+            ds.attrib["l2_flags_reject_mask"] = string(cfg.l2_flags_reject_mask, base=16, pad=8)
+            if cfg.l2_flags_reject_mask == typemax(UInt32)
+                ds.attrib["l2_flags_reject"] = "ALL (l2_flags == 0 required)"
+            else
+                names = [k for (k, v) in _L2_FLAG_BITS if (cfg.l2_flags_reject_mask >> v) & 1 == 1]
+                ds.attrib["l2_flags_reject"] = join(sort(names), ",")
+            end
+            isempty(cfg.l2aop_dir) || (ds.attrib["l2aop_dir"] = cfg.l2aop_dir)
+        end
         ds.attrib["history"]      = "Created " * string(now())
 
         defDim(ds, "lon", g.n_lon)
@@ -485,6 +589,14 @@ function main()
     if cfg.exclude_missing_nflh
         println("nFLH filter: exclude pixels with missing $(cfg.nflh_var) (L2 AOP under $(cfg.l2aop_dir))")
     end
+    if cfg.l2_flags_reject_mask != 0
+        if cfg.l2_flags_reject_mask == typemax(UInt32)
+            println("l2_flags filter: ALL — only l2_flags == 0 pixels pass")
+        else
+            names = sort([k for (k, v) in _L2_FLAG_BITS if (cfg.l2_flags_reject_mask >> v) & 1 == 1])
+            println("l2_flags filter: reject if any of {$(join(names, ", "))} bits set  (mask=0x$(string(cfg.l2_flags_reject_mask, base=16, pad=8)))")
+        end
+    end
 
     n_windows  = 0
     n_written  = 0
@@ -523,7 +635,7 @@ function main()
             hint = if cfg.ocean_only
                 "ocean_only=true but no is_ocean==1 pixels passed other filters; check retrieval watermask / batch_fit.ocean_mask_values"
             else
-                "no pixels passed filters (status_codes, exclude_dark, max_sif, max_chi2, …)"
+                "no pixels passed filters (status_codes, exclude_dark, l2_flags_reject, max_sif, max_chi2, …)"
             end
             @warn "Window produced zero observations" window_start=win_start window_end=win_end hint=hint
         end
