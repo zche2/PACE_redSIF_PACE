@@ -18,6 +18,7 @@ output_dir is created with mkpath if missing; each window prints granule file co
 """
 
 using Dates
+using Distributions
 using NCDatasets
 using ProgressMeter
 using TOML
@@ -37,6 +38,54 @@ function _get(d::Dict, key::String, default)
     return (v === nothing) ? default : v
 end
 
+"""
+Read `n_state` from the `state` dimension of a retrieval NetCDF file.
+Returns `nothing` on any failure.
+"""
+function _infer_n_state_from_retrieval(fpath::String)::Union{Int, Nothing}
+    try
+        NCDatasets.Dataset(fpath, "r") do ds
+            # Canonical dimension name written by the retrieval pipeline
+            haskey(ds.dim, "state") && return Int(ds.dim["state"])
+            # Fallback: look for a state-vector variable and use its first dimension
+            for vname in ("x_hat", "state_vector", "svd_coeff", "coefficients")
+                haskey(ds, vname) || continue
+                sz = size(ds[vname])
+                length(sz) >= 1 && sz[1] > 0 && return Int(sz[1])
+            end
+            return nothing
+        end
+    catch
+        return nothing
+    end
+end
+
+"""
+Count the number of L1B red-band channels whose centre wavelength falls within
+[lambda_min_nm, lambda_max_nm].  `red_wavelength` lives in the
+`sensor_band_parameters` group.  Returns `nothing` on any failure.
+"""
+function _count_window_bands_from_l1b(l1b_path::String,
+                                       lambda_min_nm::Float64,
+                                       lambda_max_nm::Float64)::Union{Int, Nothing}
+    try
+        NCDatasets.Dataset(l1b_path, "r") do ds
+            wl_var = nothing
+            if haskey(ds.group, "sensor_band_parameters") &&
+                    haskey(ds.group["sensor_band_parameters"], "red_wavelength")
+                wl_var = ds.group["sensor_band_parameters"]["red_wavelength"]
+            elseif haskey(ds, "red_wavelength")
+                wl_var = ds["red_wavelength"]
+            end
+            wl_var === nothing && return nothing
+            wl = Float64.(Array(wl_var))
+            return count(w -> lambda_min_nm <= w <= lambda_max_nm, wl)
+        end
+    catch
+        return nothing
+    end
+end
+
 struct RasterConfig
     input_dir::String
     output_dir::String
@@ -47,14 +96,27 @@ struct RasterConfig
     half_chunk_days::Int
     resolution::Int          # 180/resolution = degrees per cell
     status_codes::Union{Nothing, Set{Int16}}  # nothing → no status filter
-    exclude_dark::Bool
-    exclude_ocean::Bool
-    ocean_only::Bool       # keep only is_ocean == 1 (mutually exclusive with exclude_ocean)
     exclude_missing_nflh::Bool
     nflh_var::String
     l2_flags_reject_mask::UInt32  # 0x00000000 = disabled; 0xFFFFFFFF = require flag==0
     max_sif::Float64
     max_chi2::Float64        # Inf → disabled
+
+    # --- physics-based filters (independent of l2_flags / is_dark / is_ocean) ---
+    # chi2 distribution filter: keep reduced_chi2 within chi2(df)/df p-lo..p-hi range
+    chi2_df::Union{Nothing, Int}  # nothing = disabled; typical df = n_λ − n_state
+    chi2_pct_lo::Float64          # lower percentile (default 5.0)
+    chi2_pct_hi::Float64          # upper percentile (default 95.0)
+    chi2_lo::Float64              # derived lower bound = quantile(Chisq(df), p_lo/100) / df
+    chi2_hi::Float64              # derived upper bound = quantile(Chisq(df), p_hi/100) / df
+
+    # mean radiance filter: keep only pixels where mean Lt in the fitting window ≤ threshold
+    # (selects dim/ocean-like scenes, rejects bright land/cloud)
+    # requires l1b_dir when max_mean_radiance < Inf
+    max_mean_radiance::Float64    # W m⁻² sr⁻¹ µm⁻¹; Inf = disabled
+    l1b_dir::String               # path to L1B files (only needed for mean radiance filter)
+    lambda_min_nm::Float64        # fitting window start nm (default 640.0)
+    lambda_max_nm::Float64        # fitting window end   nm (default 756.0)
 end
 
 function parse_config(path::String)::RasterConfig
@@ -84,11 +146,6 @@ function parse_config(path::String)::RasterConfig
 
     filt = get(r, "filters", Dict{String,Any}())
     status_codes = _parse_status_codes(filt)
-    exclude_dark  = Bool(_get(filt, "exclude_dark",  true))
-    ocean_only    = Bool(_get(filt, "ocean_only",    false))
-    exclude_ocean = Bool(_get(filt, "exclude_ocean", !ocean_only))
-    ocean_only && exclude_ocean &&
-        _die("[rasterize.filters] ocean_only and exclude_ocean cannot both be true")
     exclude_missing_nflh = Bool(_get(filt, "exclude_missing_nflh", false))
     nflh_var = String(_get(filt, "nflh_var", "nflh"))
     exclude_missing_nflh && isempty(l2aop_dir) &&
@@ -99,13 +156,83 @@ function parse_config(path::String)::RasterConfig
     max_sif  = Float64(_get(filt, "max_sif",  Inf))
     max_chi2 = Float64(_get(filt, "max_chi2", Inf))
 
+    # Parse L1B settings early — needed by chi2 auto-detection below
+    max_mean_radiance = Float64(_get(r, "max_mean_radiance", Inf))
+    l1b_dir           = String(_get(r, "l1b_dir", ""))
+    lambda_min_nm     = Float64(_get(r, "lambda_min_nm", 640.0))
+    lambda_max_nm     = Float64(_get(r, "lambda_max_nm", 756.0))
+    lambda_min_nm < lambda_max_nm ||
+        _die("[rasterize] lambda_min_nm must be < lambda_max_nm")
+    max_mean_radiance < Inf && isempty(l1b_dir) &&
+        _die("[rasterize] l1b_dir is required when max_mean_radiance is set")
+
+    # --- chi2 distribution filter ---
+    # The filter is enabled only when at least one chi2_* key is present in [rasterize.filters].
+    # chi2_df is auto-detected from the data when omitted (= n_bands_in_window − n_state).
+    chi2_filter_active = haskey(filt, "chi2_df") ||
+                         haskey(filt, "chi2_pct_lo") ||
+                         haskey(filt, "chi2_pct_hi")
+    chi2_df = nothing
+    chi2_pct_lo = 5.0
+    chi2_pct_hi = 95.0
+    chi2_lo = 0.0
+    chi2_hi = Inf
+    if chi2_filter_active
+        chi2_pct_lo = Float64(_get(filt, "chi2_pct_lo", 5.0))
+        chi2_pct_hi = Float64(_get(filt, "chi2_pct_hi", 95.0))
+        (0.0 < chi2_pct_lo < chi2_pct_hi < 100.0) ||
+            _die("[rasterize.filters] chi2_pct_lo/hi must satisfy 0 < lo < hi < 100")
+
+        chi2_df_raw = get(filt, "chi2_df", nothing)
+        if chi2_df_raw !== nothing
+            chi2_df = Int(chi2_df_raw)
+            chi2_df > 0 || _die("[rasterize.filters] chi2_df must be a positive integer")
+        else
+            # Auto-detect: n_bands_in_window − n_state from a sample retrieval + L1B file
+            sample_f = nothing
+            for fname in sort(readdir(input_dir))
+                if startswith(fname, "interim_") && endswith(fname, ".nc")
+                    sample_f = joinpath(input_dir, fname)
+                    break
+                end
+            end
+            n_state = sample_f !== nothing ? _infer_n_state_from_retrieval(sample_f) : nothing
+            n_bands = nothing
+            if n_state !== nothing && !isempty(l1b_dir)
+                m = match(r"^interim_(\d{8}T\d{6})_svd_retrieval_", basename(sample_f))
+                if m !== nothing
+                    gid = String(m.captures[1])
+                    l1b_cand = joinpath(l1b_dir, "PACE_OCI.$(gid).L1B.V3.nc")
+                    isfile(l1b_cand) || (l1b_cand = "")
+                    if !isempty(l1b_cand)
+                        n_bands = _count_window_bands_from_l1b(l1b_cand, lambda_min_nm, lambda_max_nm)
+                    end
+                end
+            end
+            if n_state !== nothing && n_bands !== nothing && (n_bands - n_state) > 0
+                chi2_df = n_bands - n_state
+                @info "chi2_df auto-detected" n_bands_in_window=n_bands n_state=n_state chi2_df=chi2_df
+            else
+                _die("[rasterize.filters] chi2 distribution filter is active but chi2_df could " *
+                     "not be auto-detected (n_state=$(n_state), n_bands=$(n_bands)). " *
+                     "Set chi2_df explicitly in [rasterize.filters].")
+            end
+        end
+
+        d = Chisq(chi2_df)
+        chi2_lo = quantile(d, chi2_pct_lo / 100.0) / chi2_df
+        chi2_hi = quantile(d, chi2_pct_hi / 100.0) / chi2_df
+    end
+
     return RasterConfig(
         input_dir, output_dir, l2aop_dir,
         t0, t1, freq, half, res,
-        status_codes, exclude_dark, exclude_ocean, ocean_only,
+        status_codes,
         exclude_missing_nflh, nflh_var,
         l2_flags_reject_mask,
         max_sif, max_chi2,
+        chi2_df, chi2_pct_lo, chi2_pct_hi, chi2_lo, chi2_hi,
+        max_mean_radiance, l1b_dir, lambda_min_nm, lambda_max_nm,
     )
 end
 
@@ -183,6 +310,7 @@ end
 const _GRANULE_RE = r"^interim_(\d{8})T\d{6}_svd_retrieval_.*\.nc$"
 const _GRANULE_ID_RE = r"^interim_(\d{8}T\d{6})_svd_retrieval_"
 const _L2AOP_FNAME_RE = r"^PACE_OCI\.(\d{8}T\d{6})\.L2\.OC_AOP.*\.nc$"
+const _L1B_FNAME_RE   = r"^PACE_OCI\.(\d{8}T\d{6})\.L1B\."
 
 function _granule_id_from_retrieval_path(fpath::String)
     m = match(_GRANULE_ID_RE, basename(fpath))
@@ -227,6 +355,90 @@ function _resolve_l2aop_path(l2aop_dir::String, granule_id::String)
     path, l2_id = candidates[best]
     @info "L2 AOP coarse granule match (multiple candidates)" retrieval_id=granule_id l2_id=l2_id file=basename(path)
     return path
+end
+
+function _l1b_granule_id_from_fname(fname::String)
+    m = match(_L1B_FNAME_RE, fname)
+    return m === nothing ? nothing : String(m.captures[1])
+end
+
+"""Find the L1B file for `granule_id`, with the same coarse-match fallback as L2 AOP."""
+function _resolve_l1b_path(l1b_dir::String, granule_id::String)
+    isdir(l1b_dir) || return nothing
+    # exact match first (any extension / version suffix)
+    for fname in readdir(l1b_dir)
+        startswith(fname, "PACE_OCI.$(granule_id).L1B.") && return joinpath(l1b_dir, fname)
+    end
+    # coarse match (ignore last 2 seconds of timestamp)
+    prefix = _granule_id_coarse_prefix(granule_id)
+    candidates = Tuple{String, String}[]
+    for fname in readdir(l1b_dir)
+        endswith(fname, ".nc") || continue
+        l1b_id = _l1b_granule_id_from_fname(fname)
+        l1b_id === nothing && continue
+        if _granule_id_coarse_prefix(l1b_id) == prefix
+            push!(candidates, (joinpath(l1b_dir, fname), l1b_id))
+        end
+    end
+    isempty(candidates) && return nothing
+    length(candidates) == 1 && return candidates[1][1]
+    best = argmin(candidates) do (_, l1b_id)
+        abs(parse(Int, granule_id[(end - 1):end]) - parse(Int, l1b_id[(end - 1):end]))
+    end
+    return candidates[best][1]
+end
+
+"""
+Compute per-pixel mean top-of-atmosphere radiance Lt (W m⁻² sr⁻¹ µm⁻¹) within
+the fitting window [lambda_min_nm, lambda_max_nm] from an L1B file.
+
+Formula (matching merge_interim.jl):
+    Lt = rhot_red * F0 * cos(SZA_deg) / (π * earth_sun_distance_correction)
+
+Reads one band at a time to keep peak RAM ≈ one (scans × pixels) Float32 array.
+Returns a (pixels, scans) Float32 matrix, or `nothing` if no bands fall in the window.
+"""
+function _read_l1b_mean_radiance(
+    l1b_path::String,
+    lambda_min_nm::Float64,
+    lambda_max_nm::Float64,
+)::Union{Matrix{Float32}, Nothing}
+    NCDatasets.Dataset(l1b_path, "r") do ds
+        wl_var = _find_ncvar_optional(ds, "red_wavelength")
+        F0_var = _find_ncvar_optional(ds, "red_solar_irradiance")
+        sza_var = _find_ncvar_optional(ds, "solar_zenith")
+        rhot_var = _find_ncvar_optional(ds, "rhot_red")
+        (wl_var === nothing || F0_var === nothing ||
+         sza_var === nothing || rhot_var === nothing) && return nothing
+
+        wl  = Float64.(Array(wl_var))                    # (n_bands,)
+        F0  = Float64.(Array(F0_var))                    # (n_bands,)
+        esd = Float64(get(ds.attrib, "earth_sun_distance_correction", 1.0))
+
+        # NCDatasets applies scale_factor automatically → SZA already in degrees
+        sza_raw = Array(sza_var)                         # (scans, pixels) or (pixels, scans)
+        sza_2d  = let d = collect(String.(dimnames(sza_var)))
+            if d == ["number_of_lines", "pixels_per_line"] || d == ["scans", "pixels"]
+                permutedims(Float32.(sza_raw), (2, 1))   # → (pixels, scans)
+            else
+                Float32.(sza_raw)
+            end
+        end
+        cos_sza = cos.(deg2rad.(sza_2d))                 # (pixels, scans)
+
+        win = findall(b -> lambda_min_nm <= wl[b] <= lambda_max_nm, 1:length(wl))
+        isempty(win) && return nothing
+
+        # Accumulate mean band by band (peak RAM ≈ one band)
+        mean_rad = zeros(Float32, size(cos_sza))
+        for bi in win
+            rhot_b_raw = Array(rhot_var[bi, :, :])       # (scans, pixels) in L1B layout
+            rhot_b = permutedims(Float32.(rhot_b_raw), (2, 1))  # → (pixels, scans)
+            @. mean_rad += rhot_b * Float32(F0[bi]) * cos_sza / Float32(π * esd)
+        end
+        mean_rad ./= length(win)
+        return mean_rad
+    end
 end
 
 function _find_ncvar_optional(ds, varname::String)
@@ -416,11 +628,10 @@ function accumulate_file!(g::Grid, fpath::String, cfg::RasterConfig)
         lon = Float64.(_read_pixels_scans_2d(ds, "longitude"))
         sif = Float64.(_read_pixels_scans_2d(ds, "sif_radiance_678nm"))
         stat = _read_pixels_scans_2d(ds, "status_code")
-        dark = _read_pixels_scans_2d(ds, "is_dark")
-        ocean = _read_pixels_scans_2d(ds, "is_ocean")
         chi2 = Float64.(_read_pixels_scans_2d(ds, "reduced_chi2"))
         lat = Float64.(lat_raw)
 
+        # --- L2 AOP flags filter ---
         flags_ok = nothing
         if cfg.l2_flags_reject_mask != 0
             gid = _granule_id_from_retrieval_path(fpath)
@@ -435,20 +646,37 @@ function accumulate_file!(g::Grid, fpath::String, cfg::RasterConfig)
                 @warn "l2_flags not found in L2 AOP file — flag filter skipped" file=basename(l2_path)
         end
 
+        # --- mean radiance filter (from L1B) ---
+        mean_rad = nothing
+        if cfg.max_mean_radiance < Inf
+            gid_r = _granule_id_from_retrieval_path(fpath)
+            if gid_r !== nothing
+                l1b_path = _resolve_l1b_path(cfg.l1b_dir, gid_r)
+                if l1b_path !== nothing
+                    mean_rad = _read_l1b_mean_radiance(l1b_path, cfg.lambda_min_nm, cfg.lambda_max_nm)
+                    mean_rad === nothing &&
+                        @warn "No matching red bands in L1B — mean radiance filter skipped" file=basename(l1b_path)
+                else
+                    @warn "L1B not found for granule — mean radiance filter skipped" granule=gid_r
+                end
+            end
+        end
+
         for idx in eachindex(lat)
             (isnan(lat[idx]) || isnan(lon[idx]) || isnan(sif[idx])) && continue
             flags_ok !== nothing && !flags_ok[idx] && continue
             if cfg.status_codes !== nothing && !(Int16(stat[idx]) in cfg.status_codes)
                 continue
             end
-            cfg.exclude_dark && dark[idx] != 0 && continue
-            if cfg.ocean_only
-                ocean[idx] == 0 && continue
-            elseif cfg.exclude_ocean
-                ocean[idx] != 0 && continue
-            end
             abs(sif[idx]) > cfg.max_sif  && continue
             !isnan(chi2[idx]) && chi2[idx] > cfg.max_chi2 && continue
+            # chi2 distribution bounds (lower + upper from theoretical chi2(df)/df)
+            if cfg.chi2_df !== nothing && !isnan(chi2[idx])
+                (chi2[idx] < cfg.chi2_lo || chi2[idx] > cfg.chi2_hi) && continue
+            end
+            # mean radiance threshold (independent of is_dark flag)
+            # keep only dim scenes (mean Lt ≤ max_mean_radiance) — rejects bright land/cloud
+            mean_rad !== nothing && mean_rad[idx] > cfg.max_mean_radiance && continue
 
             i, j = _cell(g, lon[idx], lat[idx])
             g.counts[i, j] += Int32(1)
@@ -511,8 +739,6 @@ function save_netcdf(g::Grid, win_start::Date, win_end::Date,
         else
             ds.attrib["status_codes"] = join(string.(sort(collect(cfg.status_codes))), ",")
         end
-        ds.attrib["ocean_only"]    = cfg.ocean_only ? "true" : "false"
-        ds.attrib["exclude_ocean"] = cfg.exclude_ocean ? "true" : "false"
         ds.attrib["exclude_missing_nflh"] = cfg.exclude_missing_nflh ? "true" : "false"
         if cfg.exclude_missing_nflh
             ds.attrib["l2aop_dir"] = cfg.l2aop_dir
@@ -527,6 +753,21 @@ function save_netcdf(g::Grid, win_start::Date, win_end::Date,
                 ds.attrib["l2_flags_reject"] = join(sort(names), ",")
             end
             isempty(cfg.l2aop_dir) || (ds.attrib["l2aop_dir"] = cfg.l2aop_dir)
+        end
+        # chi2 distribution filter metadata
+        if cfg.chi2_df !== nothing
+            ds.attrib["chi2_filter"] = "chi2(df=$(cfg.chi2_df)) p$(cfg.chi2_pct_lo)–p$(cfg.chi2_pct_hi): [$(round(cfg.chi2_lo, digits=4)), $(round(cfg.chi2_hi, digits=4))]"
+        else
+            ds.attrib["chi2_filter"] = "disabled"
+        end
+        # mean radiance filter metadata
+        if cfg.max_mean_radiance < Inf
+            ds.attrib["max_mean_radiance"]       = cfg.max_mean_radiance
+            ds.attrib["max_mean_radiance_units"]  = "W m-2 sr-1 um-1"
+            ds.attrib["radiance_window_nm"]       = "$(cfg.lambda_min_nm)–$(cfg.lambda_max_nm) nm"
+            isempty(cfg.l1b_dir) || (ds.attrib["l1b_dir"] = cfg.l1b_dir)
+        else
+            ds.attrib["max_mean_radiance"] = "disabled"
         end
         ds.attrib["history"]      = "Created " * string(now())
 
@@ -632,12 +873,7 @@ function main()
         println("  $(n_obs) valid soundings → $(n_valid) grid cell(s) with data")
         @info "Window complete" valid_cells=n_valid total_obs=n_obs n_files_read=n_read
         if n_obs == 0
-            hint = if cfg.ocean_only
-                "ocean_only=true but no is_ocean==1 pixels passed other filters; check retrieval watermask / batch_fit.ocean_mask_values"
-            else
-                "no pixels passed filters (status_codes, exclude_dark, l2_flags_reject, max_sif, max_chi2, …)"
-            end
-            @warn "Window produced zero observations" window_start=win_start window_end=win_end hint=hint
+            @warn "Window produced zero observations — no pixels passed filters (status_codes, l2_flags_reject, max_sif, max_chi2, chi2_df, max_mean_radiance, …)" window_start=win_start window_end=win_end
         end
 
         fpath = save_netcdf(g, win_start, win_end, cfg.output_dir, cfg)
