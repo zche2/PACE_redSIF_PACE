@@ -1,0 +1,62 @@
+# TROPOMI BD5 ↔ PACE OCI co-location pipeline config
+# Copy to config.yaml and adjust paths / window / filters.
+
+pace_dir: /home/zhe2/data/PACE/L1B_V3
+tropomi_dir: /kiwi-data/Data/groupMembers/zhe2/MyProjects/TROPOMI_SIF/ESA/L1/2025
+rsr_path: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_RSRs.nc
+snr_path: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt
+
+# All stage caches + final product land under this directory:
+#   pairs/  matches/  svd/  rsr/  products/matchup.nc
+output_dir: /home/zhe2/data/MyProjects/PACE_redSIF_PACE/TROPOMI_OCI_colocation/runs/july2025_d01-07
+
+year: 2025
+month: 7
+day_start: 1
+day_end: 7
+tropomi_product: OFFL   # OFFL | RPRO | BOTH
+pace_stride: 1
+pace_duration_min: 5
+
+# Granule pairing
+dt_max_min_granule: 60.0
+bbox_margin_deg: 0.5
+tropo_bbox_scan_stride: 40
+tropo_bbox_pix_stride: 20
+tropo_chunk_scans: 400
+
+# Pixel match (science cuts)
+max_dist_km: 2.5
+max_dt_min: 30.0
+lt_max_oci: 30.0
+lt_mask_wl_min_oci: 600.0
+pace_stride_pix: 150
+tropo_scan_stride: 2
+tropo_pix_stride: 2
+
+# Simulation / convolution
+oci_band_min: 660.0
+oci_band_max: 720.0
+clip_negative_rsr: true
+snr_fpa: Red
+snr_wl_min: 600.0
+snr_wl_max: 900.0
+add_noise: true
+noise_seed: 0
+
+# SVD training (intentionally looser than notebook dark cuts for domain transfer)
+svd:
+  sza_max_deg: 85.0
+  vza_max_deg: 85.0
+  lt_max: 80.0            # TROPOMI max Lt(λ≥lt_mask_wl_min); was 30 in notebook
+  lt_mask_wl_min: 660.0
+  wl_min: 660.0
+  wl_max: 720.0
+  n_wl: 300
+  max_n: 50000
+  n_pc: 10
+  mean_center: true
+  sample_stride: 1        # stride on geo-valid candidates before dark cut
+
+cache:
+  enabled: true
