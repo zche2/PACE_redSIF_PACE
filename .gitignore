@@ -14,4 +14,7 @@ Manifest.toml
 # archive & configs
 archive/
 visualize/
+
+# configs
 */configs*/
+*/config.run.yaml
