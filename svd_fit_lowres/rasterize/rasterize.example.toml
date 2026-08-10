@@ -1,0 +1,103 @@
+# Example config for rasterize_svd_retrievals.jl
+#
+# Usage:
+#   julia --project=. svd_fit_lowres/rasterize/rasterize_svd_retrievals.jl \
+#         svd_fit_lowres/rasterize/rasterize.example.toml
+#
+# Temporal windowing:
+#   Window centers step by chunk_frequency_days between start_date and end_date.
+#   Each window collects granules with sensing dates in [center - half, center + half].
+#   One output NetCDF per window: sif678_raster_<YYYYMMDD>_<YYYYMMDD>.nc
+
+[rasterize]
+input_dir            = "/home/zhe2/data/PACE/svd_retrieval_output"
+output_dir           = "/home/zhe2/data/PACE/svd_rasterized"
+start_date           = "2025-07-15"   # center of first window (YYYY-MM-DD)
+end_date             = "2025-07-16"   # center of last window  (YYYY-MM-DD)
+chunk_frequency_days = 2              # days between window centers
+half_chunk_days      = 15             # half-width of each window in days
+
+# Required when [rasterize.filters].l2_flags_reject is set.
+# L2 files matched exactly first, then on granule id ignoring last 2 time digits (seconds).
+l2aop_dir            = "/home/zhe2/data/PACE/L2_AOP_V3.1"
+
+# Required when [rasterize.filters].min_mean_radiance is set.
+# L1B files matched on granule timestamp (exact, then ignoring last 2 seconds).
+l1b_dir              = "/home/zhe2/data/PACE/L1B_V3"
+
+# Spectral fitting window — must match the retrieval config (lambda_min/max_nm).
+# Used to compute mean Lt for the min_mean_radiance filter.
+lambda_min_nm        = 640.0
+lambda_max_nm        = 756.0
+
+[rasterize.grid]
+# Grid spacing = 180 / resolution degrees.
+# resolution = 180  →  1.0° per cell  (360 × 180  grid)
+# resolution = 360  →  0.5° per cell  (720 × 360  grid)
+resolution = 1800
+
+[rasterize.filters]
+# --- Retrieval quality ---
+# status_codes: keep only pixels whose status_code is in this list.
+#
+# Code | Meaning
+# -----|-------------------------------------------------------------------
+#   0  | Ran all max_outer_steps, did not meet RMSE/dx tolerances
+#   1  | Converged (RMSE/dx tolerance or stalled LM near stationary)
+#   2  | LM inner loop never accepted a step
+#   3  | Never fit: missing spectrum, non-finite SZA, or scan-line fill
+#   4  | Exception inside lm_one_step
+#   5  | Excluded by dark filter
+#   6  | Excluded by ocean filter
+#   7  | Excluded by pixel_filter_vars eligibility check
+#
+# Typical:
+#   status_codes = [1]      — converged only (recommended)
+#   status_codes = [0, 1]   — converged + iteration cap
+status_codes = [0, 1]
+
+max_sif      = 5.0     # drop |sif_radiance_678nm| > threshold (W m⁻² sr⁻¹ µm⁻¹)
+# max_chi2     = Inf     # drop reduced_chi2 > threshold; omit or set Inf to disable
+
+# --- Chi2 distribution filter (physics-based, independent of l2_flags) ---
+# Keep pixels whose reduced_chi2 falls within the [chi2_pct_lo, chi2_pct_hi] percentile
+# range of the theoretical chi2(df)/df distribution, where:
+#   df = n_bands_in_window − n_state_vector_elements
+#      = (OCI red bands with lambda in [lambda_min_nm, lambda_max_nm]) − (dim "state" in retrieval file)
+#
+# The filter is activated by the presence of any chi2_* key in this section.
+# chi2_df is AUTO-DETECTED when omitted:
+#   reads "state" dimension from a sample retrieval file  (e.g. 23)
+#   counts red bands in [lambda_min_nm, lambda_max_nm] from the L1B file  (e.g. 83)
+#   → df = 83 − 23 = 60  → reduced_chi2 bounds ≈ [0.735, 1.311] at p=[5, 95]
+# Requires l1b_dir (set above) for auto-detection.
+#
+# Omit all chi2_* keys to disable this filter entirely.
+# chi2_df  = 60      # override only if auto-detection gives the wrong value
+chi2_pct_lo = 5.0    # lower percentile (default 5.0)
+chi2_pct_hi = 95.0   # upper percentile (default 95.0)
+
+# --- Maximum mean radiance filter (physics-based, independent of exclude_dark / ocean_only) ---
+# INCLUDE only pixels whose mean top-of-atmosphere radiance within [lambda_min_nm, lambda_max_nm]
+# is at or below this threshold (W m⁻² sr⁻¹ µm⁻¹).
+# Bright pixels (land, cloud, sunglint) are rejected; dim ocean-like scenes are kept.
+# Requires l1b_dir (set above).  Omit or set to Inf to disable.
+max_mean_radiance = 30.0
+
+# --- L2 AOP flag filter ---
+# Rejects pixels based on the l2_flags bitmask from the matching L2 OC_AOP file.
+# Requires l2aop_dir (set above).
+#
+# "ALL"              → only l2_flags == 0 passes (strictest; ~12% of pixels, near-perfect fits)
+# ["CLDICE","LAND"]  → reject if any listed flag is set; other flags tolerated
+# [9, 1]             → same using raw 0-based bit positions
+# omit key           → no l2_flags filter
+#
+# Named flags (bit):
+#   ATMFAIL(0)    LAND(1)        PRODWARN(2)    HIGLINT(3)     HILT(4)
+#   HISATZEN(5)   COASTZ(6)      STRAYLIGHT(8)  CLDICE(9)      COCCOLITH(10)
+#   TURBIDW(11)   HISOLZEN(12)   LOWLW(14)      CHLFAIL(15)    NAVWARN(16)
+#   ABSAER(17)    MAXAERITER(19) MODGLINT(20)   CHLWARN(21)    ATMWARN(22)
+#   OPSHAL(23)    SEAICE(24)     NAVFAIL(25)     FILTER(26)     BOWTIEDEL(28)
+#   HIPOL(29)     PRODFAIL(30)
+l2_flags_reject = ["LAND", "COASTZ", "HISOLZEN"]

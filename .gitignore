@@ -1,4 +1,3 @@
-# particular file forms
 *.jld2
 *.log
 *.out
@@ -7,14 +6,11 @@
 *.nc
 *.csv
 
-# folder
-PACE_proposal_materials/
-Manifest.toml
-
-# archive & configs
-archive/
-visualize/
-
-# configs
+# Local / machine-specific configs (commit only *.example.toml)
+svd_fit_lowres/global_fit_pipeline.toml
+**/nohup*
 */configs*/
 */config.run.yaml
+__pycache__/
+*.pyc
+.DS_Store
