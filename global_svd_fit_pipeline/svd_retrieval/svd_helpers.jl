@@ -58,6 +58,19 @@ function make_Se_inv_from_snr(
     return spdiagm(0 => @. 1.0 / sigma2)
 end
 
+"""Build measurement-noise inverse covariance from current model radiance `y` (or fixed σ)."""
+function _make_Se_inv(
+    y::AbstractVector{<:Real},
+    use_band_snr::Bool,
+    band_snr_coeffs,
+    meas_sigma::Float64,
+)
+    if use_band_snr && !isnothing(band_snr_coeffs)
+        return make_Se_inv_from_snr(y, band_snr_coeffs)
+    end
+    return spdiagm(0 => fill(1.0 / (meas_sigma^2), length(y)))
+end
+
 function _spdiag_invvar(sigma::AbstractVector{<:Real})
     σ = collect(Float64.(sigma))
     @. σ = clamp(abs(σ), 1e-12, 1e100)
@@ -537,11 +550,9 @@ function _run_one_svd_retrieval!(
     S_a_inv = _spdiag_invvar(σ_loc)
     x_curr = copy(x_a_loc)
     y_curr = fm(x_curr)
-    S_e_inv = if use_band_snr && !isnothing(band_snr_coeffs)
-        make_Se_inv_from_snr(y_curr, band_snr_coeffs)
-    else
-        spdiagm(0 => fill(1.0 / (meas_sigma^2), length(y_obs)))
-    end
+    # Rebuild S_e from current model radiance whenever reduced χ² is evaluated
+    # (matches lm_one_step weighting and final y_curr ≈ y_obs under good fits).
+    S_e_inv = _make_Se_inv(y_curr, use_band_snr, band_snr_coeffs, meas_sigma)
     rmse_prev = sqrt(mean((y_obs .- y_curr) .^ 2))
     dof = max(length(y_obs) - length(x_curr), 1)
     chi2_curr = dot(y_obs .- y_curr, S_e_inv * (y_obs .- y_curr))
@@ -607,6 +618,7 @@ function _run_one_svd_retrieval!(
         rmse_abs_change = abs(rmse_curr - rmse_prev)
         rmse_rel_change = rmse_abs_change / max(abs(rmse_prev), eps(Float64))
         rmse_prev = rmse_curr
+        S_e_inv = _make_Se_inv(y_curr, use_band_snr, band_snr_coeffs, meas_sigma)
         chi2_curr = dot(y_obs .- y_curr, S_e_inv * (y_obs .- y_curr))
         push!(redchi2_hist, chi2_curr / dof)
         if dx_rel < conv.dx_rel_tol ||
@@ -623,6 +635,9 @@ function _run_one_svd_retrieval!(
     x_out .= x_curr
     resid = y_obs .- y_curr
     rmse = sqrt(mean(resid .^ 2))
+    # Final reduced χ² / objective always use S_e(y_curr) at the returned state
+    S_e_inv = _make_Se_inv(y_curr, use_band_snr, band_snr_coeffs, meas_sigma)
+    chi2_curr = dot(resid, S_e_inv * resid)
     rchi2 = chi2_curr / dof
     obj = _cost_with_prior(y_obs, y_curr, x_curr, x_a_loc, S_e_inv, S_a_inv)
     return (converged = converged, status = status, n_steps = n_acc, rmse = rmse, reduced_chi2 = rchi2, objective = obj)
