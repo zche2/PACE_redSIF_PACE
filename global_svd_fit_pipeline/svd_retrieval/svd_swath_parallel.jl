@@ -288,6 +288,10 @@ function _create_output_dataset(
     defVar(ds, "sif_ev1", Float32, ("pixels", "scans"); comp...)
     defVar(ds, "sif_coeffs", Float32, ("pixels", "scans", "sif_nev"); comp...)
     defVar(ds, "sif_radiance_678nm", Float32, ("pixels", "scans"); comp...)
+    # Posterior covariance Σ = (Jᵀ Sₑ⁻¹ J + Sₐ⁻¹)⁻¹ at the final state (physical units).
+    v_spost = defVar(ds, "S_posterior", Float32, ("pixels", "scans", "state", "state"); comp...)
+    v_spost.attrib["long_name"] = "posterior covariance of retrieved state"
+    v_spost.attrib["formula"] = "inv(J' * Se_inv * J + Sa_inv) at final x_hat"
     defVar(ds, "is_dark", UInt8, ("pixels", "scans"); comp...)
     defVar(ds, "is_ocean", UInt8, ("pixels", "scans"); comp...)
     defVar(ds, "source_pixel_index", Int32, ("pixels",))
@@ -588,6 +592,7 @@ function _process_one_pixel_svd!(
     sif1_scan,
     sif_coeffs_scan,
     sif_678_scan,
+    spost_scan,
     dark_scan,
     ocean_scan,
 )
@@ -690,6 +695,7 @@ function _process_one_pixel_svd!(
     rmse_scan[i_pix_out] = Float32(stats.rmse)
     rchi2_scan[i_pix_out] = Float32(stats.reduced_chi2)
     obj_scan[i_pix_out] = Float32(stats.objective)
+    spost_scan[i_pix_out, :, :] .= Float32.(stats.S_posterior)
     sif_coeff = buf.x_tmp[layout.idx_sif]
     if length(sif_coeff) >= 1
         sif1_scan[i_pix_out] = Float32(sif_coeff[1])
@@ -720,6 +726,7 @@ function _flush_svd_tile!(
     sif1_scan::Vector{Float32},
     sif_coeffs_scan::Matrix{Float32},
     sif_678_scan::Vector{Float32},
+    spost_scan::Array{Float32, 3},
     dark_scan::Vector{UInt8},
     ocean_scan::Vector{UInt8},
     use_cuda::Bool,
@@ -782,6 +789,20 @@ function _flush_svd_tile!(
         conv_scan[io] = ret.converged[k] ? UInt8(1) : UInt8(0)
         status_scan[io] = ret.status[k]
         steps_scan[io] = Int16(ret.n_steps[k])
+        # Posterior covariance at final state (same formula as CPU `_run_one_svd_retrieval!`).
+        solar_eff = collect(view(s_t, :, k))
+        fm_k, _ = make_svd_forward_model_λ(
+            sh.λ_ctx,
+            solar_eff,
+            sh.PCs,
+            sh.sif_basis;
+            n_pc = sh.n_pc,
+            n_legendre = sh.n_legendre,
+            log_transform = sh.log_transform,
+        )
+        Jk = ForwardDiff.jacobian(fm_k, collect(xv))
+        Spost = inv(Matrix(Jk' * Se * Jk + S_a_inv))
+        spost_scan[io, :, :] .= Float32.(Spost)
         sc = xv[layout.idx_sif]
         if length(sc) >= 1
             sif1_scan[io] = Float32(sc[1])
@@ -913,6 +934,7 @@ function run_svd_orbit_full_nc_parallel(
     buf_sif1     = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
     buf_sifcoeff = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out, n_sif_ev) : nothing
     buf_sif678   = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
+    buf_spost    = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out, n_state, n_state) : nothing
     buf_dark     = deferred_write ? fill(UInt8(0),     n_pix_out, n_scan_out)          : nothing
     buf_ocean    = deferred_write ? fill(UInt8(0),     n_pix_out, n_scan_out)          : nothing
 
@@ -950,6 +972,7 @@ function run_svd_orbit_full_nc_parallel(
         sif1_scan = fill(Float32(NaN), length(pixel_range))
         sif_coeffs_scan = fill(Float32(NaN), length(pixel_range), n_sif_ev)
         sif_678_scan = fill(Float32(NaN), length(pixel_range))
+        spost_scan = fill(Float32(NaN), length(pixel_range), sh.layout.n_state, sh.layout.n_state)
         dark_scan = fill(UInt8(0), length(pixel_range))
         ocean_scan = fill(UInt8(0), length(pixel_range))
 
@@ -989,6 +1012,7 @@ function run_svd_orbit_full_nc_parallel(
                     sif1_scan,
                     sif_coeffs_scan,
                     sif_678_scan,
+                    spost_scan,
                     dark_scan,
                     ocean_scan,
                     true,
@@ -1076,6 +1100,7 @@ function run_svd_orbit_full_nc_parallel(
                     sif1_scan,
                     sif_coeffs_scan,
                     sif_678_scan,
+                    spost_scan,
                     dark_scan,
                     ocean_scan,
                 )
@@ -1108,6 +1133,7 @@ function run_svd_orbit_full_nc_parallel(
                     sif1_scan,
                     sif_coeffs_scan,
                     sif_678_scan,
+                    spost_scan,
                     dark_scan,
                     ocean_scan,
                 )
@@ -1125,6 +1151,7 @@ function run_svd_orbit_full_nc_parallel(
             buf_sif1[:, j_scan_out]        = sif1_scan
             buf_sifcoeff[:, j_scan_out, :] = sif_coeffs_scan
             buf_sif678[:, j_scan_out]      = sif_678_scan
+            buf_spost[:, j_scan_out, :, :] = spost_scan
             buf_dark[:, j_scan_out]        = dark_scan
             buf_ocean[:, j_scan_out]       = ocean_scan
         else
@@ -1138,6 +1165,7 @@ function run_svd_orbit_full_nc_parallel(
             ds_out["sif_ev1"][:, j_scan_out]           = sif1_scan
             ds_out["sif_coeffs"][:, j_scan_out, :]     = sif_coeffs_scan
             ds_out["sif_radiance_678nm"][:, j_scan_out] = sif_678_scan
+            ds_out["S_posterior"][:, j_scan_out, :, :] = spost_scan
             ds_out["is_dark"][:, j_scan_out]           = dark_scan
             ds_out["is_ocean"][:, j_scan_out]          = ocean_scan
         end
@@ -1162,6 +1190,7 @@ function run_svd_orbit_full_nc_parallel(
             ds_out["sif_ev1"][:, :]              = buf_sif1
             ds_out["sif_coeffs"][:, :, :]        = buf_sifcoeff
             ds_out["sif_radiance_678nm"][:, :]   = buf_sif678
+            ds_out["S_posterior"][:, :, :, :]    = buf_spost
             ds_out["is_dark"][:, :]              = buf_dark
             ds_out["is_ocean"][:, :]             = buf_ocean
         end

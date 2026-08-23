@@ -345,6 +345,7 @@ function lm_one_step_from_J(
             λ = clamp(λ * lambda_up, lambda_min, lambda_max)
         end
     end
+    # compute current chi2
     chi2_curr = dot(y_obs .- y_best, Se_inv * (y_obs .- y_best))
     return (
         x_next = x_best,
@@ -640,5 +641,19 @@ function _run_one_svd_retrieval!(
     chi2_curr = dot(resid, S_e_inv * resid)
     rchi2 = chi2_curr / dof
     obj = _cost_with_prior(y_obs, y_curr, x_curr, x_a_loc, S_e_inv, S_a_inv)
-    return (converged = converged, status = status, n_steps = n_acc, rmse = rmse, reduced_chi2 = rchi2, objective = obj)
+    # obtain the final Jacobian
+    J_final = jac_eval(x_curr)
+    # compute the final Hessian
+    H_obs_final = J_final' * S_e_inv * J_final
+    # compute current posterior sigma
+    S_post = inv(Matrix(H_obs_final + S_a_inv))
+    return (
+        converged = converged, 
+        status = status, 
+        n_steps = n_acc, 
+        rmse = rmse, 
+        reduced_chi2 = rchi2, 
+        objective = obj,
+        S_posterior = S_post,
+        )
 end
