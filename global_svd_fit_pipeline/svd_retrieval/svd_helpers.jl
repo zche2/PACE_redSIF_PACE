@@ -555,9 +555,10 @@ function _run_one_svd_retrieval!(
     # (matches lm_one_step weighting and final y_curr ≈ y_obs under good fits).
     S_e_inv = _make_Se_inv(y_curr, use_band_snr, band_snr_coeffs, meas_sigma)
     rmse_prev = sqrt(mean((y_obs .- y_curr) .^ 2))
-    dof = max(length(y_obs) - length(x_curr), 1)
     chi2_curr = dot(y_obs .- y_curr, S_e_inv * (y_obs .- y_curr))
-    redchi2_hist = Float64[chi2_curr / dof]
+    # Classical m−n DOF for in-loop reduced-χ² history (stall detection).
+    dof_loop = max(length(y_obs) - length(x_curr), 1)
+    redchi2_hist = Float64[chi2_curr / dof_loop]
     dx_rel_hist = Float64[]
     λ = lm.lambda0
     n_acc = 0
@@ -621,7 +622,7 @@ function _run_one_svd_retrieval!(
         rmse_prev = rmse_curr
         S_e_inv = _make_Se_inv(y_curr, use_band_snr, band_snr_coeffs, meas_sigma)
         chi2_curr = dot(y_obs .- y_curr, S_e_inv * (y_obs .- y_curr))
-        push!(redchi2_hist, chi2_curr / dof)
+        push!(redchi2_hist, chi2_curr / dof_loop)
         if dx_rel < conv.dx_rel_tol ||
            rmse_rel_change < conv.rmse_rel_tol ||
            rmse_abs_change < conv.rmse_abs_tol
@@ -639,7 +640,6 @@ function _run_one_svd_retrieval!(
     # Final reduced χ² / objective always use S_e(y_curr) at the returned state
     S_e_inv = _make_Se_inv(y_curr, use_band_snr, band_snr_coeffs, meas_sigma)
     chi2_curr = dot(resid, S_e_inv * resid)
-    rchi2 = chi2_curr / dof
     obj = _cost_with_prior(y_obs, y_curr, x_curr, x_a_loc, S_e_inv, S_a_inv)
     # obtain the final Jacobian
     J_final = jac_eval(x_curr)
@@ -647,6 +647,9 @@ function _run_one_svd_retrieval!(
     H_obs_final = J_final' * S_e_inv * J_final
     # compute current posterior sigma
     S_post = inv(Matrix(H_obs_final + S_a_inv))
+    # Averaging-kernel signal DOF: tr(A), A = S_post * H_obs.
+    dof = Float64(tr(S_post * H_obs_final))
+    rchi2 = chi2_curr / max(dof, eps(Float64))
     return (
         converged = converged, 
         status = status, 
@@ -655,5 +658,6 @@ function _run_one_svd_retrieval!(
         reduced_chi2 = rchi2, 
         objective = obj,
         S_posterior = S_post,
+        dof = dof,
         )
 end

@@ -284,6 +284,9 @@ function _create_output_dataset(
     defVar(ds, "n_steps", Int16, ("pixels", "scans"); comp...)
     defVar(ds, "rmse", Float32, ("pixels", "scans"); comp...)
     defVar(ds, "reduced_chi2", Float32, ("pixels", "scans"); comp...)
+    v_dof = defVar(ds, "dof", Float32, ("pixels", "scans"); comp...)
+    v_dof.attrib["long_name"] = "degrees of freedom for signal (trace of averaging kernel)"
+    v_dof.attrib["formula"] = "trace(S_post * H_obs) at final x_hat"
     defVar(ds, "objective", Float32, ("pixels", "scans"); comp...)
     defVar(ds, "sif_ev1", Float32, ("pixels", "scans"); comp...)
     defVar(ds, "sif_coeffs", Float32, ("pixels", "scans", "sif_nev"); comp...)
@@ -589,6 +592,7 @@ function _process_one_pixel_svd!(
     rmse_scan,
     rchi2_scan,
     obj_scan,
+    dof_scan,
     sif1_scan,
     sif_coeffs_scan,
     sif_678_scan,
@@ -695,6 +699,7 @@ function _process_one_pixel_svd!(
     rmse_scan[i_pix_out] = Float32(stats.rmse)
     rchi2_scan[i_pix_out] = Float32(stats.reduced_chi2)
     obj_scan[i_pix_out] = Float32(stats.objective)
+    dof_scan[i_pix_out] = Float32(stats.dof)
     spost_scan[i_pix_out, :, :] .= Float32.(stats.S_posterior)
     sif_coeff = buf.x_tmp[layout.idx_sif]
     if length(sif_coeff) >= 1
@@ -723,6 +728,7 @@ function _flush_svd_tile!(
     rmse_scan::Vector{Float32},
     rchi2_scan::Vector{Float32},
     obj_scan::Vector{Float32},
+    dof_scan::Vector{Float32},
     sif1_scan::Vector{Float32},
     sif_coeffs_scan::Matrix{Float32},
     sif_678_scan::Vector{Float32},
@@ -765,7 +771,6 @@ function _flush_svd_tile!(
         use_cuda = use_cuda,
     )
     Yhat = predict_svd_batched(x_out, s_t, sh.PCs, sh.sif_basis, sh.leg_basis, sh.log_transform, layout)
-    dof = max(nλ - n_state, 1)
     for k in 1:K
         io = idx_out[k]
         y_o = view(y_t, :, k)
@@ -783,13 +788,12 @@ function _flush_svd_tile!(
         rm = sqrt(mean(resid .^ 2))
         χ = dot(resid, Se * resid)
         rmse_scan[io] = Float32(rm)
-        rchi2_scan[io] = Float32(χ / dof)
         obj_scan[io] = Float32(_cost_with_prior(collect(y_o), collect(y_m), collect(xv), collect(x_a), Se, S_a_inv))
         state_scan[io, :] .= Float32.(xv)
         conv_scan[io] = ret.converged[k] ? UInt8(1) : UInt8(0)
         status_scan[io] = ret.status[k]
         steps_scan[io] = Int16(ret.n_steps[k])
-        # Posterior covariance at final state (same formula as CPU `_run_one_svd_retrieval!`).
+        # Posterior covariance and OE DOF at final state (same as CPU `_run_one_svd_retrieval!`).
         solar_eff = collect(view(s_t, :, k))
         fm_k, _ = make_svd_forward_model_λ(
             sh.λ_ctx,
@@ -801,8 +805,12 @@ function _flush_svd_tile!(
             log_transform = sh.log_transform,
         )
         Jk = ForwardDiff.jacobian(fm_k, collect(xv))
-        Spost = inv(Matrix(Jk' * Se * Jk + S_a_inv))
+        H_obs = Jk' * Se * Jk
+        Spost = inv(Matrix(H_obs + S_a_inv))
         spost_scan[io, :, :] .= Float32.(Spost)
+        dof_k = Float64(tr(Spost * H_obs))
+        dof_scan[io] = Float32(dof_k)
+        rchi2_scan[io] = Float32(χ / max(dof_k, eps(Float64)))
         sc = xv[layout.idx_sif]
         if length(sc) >= 1
             sif1_scan[io] = Float32(sc[1])
@@ -930,6 +938,7 @@ function run_svd_orbit_full_nc_parallel(
     buf_steps    = deferred_write ? fill(Int16(0),     n_pix_out, n_scan_out)          : nothing
     buf_rmse     = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
     buf_rchi2    = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
+    buf_dof      = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
     buf_obj      = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
     buf_sif1     = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
     buf_sifcoeff = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out, n_sif_ev) : nothing
@@ -968,6 +977,7 @@ function run_svd_orbit_full_nc_parallel(
         steps_scan = fill(Int16(0), length(pixel_range))
         rmse_scan = fill(Float32(NaN), length(pixel_range))
         rchi2_scan = fill(Float32(NaN), length(pixel_range))
+        dof_scan = fill(Float32(NaN), length(pixel_range))
         obj_scan = fill(Float32(NaN), length(pixel_range))
         sif1_scan = fill(Float32(NaN), length(pixel_range))
         sif_coeffs_scan = fill(Float32(NaN), length(pixel_range), n_sif_ev)
@@ -1009,6 +1019,7 @@ function run_svd_orbit_full_nc_parallel(
                     rmse_scan,
                     rchi2_scan,
                     obj_scan,
+                    dof_scan,
                     sif1_scan,
                     sif_coeffs_scan,
                     sif_678_scan,
@@ -1097,6 +1108,7 @@ function run_svd_orbit_full_nc_parallel(
                     rmse_scan,
                     rchi2_scan,
                     obj_scan,
+                    dof_scan,
                     sif1_scan,
                     sif_coeffs_scan,
                     sif_678_scan,
@@ -1130,6 +1142,7 @@ function run_svd_orbit_full_nc_parallel(
                     rmse_scan,
                     rchi2_scan,
                     obj_scan,
+                    dof_scan,
                     sif1_scan,
                     sif_coeffs_scan,
                     sif_678_scan,
@@ -1147,6 +1160,7 @@ function run_svd_orbit_full_nc_parallel(
             buf_steps[:, j_scan_out]       = steps_scan
             buf_rmse[:, j_scan_out]        = rmse_scan
             buf_rchi2[:, j_scan_out]       = rchi2_scan
+            buf_dof[:, j_scan_out]         = dof_scan
             buf_obj[:, j_scan_out]         = obj_scan
             buf_sif1[:, j_scan_out]        = sif1_scan
             buf_sifcoeff[:, j_scan_out, :] = sif_coeffs_scan
@@ -1161,6 +1175,7 @@ function run_svd_orbit_full_nc_parallel(
             ds_out["n_steps"][:, j_scan_out]           = steps_scan
             ds_out["rmse"][:, j_scan_out]              = rmse_scan
             ds_out["reduced_chi2"][:, j_scan_out]      = rchi2_scan
+            ds_out["dof"][:, j_scan_out]               = dof_scan
             ds_out["objective"][:, j_scan_out]         = obj_scan
             ds_out["sif_ev1"][:, j_scan_out]           = sif1_scan
             ds_out["sif_coeffs"][:, j_scan_out, :]     = sif_coeffs_scan
@@ -1186,6 +1201,7 @@ function run_svd_orbit_full_nc_parallel(
             ds_out["n_steps"][:, :]              = buf_steps
             ds_out["rmse"][:, :]                 = buf_rmse
             ds_out["reduced_chi2"][:, :]         = buf_rchi2
+            ds_out["dof"][:, :]                  = buf_dof
             ds_out["objective"][:, :]            = buf_obj
             ds_out["sif_ev1"][:, :]              = buf_sif1
             ds_out["sif_coeffs"][:, :, :]        = buf_sifcoeff
