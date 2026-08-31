@@ -1,0 +1,53 @@
+# Copy to global_fit_pipeline.toml (or configs/) and edit paths.
+#
+# [general] — shared directories for Python download and Julia retrieval (required).
+#
+# --- Download ---
+#   python global_svd_fit_pipeline/download/download_pace_products.py global_fit_pipeline/global_fit_pipeline.toml
+#
+# --- SVD retrieval ---
+#   julia --project=. -t 2 global_svd_fit_pipeline/svd_retrieval/run_svd_fit.jl global_fit_pipeline/global_fit_pipeline.toml
+#
+# Retrieval physics: [data], [spectral], [fit], [batch_fit], …
+# SVD swath retrieval is band-native (interim red bands + [spectral] λ window):
+# no high-res grid, no O₂/H₂O LUT or kernel regeneration.
+# Band SNR uses [data].pace_snr_file when [fit].use_band_snr or [kernel].use_band_snr is true.
+# [download], [general], and [svd_retrieval] are orchestration-only;
+# Julia builds the effective retrieval config in memory (no merged TOML).
+
+# =============================================================================
+[general]
+# Product roots; download_pace_products.py writes granules under <root>/YYYY/MM/DD/
+# (same as /kiwi-data/Data/satellite/PACE_OCI/L1B_V3). Flat roots still work for retrieval.
+L1B_dir   = "/kiwi-data/Data/satellite/PACE_OCI/L1B_V3"
+L2AOP_dir = "/kiwi-data/Data/satellite/PACE_OCI/L2_AOP_V3.2"
+L2BGC_dir = "/kiwi-data/Data/satellite/PACE_OCI/L2_BGC_V3.2"
+
+# =============================================================================
+[download.temporal]
+start = "2025-02-01T00:00:00"
+end   = "2025-03-31T23:59:59"
+
+[download.spatial]
+# use_bounding_box = false
+# bounding_box = [-42.0, -55.0, -35.0, -49.5]
+
+[download.collections]
+l1b_short_name    = "PACE_OCI_L1B_SCI"
+l1b_version       = "3"
+l2_bgc_short_name = "PACE_OCI_L2_BGC"
+l2_bgc_version    = "3.2"
+l2_aop_short_name = "PACE_OCI_L2_AOP"
+l2_aop_version    = "3.2"
+
+# Optional overrides for download destinations.
+# If omitted, [general] dirs are used: l1b_dir, l2_aop_dir, l2_bgc_dir.
+[download.paths]
+# l1b_dir   = "/custom/L1B"
+# l2_bgc_dir = "/custom/L2_BGC"
+# l2_aop_dir = "/custom/L2_AOP"
+
+[download.options]
+# login_strategy = "all"
+skip_existing = true
+# cloud_cover = [0, 70]

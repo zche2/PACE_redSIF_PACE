@@ -36,8 +36,16 @@ end
 
 function _granule_id_from_interim_path(interim_nc::AbstractString)
     stem = splitext(basename(interim_nc))[1]
-    startswith(stem, "interim_") && return stem[8:end]
+    startswith(stem, "interim_") && return stem[(ncodeunits("interim_") + 1):end]
     return stem
+end
+
+"""`root/YYYY/MM/DD` from granule id `YYYYMMDDTHHMMSS` (same layout as L1B downloads)."""
+function _output_day_subdir(root::AbstractString, granule_id::AbstractString)
+    gid = String(granule_id)
+    length(gid) >= 8 && all(isdigit, gid[1:8]) ||
+        error("granule_id missing YYYYMMDD prefix for output layout: $(repr(gid))")
+    return joinpath(root, gid[1:4], gid[5:6], gid[7:8])
 end
 
 """Find a variable in NetCDF4 child groups or at dataset root (PACE L1B often uses e.g. `sensor_band_parameters/red_solar_irradiance`)."""
@@ -311,7 +319,9 @@ function _svd_output_dir(cfg::AbstractDict)
 end
 
 function _make_svd_output_path(interim_path::AbstractString, cfg::Dict)
-    out_dir = _svd_output_dir(cfg)
+    out_root = _svd_output_dir(cfg)
+    granule_id = _granule_id_from_interim_path(interim_path)
+    out_dir = _output_day_subdir(out_root, granule_id)
     mkpath(out_dir)
     batch_cfg = get(cfg, "batch_fit", Dict{String, Any}())
     suffix = String(get(batch_cfg, "output_suffix_parallel", "_svd_retrieval_full_parallel.nc"))
@@ -327,15 +337,20 @@ end
 
 """
 Find an existing retrieval file for `granule_id` under `[batch_fit].output_dir`.
+Looks in `output_dir/YYYY/MM/DD/` first, then flat `output_dir` (legacy).
 Matches `interim_<granule_id>_*.nc` (any suffix). Returns `nothing` if none.
 """
 function svd_find_existing_retrieval(granule_id::AbstractString, cfg::AbstractDict)
-    out_dir = _svd_output_dir(cfg)
-    isdir(out_dir) || return nothing
+    out_root = _svd_output_dir(cfg)
+    isdir(out_root) || return nothing
     pattern = "interim_$(granule_id)_*.nc"
-    files = Glob.glob(pattern, out_dir)
-    isempty(files) && return nothing
-    return String(sort(files)[1])
+    day_dir = _output_day_subdir(out_root, granule_id)
+    for search_dir in (day_dir, out_root)
+        isdir(search_dir) || continue
+        files = Glob.glob(pattern, search_dir)
+        isempty(files) || return String(sort(files)[1])
+    end
+    return nothing
 end
 
 function _read_l1b_extras(

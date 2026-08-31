@@ -11,6 +11,7 @@ Usage:
         global_fit_pipeline/rasterize/rasterize.example.toml
 
 Input files must match:  interim_<YYYYMMDDTHHmmss>_svd_retrieval_*.nc
+  under input_dir/ or input_dir/YYYY/MM/DD/ (same layout as SVD retrieval output).
 Output files are named:  sif678_raster_<YYYYMMDD>_<YYYYMMDD>.nc
 Filters: [rasterize.filters].status_codes = [1, ...] (or legacy valid_status_only).
          [rasterize.filters].l2_flags_reject = "ALL" | ["FLAG1","FLAG2"] | omit
@@ -190,11 +191,14 @@ function parse_config(path::String)::RasterConfig
         else
             # Auto-detect: n_bands_in_window − n_state from a sample retrieval + L1B file
             sample_f = nothing
-            for fname in sort(readdir(input_dir))
-                if startswith(fname, "interim_") && endswith(fname, ".nc")
-                    sample_f = joinpath(input_dir, fname)
-                    break
+            for (root, _dirs, files) in walkdir(input_dir)
+                for fname in sort(files)
+                    if startswith(fname, "interim_") && endswith(fname, ".nc")
+                        sample_f = joinpath(root, fname)
+                        break
+                    end
                 end
+                sample_f !== nothing && break
             end
             n_state = sample_f !== nothing ? _infer_n_state_from_retrieval(sample_f) : nothing
             n_bands = nothing
@@ -202,8 +206,8 @@ function parse_config(path::String)::RasterConfig
                 m = match(r"^interim_(\d{8}T\d{6})_svd_retrieval_", basename(sample_f))
                 if m !== nothing
                     gid = String(m.captures[1])
-                    l1b_cand = joinpath(l1b_dir, "PACE_OCI.$(gid).L1B.V3.nc")
-                    isfile(l1b_cand) || (l1b_cand = "")
+                    l1b_cand = _resolve_l1b_path(l1b_dir, gid)
+                    l1b_cand = l1b_cand === nothing ? "" : l1b_cand
                     if !isempty(l1b_cand)
                         n_bands = _count_window_bands_from_l1b(l1b_cand, lambda_min_nm, lambda_max_nm)
                     end
@@ -590,16 +594,22 @@ function _read_l2aop_masks(
     return _align(nflh_raw), _align(flags_raw)
 end
 
-"""Return Dict{Date, Vector{String}}: sensing date → list of matching file paths."""
+"""Return Dict{Date, Vector{String}}: sensing date → list of matching file paths.
+
+Accepts flat `input_dir/interim_*.nc` (legacy) and dated
+`input_dir/YYYY/MM/DD/interim_*.nc` (current retrieval layout).
+"""
 function discover_granules(input_dir::String)::Dict{Date, Vector{String}}
     isdir(input_dir) || _die("input_dir not found: $input_dir")
     date_map = Dict{Date, Vector{String}}()
-    for fname in readdir(input_dir)
-        m = match(_GRANULE_RE, fname)
-        m === nothing && continue
-        d = Date(m.captures[1], "yyyymmdd")
-        fpath = joinpath(input_dir, fname)
-        push!(get!(date_map, d, String[]), fpath)
+    for (root, _dirs, files) in walkdir(input_dir)
+        for fname in files
+            m = match(_GRANULE_RE, fname)
+            m === nothing && continue
+            d = Date(m.captures[1], "yyyymmdd")
+            fpath = joinpath(root, fname)
+            push!(get!(date_map, d, String[]), fpath)
+        end
     end
     return date_map
 end

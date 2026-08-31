@@ -10,7 +10,7 @@ Copy `[global_fit_pipeline.example.toml](global_fit_pipeline.example.toml)` to `
 
 - `**[general]**` — `**L1B_dir**`, `**L2AOP_dir**`, `**L2BGC_dir**` shared by download and SVD retrieval (required for retrieval; download uses these when `[download.paths]` leaves a slot empty). Download writes granules under `<dir>/YYYY/MM/DD/` (kiwi-style); retrieval accepts that layout or a flat directory.
 - `**[download.*]**` — earthaccess temporal/spatial/collections/paths/options.
-- `**[svd_retrieval]**` — `**mode**`: `granule` (`**granule_id**`), `date` (`**date**` = `YYYYMMDD`), or `dates` (explicit `**dates**` list *or* `**date_start*`* + `**date_end**` with optional `**date_interval_days**`); optional `**pixel_*` / `scan_***`, `**output_dir**`, `**interim_dir**`, `**skip_existing**` (default `false`; when `true`, skip if any `interim_<granule_id>_*.nc` exists under `output_dir`, regardless of `output_suffix_parallel`), `**show_progress**` (default on when stdout is a TTY: granule bar per calendar day + scan bar per granule; safe with `**parallel_pixels**` / `**julia -t N**` because only the serial scan loop updates the bar), `**parallel_pixels**` (+ `**julia -t N**`); optional GPU tile retrieval `**use_gpu**`, `**gpu_tile_pixels**` (CUDA; CPU fallback if unavailable). Granules run **sequentially** in one process (HDF5/NetCDF are not safe with multi-threaded concurrent granules); use several Julia jobs for multi-granule throughput if needed.
+- `**[svd_retrieval]**` — `**mode**`: `granule` (`**granule_id**`), `date` (`**date**` = `YYYYMMDD`), or `dates` (explicit `**dates**` list *or* `**date_start*`* + `**date_end**` with optional `**date_interval_days**`); optional `**pixel_*` / `scan_***`, `**output_dir**` (retrievals land under `output_dir/YYYY/MM/DD/`), `**interim_dir**`, `**skip_existing**` (default `false`; when `true`, skip if any `interim_<granule_id>_*.nc` exists under `output_dir/YYYY/MM/DD/` or flat `output_dir`, regardless of `output_suffix_parallel`), `**show_progress**` (default on when stdout is a TTY: granule bar per calendar day + scan bar per granule; safe with `**parallel_pixels**` / `**julia -t N**` because only the serial scan loop updates the bar), `**parallel_pixels**` (+ `**julia -t N**`); optional GPU tile retrieval `**use_gpu**`, `**gpu_tile_pixels**` (CUDA; CPU fallback if unavailable). Granules run **sequentially** in one process (HDF5/NetCDF are not safe with multi-threaded concurrent granules); use several Julia jobs for multi-granule throughput if needed.
 - **Retrieval tables** — `[data]`, `[spectral]`, `[fit]`, `[fit.svd]`, `[batch_fit]`, … (see example). SVD retrieval uses **only** interim red bands and `**[spectral]`** λ bounds (no high-res LUT). Requires `**[data].summer_nc**`, `**winter_nc**`, `**sif_file**`, and (if band SNR is on) `**pace_snr_file**`. SNR toggle: `**[fit].use_band_snr**` or fallback `**[kernel].use_band_snr**`.
 
 ## Downloading inputs (Python)
@@ -29,7 +29,7 @@ Preprocess/merge → per-pixel SVD transmittance LM on **sorted interim red band
 julia --project=. -t 8 global_fit_pipeline/svd_retrieval/run_svd_fit.jl global_fit_pipeline/global_fit_pipeline.toml
 ```
 
-Outputs NetCDF under `[svd_retrieval].output_dir` with suffix `[batch_fit].output_suffix_parallel`, with variables aligned to the batch-fit swath style (`x_hat`, diagnostics, `state_names_csv`).
+Outputs NetCDF under `[svd_retrieval].output_dir/YYYY/MM/DD/` with suffix `[batch_fit].output_suffix_parallel`, with variables aligned to the batch-fit swath style (`x_hat`, diagnostics, `state_names_csv`).
 
 The tropomi helper [`fetch_pace_earthaccess.py`](../toolbox/pace_tropomi_coincidence/fetch_pace_earthaccess.py) still uses **environment-only** login.
 
@@ -86,7 +86,7 @@ julia --project=. global_fit_pipeline/rasterize/rasterize_svd_retrievals.jl \
   global_fit_pipeline/rasterize/rasterize.example.toml
 ```
 
-**Inputs:** granules in `input_dir` matching `interim_<YYYYMMDDTHHmmss>_svd_retrieval_*.nc` (same files as SVD retrieval output). Optional `[rasterize].l2aop_dir` points at PACE L2 OC_AOP files for `nflh` masking (`PACE_OCI.<granule_id>.L2.OC_AOP.*.nc`). If the exact L2 filename is missing, rasterize falls back to the same granule time **ignoring the last two digits** (seconds), e.g. retrieval `…211157` can use L2 `…211148`.
+**Inputs:** granules in `input_dir` matching `interim_<YYYYMMDDTHHmmss>_svd_retrieval_*.nc` (same files as SVD retrieval output), either flat under `input_dir/` or under `input_dir/YYYY/MM/DD/`. Optional `[rasterize].l2aop_dir` points at PACE L2 OC_AOP files for `nflh` masking (`PACE_OCI.<granule_id>.L2.OC_AOP.*.nc`). If the exact L2 filename is missing, rasterize falls back to the same granule time **ignoring the last two digits** (seconds), e.g. retrieval `…211157` can use L2 `…211148`.
 
 **Time windows:** window centers run from `start_date` to `end_date` every `chunk_frequency_days` days. Each window spans `[center − half_chunk_days, center + half_chunk_days]` and includes all granules whose sensing date falls in that range.
 

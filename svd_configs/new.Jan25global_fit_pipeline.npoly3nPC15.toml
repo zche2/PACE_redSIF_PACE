@@ -3,10 +3,10 @@
 # [general] — shared directories for Python download and Julia retrieval (required).
 #
 # --- Download ---
-#   python global_fit_pipeline/download/download_pace_products.py global_fit_pipeline/global_fit_pipeline.toml
+#   python global_svd_fit_pipeline/download/download_pace_products.py global_fit_pipeline/global_fit_pipeline.toml
 #
 # --- SVD retrieval ---
-#   julia --project=. -t 2 global_fit_pipeline/svd_retrieval/run_svd_fit.jl global_fit_pipeline/global_fit_pipeline.toml
+#   julia --project=. -t 2 global_svd_fit_pipeline/svd_retrieval/run_svd_fit.jl global_fit_pipeline/global_fit_pipeline.toml
 #
 # Retrieval physics: [data], [spectral], [fit], [batch_fit], …
 # SVD swath retrieval is band-native (interim red bands + [spectral] λ window):
@@ -19,14 +19,14 @@
 [general]
 # Product roots; download_pace_products.py writes granules under <root>/YYYY/MM/DD/
 # (same as /kiwi-data/Data/satellite/PACE_OCI/L1B_V3). Flat roots still work for retrieval.
-L1B_dir   = "/path/to/PACE/L1B"
-L2AOP_dir = "/path/to/PACE/L2_AOP"
-L2BGC_dir = "/path/to/PACE/L2_BGC"
+L1B_dir   = "/kiwi-data/Data/satellite/PACE_OCI/L1B_V3"
+L2AOP_dir = "/kiwi-data/Data/satellite/PACE_OCI/L2_AOP_V3.2"
+L2BGC_dir = "/kiwi-data/Data/satellite/PACE_OCI/L2_BGC_V3.2"
 
 # =============================================================================
 [download.temporal]
-start = "2025-07-01T00:00:00"
-end   = "2025-07-31T23:59:59"
+start = "2025-01-01T00:00:00"
+end   = "2025-01-31T23:59:59"
 
 [download.spatial]
 # use_bounding_box = false
@@ -67,8 +67,8 @@ mode = "dates"
 # granule_id = "20250701T000124"
 
 # --- mode = "dates" ---
-date_start         = "20250703"
-date_end           = "20250707"
+date_start         = "20250101"
+date_end           = "20250115"
 date_interval_days = 1
 # dates = ["20250701", "20250702"]
 
@@ -78,8 +78,8 @@ date_interval_days = 1
 # scan_start  = 1
 # scan_end    = 100
 
-output_dir  = "/path/to/output"   # retrievals written under output_dir/YYYY/MM/DD/
-interim_dir = "/path/to/interim"
+output_dir  = "/home/zhe2/data/PACE/new_svd_retrieval_output"   # retrievals written under output_dir/YYYY/MM/DD/
+interim_dir = "/home/zhe2/data/PACE/svd_retrieval_interim"
 
 # Granules run sequentially inside one process (HDF5/NetCDF are not safe with
 # concurrent granule threads). Use parallel_pixels + `julia -t N` for intra-granule parallelism.
@@ -102,13 +102,13 @@ gpu_tile_pixels  = 256   # reduce if out-of-memory; VRAM scales with n_λ × n_s
 
 # =============================================================================
 [data]
-base_dir    = "/path/to/data"
+base_dir    = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE"
 # SVD transmittance PCs (NetCDFs on OCI band grid);
 # interpolated to interim red_wavelength bands inside (λ_min, λ_max).
-summer_nc      = "/path/to/transmittance_summer.nc"
-winter_nc      = "/path/to/transmittance_winter.nc"
-sif_file       = "SIF_singular_vector.jld2"
-pace_snr_file  = "PACE_OCI_L1BLUT_baseline_SNR_1.1.txt"
+summer_nc      = "convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc"
+winter_nc      = "convolved_transmittance/transmittance_winter_FineWvResModel_FullRange_Aug01.nc"
+sif_file       = "Files_in_use/SIF_singular_vector.jld2"
+pace_snr_file  = "Files_in_use/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt"
 
 [numerics]
 float_type = "Float64"
@@ -176,7 +176,7 @@ pc_prior_sigma_scale         = 1.0
 # =============================================================================
 [batch_fit]
 # Output filename suffix (appended to interim granule stem).
-output_suffix_parallel = "_svd_retrieval_full_gpu.nc"
+output_suffix_parallel = "_svd_retrieval.nc"
 
 # GPU keys here are overridden by [svd_retrieval] values when present.
 # Pixels must have non-missing values for each listed 2D variable in the interim file.
