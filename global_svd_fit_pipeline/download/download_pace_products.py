@@ -12,15 +12,24 @@ Config layout:
     omits l1b_dir / l2_aop_dir / l2_bgc_dir.
   • [download.*] — temporal, spatial, collections, paths, options.
 
+Downloads land under ``<product_dir>/YYYY/MM/DD/`` (same layout as
+``/kiwi-data/Data/satellite/PACE_OCI/L1B_V3``), using the granule timestamp in
+the PACE OCI filename (``PACE_OCI.YYYYMMDDTHHMMSS....nc``).
+
 Config [download.options] login_strategy (default all): environment → netrc → interactive.
 """
 from __future__ import annotations
 
 import inspect
 import os
+import re
 import sys
 import tomllib
+from collections import defaultdict
 from pathlib import Path
+
+# PACE OCI producer granule id: PACE_OCI.YYYYMMDDTHHMMSS.<product>...
+_PACE_TS_RE = re.compile(r"PACE_OCI\.(\d{4})(\d{2})(\d{2})T\d{6}", re.IGNORECASE)
 
 
 def _die(msg: str, code: int = 1) -> None:
@@ -72,6 +81,75 @@ def _download_force_kw(download_fn, force: bool) -> dict:
     if "force" not in sig.parameters:
         return {}
     return {"force": force}
+
+
+def _pace_yyyymmdd_from_text(text: str) -> str | None:
+    m = _PACE_TS_RE.search(text)
+    if m is None:
+        return None
+    return f"{m.group(1)}{m.group(2)}{m.group(3)}"
+
+
+def _granule_identity_strings(granule) -> list[str]:
+    """Collect strings that usually contain ``PACE_OCI.YYYYMMDDTHHMMSS``."""
+    out: list[str] = []
+    for attr in ("native_id", "granule_ur", "id"):
+        v = getattr(granule, attr, None)
+        if v:
+            out.append(str(v))
+    try:
+        meta = granule["meta"]
+        if isinstance(meta, dict):
+            for key in ("native-id", "concept-id", "provider-id"):
+                if meta.get(key):
+                    out.append(str(meta[key]))
+    except Exception:
+        pass
+    try:
+        umm = granule["umm"]
+        if isinstance(umm, dict):
+            for key in ("GranuleUR", "ProducerGranuleId"):
+                if umm.get(key):
+                    out.append(str(umm[key]))
+            # RelatedURLs often end with the .nc basename
+            for ru in umm.get("RelatedUrls") or []:
+                if isinstance(ru, dict) and ru.get("URL"):
+                    out.append(str(ru["URL"]))
+    except Exception:
+        pass
+    try:
+        for link in granule.data_links():
+            out.append(str(link))
+    except Exception:
+        pass
+    out.append(str(granule))
+    return out
+
+
+def _granule_yyyymmdd(granule) -> str:
+    for text in _granule_identity_strings(granule):
+        day = _pace_yyyymmdd_from_text(text)
+        if day is not None:
+            return day
+    _die(
+        "Could not parse PACE OCI YYYYMMDD from granule metadata/URLs. "
+        f"granule={granule!r}"
+    )
+    raise AssertionError("unreachable")
+
+
+def _day_subdir(root: Path, yyyymmdd: str) -> Path:
+    """``root/YYYY/MM/DD`` from an 8-digit calendar day."""
+    if len(yyyymmdd) != 8 or not yyyymmdd.isdigit():
+        _die(f"internal: bad yyyymmdd {yyyymmdd!r}")
+    return root / yyyymmdd[:4] / yyyymmdd[4:6] / yyyymmdd[6:8]
+
+
+def _group_granules_by_day(granules) -> dict[str, list]:
+    by_day: dict[str, list] = defaultdict(list)
+    for g in granules:
+        by_day[_granule_yyyymmdd(g)].append(g)
+    return dict(sorted(by_day.items()))
 
 
 def main() -> None:
@@ -199,7 +277,7 @@ def main() -> None:
         except Exception as e:
             _die(f"[{label}] search_data failed: {e}")
         n = len(granules) if granules else 0
-        print(f"[{label}] {sn} — found {n} granule(s) → {out_dir}")
+        print(f"[{label}] {sn} — found {n} granule(s) → {out_dir}/YYYY/MM/DD/")
         if not granules:
             continue
         dl_kw = _download_force_kw(earthaccess.download, force_redownload)
@@ -210,14 +288,27 @@ def main() -> None:
                 f"[{label}] skip_existing={skip_existing} "
                 "(earthaccess.download has no force=; relying on library defaults)"
             )
-        try:
-            files = earthaccess.download(granules, local_path=str(out_dir), **dl_kw)
-        except Exception as e:
-            _die(f"[{label}] download failed: {e}")
-        if files is None:
-            files = []
+
+        by_day = _group_granules_by_day(granules)
+        print(f"[{label}] {len(by_day)} calendar day folder(s)")
+        n_local = 0
+        for yyyymmdd, day_granules in by_day.items():
+            day_dir = _day_subdir(out_dir, yyyymmdd)
+            day_dir.mkdir(parents=True, exist_ok=True)
+            print(
+                f"[{label}] {yyyymmdd[:4]}/{yyyymmdd[4:6]}/{yyyymmdd[6:8]} — "
+                f"{len(day_granules)} granule(s) → {day_dir}"
+            )
+            try:
+                files = earthaccess.download(day_granules, local_path=str(day_dir), **dl_kw)
+            except Exception as e:
+                _die(f"[{label}] download failed for {yyyymmdd}: {e}")
+            if files is None:
+                files = []
+            n_local += len(files)
+
         print(
-            f"[{label}] {len(files)} local file path(s) "
+            f"[{label}] {n_local} local file path(s) "
             "(present files are reused when skip_existing=true)"
         )
 

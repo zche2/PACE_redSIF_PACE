@@ -176,9 +176,9 @@ function lm_one_step(
     n_try = 0
     for _ in 1:max_inner
         n_try += 1
-        A = Hs_obs + λ * S_as
+        A = Hs_obs + (1 + λ) * S_as
         cond_A_try = cond(Matrix(A))
-        rhs = S * (g_obs .+ λ .* g_pri)
+        rhs = S * (g_obs .+ g_pri)
         du = A \ rhs
         dx = S * du
         r_lin = r0 .- J * dx
@@ -303,9 +303,9 @@ function lm_one_step_from_J(
     n_try = 0
     for _ in 1:max_inner
         n_try += 1
-        A = Hs_obs + λ * S_as
+        A = Hs_obs + (1 + λ) * S_as
         cond_A_try = cond(Matrix(A))
-        rhs = S * (g_obs .+ λ .* g_pri)
+        rhs = S * (g_obs .+ g_pri)
         du = A \ rhs
         dx = S * du
         r_lin = r0 .- J * dx
@@ -647,9 +647,11 @@ function _run_one_svd_retrieval!(
     H_obs_final = J_final' * S_e_inv * J_final
     # compute current posterior sigma
     S_post = inv(Matrix(H_obs_final + S_a_inv))
-    # Averaging-kernel signal DOF: tr(A), A = S_post * H_obs.
-    dof = Float64(tr(S_post * H_obs_final))
-    rchi2 = chi2_curr / max(dof, eps(Float64))
+    # Averaging-kernel trace: tr(A), A = S_post * H_obs.
+    trace_A = Float64(tr(S_post * H_obs_final))
+    # correction to final dof
+    dof     = length(y_curr) - trace_A
+    rchi2   = chi2_curr / max(dof, eps(Float64))
     return (
         converged = converged, 
         status = status, 

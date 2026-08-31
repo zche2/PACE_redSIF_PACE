@@ -365,19 +365,28 @@ end
 """Find the L1B file for `granule_id`, with the same coarse-match fallback as L2 AOP."""
 function _resolve_l1b_path(l1b_dir::String, granule_id::String)
     isdir(l1b_dir) || return nothing
+    search_dirs = String[l1b_dir]
+    if length(granule_id) >= 8
+        day_dir = joinpath(l1b_dir, granule_id[1:4], granule_id[5:6], granule_id[7:8])
+        isdir(day_dir) && pushfirst!(search_dirs, day_dir)
+    end
     # exact match first (any extension / version suffix)
-    for fname in readdir(l1b_dir)
-        startswith(fname, "PACE_OCI.$(granule_id).L1B.") && return joinpath(l1b_dir, fname)
+    for search_dir in search_dirs
+        for fname in readdir(search_dir)
+            startswith(fname, "PACE_OCI.$(granule_id).L1B.") && return joinpath(search_dir, fname)
+        end
     end
     # coarse match (ignore last 2 seconds of timestamp)
     prefix = _granule_id_coarse_prefix(granule_id)
     candidates = Tuple{String, String}[]
-    for fname in readdir(l1b_dir)
-        endswith(fname, ".nc") || continue
-        l1b_id = _l1b_granule_id_from_fname(fname)
-        l1b_id === nothing && continue
-        if _granule_id_coarse_prefix(l1b_id) == prefix
-            push!(candidates, (joinpath(l1b_dir, fname), l1b_id))
+    for search_dir in search_dirs
+        for fname in readdir(search_dir)
+            endswith(fname, ".nc") || continue
+            l1b_id = _l1b_granule_id_from_fname(fname)
+            l1b_id === nothing && continue
+            if _granule_id_coarse_prefix(l1b_id) == prefix
+                push!(candidates, (joinpath(search_dir, fname), l1b_id))
+            end
         end
     end
     isempty(candidates) && return nothing

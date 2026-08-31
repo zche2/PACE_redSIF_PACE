@@ -6,7 +6,7 @@
 #   python global_fit_pipeline/download/download_pace_products.py global_fit_pipeline/global_fit_pipeline.toml
 #
 # --- SVD retrieval ---
-#   julia --project=. -t 2 global_fit_pipeline/svd_retrieval/run_svd_fit.jl global_fit_pipeline/global_fit_pipeline.toml
+#   julia --project=. -t auto global_svd_fit_pipeline/svd_retrieval/run_svd_fit.jl global_fit_pipeline/global_fit_pipeline.toml
 #
 # Retrieval physics: [data], [spectral], [fit], [batch_fit], …
 # SVD swath retrieval is band-native (interim red bands + [spectral] λ window):
@@ -17,11 +17,9 @@
 
 # =============================================================================
 [general]
-# Product roots; download_pace_products.py writes granules under <root>/YYYY/MM/DD/
-# (same as /kiwi-data/Data/satellite/PACE_OCI/L1B_V3). Flat roots still work for retrieval.
-L1B_dir   = "/path/to/PACE/L1B"
-L2AOP_dir = "/path/to/PACE/L2_AOP"
-L2BGC_dir = "/path/to/PACE/L2_BGC"
+L1B_dir   = "/home/zhe2/data/PACE/L1B_V3"
+L2AOP_dir = "/home/zhe2/data/PACE/L2_AOP_V3.1"
+L2BGC_dir = "/home/zhe2/data/PACE/L2_BGC_V3.1"
 
 # =============================================================================
 [download.temporal]
@@ -58,18 +56,18 @@ skip_existing = true
 #   "date"    → all granules for a day: set date = "YYYYMMDD"
 #   "dates"   → date range or list:     set date_start + date_end  OR  dates = ["YYYYMMDD", ...]
 [svd_retrieval]
-mode = "dates"
+mode = "date"
 
 # --- mode = "date" ---
-# date = "20250701"
+date = "20250703"
 
 # --- mode = "granule" ---
 # granule_id = "20250701T000124"
 
 # --- mode = "dates" ---
-date_start         = "20250703"
-date_end           = "20250707"
-date_interval_days = 1
+# date_start         = "20250703"
+# date_end           = "20250707"
+# date_interval_days = 1
 # dates = ["20250701", "20250702"]
 
 # Optional pixel/scan subsets (commented out = full swath):
@@ -78,8 +76,8 @@ date_interval_days = 1
 # scan_start  = 1
 # scan_end    = 100
 
-output_dir  = "/path/to/output"
-interim_dir = "/path/to/interim"
+output_dir  = "/home/zhe2/data/PACE/svd_retrieval_sensitivitytest/npoly3_new"
+interim_dir = "/home/zhe2/data/PACE/svd_retrieval_interim"
 
 # Granules run sequentially inside one process (HDF5/NetCDF are not safe with
 # concurrent granule threads). Use parallel_pixels + `julia -t N` for intra-granule parallelism.
@@ -96,18 +94,18 @@ skip_existing = true
 # GPU batched SVD tile path (requires CUDA.jl + working CUDA driver).
 # Falls back to CPU per-pixel path with a @warn if CUDA.functional() is false.
 # Recommended: -t 2 with GPU; -t 8–16 for CPU-only.
-use_gpu          = true
+use_gpu          = false
 gpu_tile_pixels  = 256   # reduce if out-of-memory; VRAM scales with n_λ × n_state × tile
 
 # =============================================================================
 [data]
-base_dir    = "/path/to/data"
+base_dir    = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE"
 # SVD transmittance PCs (NetCDFs on OCI band grid);
 # interpolated to interim red_wavelength bands inside (λ_min, λ_max).
-summer_nc      = "/path/to/transmittance_summer.nc"
-winter_nc      = "/path/to/transmittance_winter.nc"
-sif_file       = "SIF_singular_vector.jld2"
-pace_snr_file  = "PACE_OCI_L1BLUT_baseline_SNR_1.1.txt"
+summer_nc      = "convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc"
+winter_nc      = "convolved_transmittance/transmittance_winter_FineWvResModel_FullRange_Aug01.nc"
+sif_file       = "Files_in_use/SIF_singular_vector.jld2"
+pace_snr_file  = "Files_in_use/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt"
 
 [numerics]
 float_type = "Float64"
@@ -161,9 +159,9 @@ lbfgs_max_backtrack = 40
 
 [fit.svd]
 alpha_prior_mean             = 1.5
-alpha_prior_sigma            = 5.0
+alpha_prior_sigma            = 0.5
 n_pc                         = 15
-n_legendre                   = 5
+n_legendre                   = 3
 svd_log_transform            = true
 use_legendre01_prior         = true
 legendre01_prior_sigma_fraction = 1.0
@@ -175,13 +173,13 @@ pc_prior_sigma_scale         = 1.0
 # =============================================================================
 [batch_fit]
 # Output filename suffix (appended to interim granule stem).
-output_suffix_parallel = "_svd_retrieval_full_gpu.nc"
+output_suffix_parallel = "_svd_retrieval_npoly3.nc"
 
 # GPU keys here are overridden by [svd_retrieval] values when present.
 # Pixels must have non-missing values for each listed 2D variable in the interim file.
 pixel_filter_vars   = []
 use_threads         = true
-max_outer_steps     = 10
+max_outer_steps     = 15
 dark_filter_enabled  = false
 ocean_filter_enabled = false
 watermask_var        = "watermask"

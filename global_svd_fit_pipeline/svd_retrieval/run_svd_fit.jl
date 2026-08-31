@@ -99,15 +99,67 @@ function _extract_granule_id(L1B_basename::AbstractString)
     return m !== nothing ? String(m.captures[1]) : stem
 end
 
+const _L2_OC_AOP_SUFFIXES = ("V3_2", "V3_1")
+const _L2_OC_BGC_SUFFIXES = ("V3_2", "V3_1")
+
+"""`root/YYYY/MM/DD` for an 8-digit calendar day (matches download_pace_products.py / kiwi L1B tree)."""
+function _pace_day_subdir(root::AbstractString, yyyymmdd::AbstractString)
+    str = String(yyyymmdd)
+    length(str) == 8 && all(isdigit, str) ||
+        error("Invalid calendar day for path layout (expect YYYYMMDD): $(repr(str))")
+    return joinpath(root, str[1:4], str[5:6], str[7:8])
+end
+
+function _pace_day_subdir_from_granule_id(root::AbstractString, granule_id::AbstractString)
+    gid = String(granule_id)
+    length(gid) >= 8 || error("granule_id too short for YYYYMMDD prefix: $(repr(gid))")
+    return _pace_day_subdir(root, gid[1:8])
+end
+
+"""Candidate roots: date subfolder first, then flat `root` (legacy)."""
+function _pace_search_roots(root::AbstractString, granule_id::AbstractString)
+    day_dir = _pace_day_subdir_from_granule_id(root, granule_id)
+    return (day_dir, root)
+end
+
+function _resolve_l2_product_path(
+    dir::AbstractString,
+    granule_id::AbstractString,
+    product::AbstractString,
+    suffixes,
+)
+    roots = _pace_search_roots(dir, granule_id)
+    for search_dir in roots
+        for sfx in suffixes
+            path = joinpath(search_dir, "PACE_OCI.$(granule_id).L2.$(product).$(sfx).nc")
+            isfile(path) && return path
+        end
+    end
+    # Preferred path for error messages: dated layout used by the downloader.
+    day_dir = _pace_day_subdir_from_granule_id(dir, granule_id)
+    return joinpath(day_dir, "PACE_OCI.$(granule_id).L2.$(product).$(suffixes[1]).nc")
+end
+
 function _resolve_granule_paths(
     L1B_dir::AbstractString,
     L2AOP_dir::AbstractString,
     L2BGC_dir::AbstractString,
     granule_id::AbstractString,
 )
-    L1B_path = joinpath(L1B_dir, "PACE_OCI.$(granule_id).L1B.V3.nc")
-    L2AOP_path = joinpath(L2AOP_dir, "PACE_OCI.$(granule_id).L2.OC_AOP.V3_1.nc")
-    L2BGC_path = joinpath(L2BGC_dir, "PACE_OCI.$(granule_id).L2.OC_BGC.V3_1.nc")
+    l1b_name = "PACE_OCI.$(granule_id).L1B.V3.nc"
+    L1B_path = nothing
+    for search_dir in _pace_search_roots(L1B_dir, granule_id)
+        cand = joinpath(search_dir, l1b_name)
+        if isfile(cand)
+            L1B_path = cand
+            break
+        end
+    end
+    if L1B_path === nothing
+        L1B_path = joinpath(_pace_day_subdir_from_granule_id(L1B_dir, granule_id), l1b_name)
+    end
+    L2AOP_path = _resolve_l2_product_path(L2AOP_dir, granule_id, "OC_AOP", _L2_OC_AOP_SUFFIXES)
+    L2BGC_path = _resolve_l2_product_path(L2BGC_dir, granule_id, "OC_BGC", _L2_OC_BGC_SUFFIXES)
     return L1B_path, L2AOP_path, L2BGC_path
 end
 
@@ -233,10 +285,15 @@ function run_svd_global_fit_date(pipeline_path::AbstractString; date_override::U
     env = _prepare_run_env!(pipe_run, pipeline_path)
     pr = _pixel_scan_kw(svd)
     pattern = "PACE_OCI.$(date)T*.L1B.V3.nc"
-    L1B_files = Glob.glob(pattern, env.L1B_dir)
+    day_dir = _pace_day_subdir(env.L1B_dir, date)
+    L1B_files = isdir(day_dir) ? Glob.glob(pattern, day_dir) : String[]
+    if isempty(L1B_files)
+        # Legacy flat L1B_dir (pre YYYY/MM/DD download layout).
+        L1B_files = Glob.glob(pattern, env.L1B_dir)
+    end
     sort!(L1B_files)
     if isempty(L1B_files)
-        @warn "No L1B files for date $date in $(env.L1B_dir) (pattern $pattern)"
+        @warn "No L1B files for date $date under $day_dir or $(env.L1B_dir) (pattern $pattern)"
         return String[]
     end
     granules = [(f, _extract_granule_id(basename(f))) for f in L1B_files]

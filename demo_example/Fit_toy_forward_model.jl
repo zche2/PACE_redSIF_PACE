@@ -563,10 +563,10 @@ function lm_one_step(
 
     for _ in 1:max_inner
         n_try += 1
-        # Rodgers-style LM damping on prior precision only.
-        A = Hs_obs + λ * S_as
+        # Rodgers-style LM: prior Hessian baseline (1+λ)S_as; prior gradient unscaled in rhs.
+        A = Hs_obs + (1 + λ) * S_as
         cond_A_try = cond(Matrix(A))
-        rhs = S * (g_obs .+ λ .* g_pri)
+        rhs = S * (g_obs .+ g_pri)
         du = A \ rhs
         dx = S * du
         # Linearized residual prediction at x + dx: r_lin ≈ r0 - K*dx
