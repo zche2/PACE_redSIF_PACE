@@ -19,9 +19,7 @@ const TRUTH_NC = joinpath(OUT_DIR, "truth_ensemble.nc")
 const RET_NC = joinpath(OUT_DIR, "retrieval_ensemble.nc")
 
 include(joinpath(REPO_ROOT, "global_svd_fit_pipeline", "svd_retrieval", "svd_helpers.jl"))
-
-"""α_coeff = 10/(1+e^{-α_raw}) + 1  (same as make_svd_forward_model_λ)."""
-alpha_coeff_from_raw(α_raw::Real) = 10.0 / (1.0 + exp(-Float64(α_raw))) + 1.0
+include(joinpath(SCRIPT_DIR, "alpha_mapping.jl"))
 
 """
 Reconstruct T1 (trans_up) and T2 (trans_updown) from SVD state.

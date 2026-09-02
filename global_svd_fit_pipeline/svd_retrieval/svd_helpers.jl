@@ -77,6 +77,25 @@ function _spdiag_invvar(sigma::AbstractVector{<:Real})
     return spdiagm(0 => @. 1.0 / (σ^2))
 end
 
+"""
+Posterior covariance `inv(H_obs + S_a_inv)`.
+
+Returns `(S_post, ok)`. When `H_obs + S_a` is non-finite or singular, `ok=false`
+and `S_post` is filled with `NaN` (does not throw).
+"""
+function _posterior_covariance(H_obs, S_a_inv)
+    A = Matrix(H_obs + S_a_inv)
+    n = size(A, 1)
+    if size(A, 2) != n || !all(isfinite, A)
+        return fill(NaN, n, n), false
+    end
+    try
+        return inv(A), true
+    catch
+        return fill(NaN, n, n), false
+    end
+end
+
 function _cost_with_prior(y_obs, y_mod, x, x_a, S_e_inv, S_a_inv)
     r = y_obs .- y_mod
     dx = x .- x_a
@@ -641,14 +660,30 @@ function _run_one_svd_retrieval!(
     S_e_inv = _make_Se_inv(y_curr, use_band_snr, band_snr_coeffs, meas_sigma)
     chi2_curr = dot(resid, S_e_inv * resid)
     obj = _cost_with_prior(y_obs, y_curr, x_curr, x_a_loc, S_e_inv, S_a_inv)
-    # obtain the final Jacobian
+    # Posterior / OE DOF at final state. Guard Inf/NaN so one bad pixel cannot
+    # abort a threaded swath (ArgumentError: matrix contains Infs or NaNs).
     J_final = jac_eval(x_curr)
-    # compute the final Hessian
     H_obs_final = J_final' * S_e_inv * J_final
-    # compute current posterior sigma
-    S_post = inv(Matrix(H_obs_final + S_a_inv))
-    # Averaging-kernel trace: tr(A), A = S_post * H_obs.
-    trace_A = Float64(tr(S_post * H_obs_final))
+    S_post, post_ok = _posterior_covariance(H_obs_final, S_a_inv)
+    if !post_ok
+        status = Int16(4)
+        n_st = length(x_curr)
+        return (
+            converged = false,
+            status = status,
+            n_steps = n_acc,
+            rmse = rmse,
+            reduced_chi2 = NaN,
+            objective = obj,
+            S_posterior = S_post,
+            dof = NaN,
+            ak_trace = NaN,
+            averaging_kernel = fill(NaN, n_st, n_st),
+        )
+    end
+    # Averaging kernel A = S_post * H_obs (equivalent to G*K at final state).
+    A_final = Matrix(S_post * H_obs_final)
+    trace_A = Float64(tr(A_final))
     # correction to final dof
     dof     = length(y_curr) - trace_A
     rchi2   = chi2_curr / max(dof, eps(Float64))
@@ -661,5 +696,7 @@ function _run_one_svd_retrieval!(
         objective = obj,
         S_posterior = S_post,
         dof = dof,
+        ak_trace = trace_A,
+        averaging_kernel = A_final,
         )
 end

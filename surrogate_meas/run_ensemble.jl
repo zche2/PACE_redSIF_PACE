@@ -5,10 +5,15 @@
 #   julia --project=. -t 8 surrogate_meas/run_ensemble.jl
 #   N_SAMPLES=100 julia --project=. -t 4 surrogate_meas/run_ensemble.jl   # smoke test
 #   ZERO_SIF=1 REUSE_TRUTH=0 julia --project=. -t 8 surrogate_meas/run_ensemble.jl  # bias floor test
+#   FIXED_SIF_EV1=1 REUSE_TRUTH=0 julia --project=. -t 8 surrogate_meas/run_ensemble.jl  # fixed EV1 shape
 #
 # Outputs under surrogate_meas/batch_ensemble/:
-#   truth_ensemble.nc, retrieval_ensemble_<tag>.nc, plots_<tag>/*.png
-#   With ZERO_SIF=1: truth_ensemble_zeroSIF.nc, *_zeroSIF.nc / plots_*_zeroSIF/
+#   truth_ensemble<OUT_SUFFIX>.nc, retrieval_ensemble_<tag>.nc, plots_<tag>/*.png
+#   With ZERO_SIF=1: truth_ensemble_zeroSIF<OUT_SUFFIX>.nc, …
+#   With FIXED_SIF_EV1=1: truth_ensemble_fixedSIF<OUT_SUFFIX>.nc, …_fixedSIF tag; sif_678 = water-leaving
+#   OUT_SUFFIX defaults to "_new" (set OUT_SUFFIX="" for legacy names).
+#   Retrieval NetCDF includes averaging_kernel(state_ret,state_true,sample) = S_post * H_obs.
+#   Truth + retrieval share SVD_CONFIG (alias ENSEMBLE_CONFIG); [spectral]/[fit] override MWE base.
 
 using Base.Threads
 using Random
@@ -30,23 +35,112 @@ include(joinpath(SCRIPT_DIR, "build_single_meas.jl"))
 
 # ── ensemble settings ─────────────────────────────────────────────────────────
 const OUT_DIR = joinpath(SCRIPT_DIR, "batch_ensemble")
-const SVD_CONFIG = get(ENV, "SVD_CONFIG", joinpath(SCRIPT_DIR, "configs", "svd_nPC15_npoly5.toml"))
+const ENSEMBLE_CONFIG = get(ENV, "ENSEMBLE_CONFIG",
+    get(ENV, "SVD_CONFIG", joinpath(SCRIPT_DIR, "configs", "svd_nPC15_npoly5.toml")))
+const SVD_CONFIG = ENSEMBLE_CONFIG   # backward-compatible alias
+const MWE_BASE_CONFIG = get(ENV, "MWE_BASE_CONFIG", CONFIG_PATH)
 const N_SAMPLES = parse(Int, get(ENV, "N_SAMPLES", "5000"))
 const N_ATM_POOL = parse(Int, get(ENV, "N_ATM_POOL", "80"))
 const N_CONT_POOL = parse(Int, get(ENV, "N_CONT_POOL", "120"))
 const ENSEMBLE_SEED = parse(Int, get(ENV, "ENSEMBLE_SEED", "20260828"))
 const REUSE_TRUTH = lowercase(get(ENV, "REUSE_TRUTH", "1")) in ("1", "true", "yes")
 const ZERO_SIF = lowercase(get(ENV, "ZERO_SIF", "0")) in ("1", "true", "yes")
-const DECAY_RANGE = (1.0, 8.0)          # exponential reflectance-weight decay
+const FIXED_SIF_EV1 = lowercase(get(ENV, "FIXED_SIF_EV1", "0")) in ("1", "true", "yes")
+const SIF_678_WATERLEAVING = FIXED_SIF_EV1 ||
+    lowercase(get(ENV, "SIF_678_WATERLEAVING", "0")) in ("1", "true", "yes")
+const OUT_SUFFIX = get(ENV, "OUT_SUFFIX", "_new")   # e.g. "_new"; "" for legacy names
+const DECAY_RANGE = (4.0, 12.0)         # exponential reflectance-weight decay (per sample)
 const SIF_STRENGTH_RANGE_ENS = ZERO_SIF ? (0.0, 0.0) : (0.0, 0.5)
 const RADIANCE_MEAN_RANGE_ENS = (15.0, 30.0)
 const N_PLOT_SPECTRA = 40
 const GEN_SZA_DEG = 30.0
-const GEN_VZA_DEG = 0.0
+const GEN_VZA_DEG = 10.0
+const RET_SZA_DEG = 30.0
 
 function _nleg_tag(n_leg::Integer)
     base = "npoly$(n_leg)"
-    return ZERO_SIF ? "$(base)_zeroSIF" : base
+    tag = ZERO_SIF ? "$(base)_zeroSIF" : base
+    tag = FIXED_SIF_EV1 ? "$(tag)_fixedSIF" : tag
+    return isempty(OUT_SUFFIX) ? tag : "$(tag)$(OUT_SUFFIX)"
+end
+
+function _truth_nc_name()
+    base = ZERO_SIF ? "truth_ensemble_zeroSIF" : "truth_ensemble"
+    base = FIXED_SIF_EV1 ? "$(base)_fixedSIF" : base
+    return isempty(OUT_SUFFIX) ? "$(base).nc" : "$(base)$(OUT_SUFFIX).nc"
+end
+
+"""Water-leaving SIF spectrum from SIF basis coefficients (n_band)."""
+function sif_waterleaving_spectrum(
+    sif_basis::AbstractMatrix{<:Real},
+    sif_coeff::AbstractVector{<:Real},
+)
+    return vec(sif_basis * sif_coeff)
+end
+
+function _sif678_axis_label()
+    SIF_678_WATERLEAVING ? "water-leaving SIF @ 678 nm" : "SIF×T₁ @ 678 nm"
+end
+
+"""Merge nested TOML dicts; keys in `override` win."""
+function _merge_toml_sections(base::Dict, override::Dict)
+    out = deepcopy(base)
+    for (k, v) in override
+        if v isa Dict && get(out, k, nothing) isa Dict
+            out[k] = _merge_toml_sections(out[k], v)
+        else
+            out[k] = deepcopy(v)
+        end
+    end
+    return out
+end
+
+"""
+Build MWE-ready config for truth generation: start from `MWE_BASE_CONFIG`, then apply
+`[spectral]` and `[fit]` (incl. `[fit.svd]`) from `ENSEMBLE_CONFIG`.
+Retrieval uses the same ensemble TOML directly. MWE `[data]` paths stay on `MWE_BASE_CONFIG`.
+"""
+function prepare_truth_config(ensemble_path::AbstractString)
+    isfile(ensemble_path) || error("Missing ensemble config: $ensemble_path")
+    isfile(MWE_BASE_CONFIG) || error("Missing MWE base config: $MWE_BASE_CONFIG")
+    base = TOML.parsefile(MWE_BASE_CONFIG)
+    ens = TOML.parsefile(ensemble_path)
+    cfg = deepcopy(base)
+    if haskey(ens, "spectral")
+        cfg["spectral"] = _merge_toml_sections(get(cfg, "spectral", Dict{String, Any}()), ens["spectral"])
+    end
+    if haskey(ens, "fit")
+        cfg["fit"] = _merge_toml_sections(get(cfg, "fit", Dict{String, Any}()), ens["fit"])
+    end
+    merged_path = joinpath(OUT_DIR, ".ensemble_mwe.toml")
+    mkpath(OUT_DIR)
+    open(merged_path, "w") do io
+        TOML.print(io, cfg)
+    end
+    λ_min = Float64(get(get(cfg, "spectral", Dict()), "lambda_min_nm", 640.0))
+    λ_max = Float64(get(get(cfg, "spectral", Dict()), "lambda_max_nm", 756.0))
+    return merged_path, cfg, λ_min, λ_max
+end
+
+function _spectral_window(cfg::Dict)
+    spectral = get(cfg, "spectral", Dict{String, Any}())
+    (
+        Float64(get(spectral, "lambda_min_nm", 640.0)),
+        Float64(get(spectral, "lambda_max_nm", 756.0)),
+    )
+end
+
+function _truth_matches_config(truth_nc::AbstractString, ensemble_path::AbstractString, λ_min::Float64, λ_max::Float64, degrade)
+    ds = Dataset(truth_nc)
+    stored_cfg = abspath(String(get(ds.attrib, "ensemble_config", "")))
+    want_cfg = abspath(ensemble_path)
+    stored_λmin = Float64(get(ds.attrib, "lambda_min_nm", NaN))
+    stored_λmax = Float64(get(ds.attrib, "lambda_max_nm", NaN))
+    close(ds)
+    stored_cfg == want_cfg &&
+        stored_λmin == λ_min &&
+        stored_λmax == λ_max &&
+        _truth_noise_degrade_matches(truth_nc, degrade)
 end
 
 # ── continuum pool from one L1B granule ───────────────────────────────────────
@@ -180,7 +274,7 @@ function load_sif_library_matrix(sif_path::AbstractString, λ_dst::AbstractVecto
     n_shapes = size(shapes, 2)
     shapes_band = Matrix{Float64}(undef, length(λ_dst), n_shapes)
     for j in 1:n_shapes
-        shapes_band[:, j] = map_spectrum_to_bands(λ_ref, shapes[:, j], λ_dst)
+        shapes_band[:, j] = map_sif_shape_to_bands(λ_ref, shapes[:, j], λ_dst)
     end
     # peak-normalize each column
     for j in 1:n_shapes
@@ -226,10 +320,22 @@ function generate_ensemble(
     sif_shapes = load_sif_library_matrix(ctx.paths.sif_path, λ_band)
     n_sif_lib = size(sif_shapes, 2)
     println("  SIF shapes: $n_sif_lib")
+    sif_ev1_band = if FIXED_SIF_EV1
+        ev1 = MWEF.load_sif_basis(String(ctx.paths.sif_path), λ_band; nEV=1, normalize=true)[:, 1]
+        println("  FIXED_SIF_EV1: using retrieval SIF basis EV1 (peak-normalized)")
+        ev1
+    else
+        nothing
+    end
 
     c1 = Float64.(ctx.band_snr_coeffs["c1"])
     c2 = Float64.(ctx.band_snr_coeffs["c2"])
     length(c1) == n_band || error("SNR length mismatch")
+    noise_degrade = parse_noise_degrade(cfg)
+    if noise_degrade !== nothing
+        n_deg = length(noise_degrade_band_mask(λ_band, noise_degrade))
+        println("  noise_degrade truth: λ∈[$(noise_degrade.lambda_min_nm), $(noise_degrade.lambda_max_nm)] nm, σ×$(noise_degrade.sigma_factor) ($n_deg bands)")
+    end
 
     # allocate
     R_toa_clean = Matrix{Float32}(undef, n_band, n_samples)
@@ -252,7 +358,7 @@ function generate_ensemble(
     for i in 1:n_samples
         ia = rand(1:length(atm_pool))
         ic = rand(1:length(cont_pool.R))
-        isif = rand(1:n_sif_lib)
+        isif = FIXED_SIF_EV1 ? 1 : rand(1:n_sif_lib)
         dec = DECAY_RANGE[1] + (DECAY_RANGE[2] - DECAY_RANGE[1]) * rand()
         strength = SIF_STRENGTH_RANGE_ENS[1] +
                    (SIF_STRENGTH_RANGE_ENS[2] - SIF_STRENGTH_RANGE_ENS[1]) * rand()
@@ -264,11 +370,14 @@ function generate_ensemble(
 
         tr = transmittance_from_pool(atm_pool[ia], dec, T_solar, K)
         R_c = cont_pool.R[ic] .* target
-        SIF_i = sif_shapes[:, isif] .* strength
+        SIF_i = FIXED_SIF_EV1 ? (sif_ev1_band .* strength) : (sif_shapes[:, isif] .* strength)
         R_sif = SIF_i .* tr.T1_band
         R_bg = R_c .* tr.T2_band
         R_clean = R_bg .+ R_sif
         σ = noise_std_from_snr(R_clean, c1, c2)
+        if noise_degrade !== nothing
+            apply_noise_degrade_to_sigma!(σ, λ_band, noise_degrade)
+        end
         R_noisy = R_clean .+ randn(n_band) .* σ
 
         R_toa_clean[:, i] .= Float32.(R_clean)
@@ -315,6 +424,7 @@ end
 
 function write_truth_nc(ens, path::AbstractString)
     n_band, n_samp = size(ens.R_toa_noisy)
+    degrade = parse_noise_degrade(TOML.parsefile(ENSEMBLE_CONFIG))
     isfile(path) && rm(path)
     ds = NCDataset(path, "c")
     defDim(ds, "band", n_band)
@@ -346,7 +456,15 @@ function write_truth_nc(ens, path::AbstractString)
     ds.attrib["sif_path"] = ens.sif_path
     ds.attrib["pace_path"] = ens.pace_path
     ds.attrib["ensemble_seed"] = ENSEMBLE_SEED
+    ds.attrib["ensemble_config"] = abspath(ENSEMBLE_CONFIG)
+    spectral = get(TOML.parsefile(ENSEMBLE_CONFIG), "spectral", Dict{String, Any}())
+    ds.attrib["lambda_min_nm"] = Float64(get(spectral, "lambda_min_nm", 640.0))
+    ds.attrib["lambda_max_nm"] = Float64(get(spectral, "lambda_max_nm", 756.0))
+    for (k, v) in _noise_degrade_truth_attrs(degrade)
+        ds.attrib[k] = v
+    end
     ds.attrib["zero_sif"] = Int(ZERO_SIF)
+    ds.attrib["fixed_sif_ev1"] = Int(FIXED_SIF_EV1)
     close(ds)
     println("Wrote truth NetCDF: ", path)
 end
@@ -433,7 +551,7 @@ function run_ensemble_retrieval(ens, svd_cfg::Dict; out_nc::AbstractString)
     println("  using n_legendre=$(sh.n_leg)")
 
     solar = load_l1b_solar_on_bands(ens.pace_path, λ)
-    println("  solar from $(basename(solar.pace_path)), esd=$(round(solar.esd, digits=4)), SZA=$(PSEUDO_RETRIEVAL_SZA)°")
+    println("  solar from $(basename(solar.pace_path)), esd=$(round(solar.esd, digits=4)), SZA=$(RET_SZA_DEG)°")
 
     n_ev = size(sh.sif_basis, 2)
     n_state = sh.layout.n_state
@@ -450,8 +568,11 @@ function run_ensemble_retrieval(ens, svd_cfg::Dict; out_nc::AbstractString)
     rmse = fill(Float32(NaN), n_samp)
     reduced_chi2 = fill(Float32(NaN), n_samp)
     dof = fill(Float32(NaN), n_samp)
+    ak_trace = fill(Float32(NaN), n_samp)
+    averaging_kernel = fill(Float32(NaN), n_state, n_state, n_samp)
     sif_678_true = Vector{Float32}(undef, n_samp)
     sif_678_ret = fill(Float32(NaN), n_samp)
+    sif_wl_ret = SIF_678_WATERLEAVING ? Matrix{Float32}(undef, n_band, n_samp) : nothing
     sif_toa_mean_true = Vector{Float32}(undef, n_samp)
     sif_toa_mean_ret = fill(Float32(NaN), n_samp)
 
@@ -460,7 +581,7 @@ function run_ensemble_retrieval(ens, svd_cfg::Dict; out_nc::AbstractString)
     @threads for i in 1:n_samp
         y = Float64.(ens.R_toa_noisy[:, i])
         try
-            ret = run_pseudo_svd_retrieval(y, λ, sh, solar; sza_deg=PSEUDO_RETRIEVAL_SZA)
+            ret = run_pseudo_svd_retrieval(y, λ, sh, solar; sza_deg=RET_SZA_DEG)
             R_fit[:, i] .= Float32.(ret.y_fit)
             sif_toa_ret[:, i] .= Float32.(ret.sif_toa_fit)
             resid[:, i] .= Float32.(ret.resid)
@@ -472,13 +593,29 @@ function run_ensemble_retrieval(ens, svd_cfg::Dict; out_nc::AbstractString)
             rmse[i] = Float32(ret.stats.rmse)
             reduced_chi2[i] = Float32(ret.stats.reduced_chi2)
             dof[i] = Float32(ret.stats.dof)
-            sif_678_ret[i] = Float32(ret.sif_toa_fit[i678])
+            if hasproperty(ret.stats, :averaging_kernel)
+                averaging_kernel[:, :, i] .= Float32.(ret.stats.averaging_kernel)
+            end
+            if hasproperty(ret.stats, :ak_trace)
+                ak_trace[i] = Float32(ret.stats.ak_trace)
+            end
+            if SIF_678_WATERLEAVING
+                wl = sif_waterleaving_spectrum(sh.sif_basis, ret.sif_coeff)
+                sif_wl_ret[:, i] .= Float32.(wl)
+                sif_678_ret[i] = Float32(wl[i678])
+            else
+                sif_678_ret[i] = Float32(ret.sif_toa_fit[i678])
+            end
             sif_toa_mean_ret[i] = Float32(mean(ret.sif_toa_fit))
         catch e
             status[i] = Int16(4)
             @warn "Retrieval failed" sample=i exception=e
         end
-        sif_678_true[i] = ens.R_sif_toa[i678, i]
+        if SIF_678_WATERLEAVING
+            sif_678_true[i] = ens.SIF[i678, i]
+        else
+            sif_678_true[i] = ens.R_sif_toa[i678, i]
+        end
         sif_toa_mean_true[i] = Float32(mean(ens.R_sif_toa[:, i]))
         if threadid() == 1 && (i % 200 == 0)
             # approximate progress (not exact under threads)
@@ -493,11 +630,19 @@ function run_ensemble_retrieval(ens, svd_cfg::Dict; out_nc::AbstractString)
     defDim(ds, "band", n_band)
     defDim(ds, "sample", n_samp)
     defDim(ds, "sif_ev", n_ev)
+    defDim(ds, "state_ret", n_state)
+    defDim(ds, "state_true", n_state)
     defDim(ds, "state", n_state)
     defVar(ds, "wavelength", Float64.(λ), ("band",); attrib=Dict("units"=>"nm"))
     defVar(ds, "R_fit", R_fit, ("band", "sample"))
     defVar(ds, "sif_toa_ret", sif_toa_ret, ("band", "sample"))
     defVar(ds, "sif_toa_true", Float32.(ens.R_sif_toa), ("band", "sample"))
+    if SIF_678_WATERLEAVING
+        defVar(ds, "SIF_true", Float32.(ens.SIF), ("band", "sample");
+               attrib=Dict("long_name"=>"true water-leaving SIF", "units"=>"W m-2 sr-1 um-1"))
+        defVar(ds, "sif_wl_ret", sif_wl_ret, ("band", "sample");
+               attrib=Dict("long_name"=>"retrieved water-leaving SIF", "units"=>"W m-2 sr-1 um-1"))
+    end
     defVar(ds, "resid", resid, ("band", "sample"))
     defVar(ds, "sif_coeff_ret", sif_coeff_ret, ("sif_ev", "sample"))
     defVar(ds, "state", state, ("state", "sample"))
@@ -507,8 +652,23 @@ function run_ensemble_retrieval(ens, svd_cfg::Dict; out_nc::AbstractString)
     defVar(ds, "rmse", rmse, ("sample",))
     defVar(ds, "reduced_chi2", reduced_chi2, ("sample",))
     defVar(ds, "dof", dof, ("sample",))
-    defVar(ds, "sif_678_true", sif_678_true, ("sample",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
-    defVar(ds, "sif_678_ret", sif_678_ret, ("sample",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "ak_trace", ak_trace, ("sample",);
+           attrib=Dict("long_name"=>"trace of averaging kernel tr(A)", "units"=>"1"))
+    defVar(ds, "averaging_kernel", averaging_kernel, ("state_ret", "state_true", "sample");
+           attrib=Dict(
+               "long_name" => "averaging kernel A = S_post * H_obs at final state",
+               "formula" => "A = S_post * (K' S_e^{-1} K)",
+               "row_state" => "retrieved (x_hat)",
+               "col_state" => "true (x_true)",
+               "index_formula" => "A[i,j] = sensitivity of retrieved state i to true state j",
+           ))
+    state_names = svd_state_names(sh.layout)
+    ds.attrib["state_names_csv"] = join(state_names, ",")
+    sif678_lname = SIF_678_WATERLEAVING ? "water-leaving SIF @ 678 nm" : "SIF×T₁ @ 678 nm"
+    defVar(ds, "sif_678_true", sif_678_true, ("sample",);
+           attrib=Dict("long_name"=>"true $(sif678_lname)", "units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "sif_678_ret", sif_678_ret, ("sample",);
+           attrib=Dict("long_name"=>"retrieved $(sif678_lname)", "units"=>"W m-2 sr-1 um-1"))
     defVar(ds, "sif_toa_mean_true", sif_toa_mean_true, ("sample",))
     defVar(ds, "sif_toa_mean_ret", sif_toa_mean_ret, ("sample",))
     defVar(ds, "decay", ens.decay, ("sample",))
@@ -518,15 +678,23 @@ function run_ensemble_retrieval(ens, svd_cfg::Dict; out_nc::AbstractString)
     ds.attrib["created"] = string(Dates.now())
     ds.attrib["n_pc"] = sh.n_pc
     ds.attrib["n_legendre"] = sh.n_leg
-    ds.attrib["retrieval_sza_deg"] = PSEUDO_RETRIEVAL_SZA
+    ds.attrib["retrieval_sza_deg"] = RET_SZA_DEG
+    ds.attrib["ensemble_config"] = abspath(ENSEMBLE_CONFIG)
     ds.attrib["svd_config"] = SVD_CONFIG
     ds.attrib["zero_sif"] = Int(ZERO_SIF)
+    ds.attrib["fixed_sif_ev1"] = Int(FIXED_SIF_EV1)
+    ds.attrib["sif_678_metric"] = SIF_678_WATERLEAVING ? "water_leaving" : "sif_toa"
+    degrade = parse_noise_degrade(TOML.parsefile(ENSEMBLE_CONFIG))
+    for (k, v) in _noise_degrade_truth_attrs(degrade)
+        ds.attrib[k] = v
+    end
     close(ds)
     println("Wrote retrieval NetCDF: ", out_nc)
 
     return (
         sif_678_true=sif_678_true,
         sif_678_ret=sif_678_ret,
+        sif_wl_ret=sif_wl_ret,
         sif_toa_mean_true=sif_toa_mean_true,
         sif_toa_mean_ret=sif_toa_mean_ret,
         sif_toa_ret=sif_toa_ret,
@@ -536,6 +704,8 @@ function run_ensemble_retrieval(ens, svd_cfg::Dict; out_nc::AbstractString)
         status=status,
         rmse=rmse,
         reduced_chi2=reduced_chi2,
+        ak_trace=ak_trace,
+        averaging_kernel=averaging_kernel,
         i678=i678,
         n_pc=sh.n_pc,
         n_leg=sh.n_leg,
@@ -544,9 +714,6 @@ function run_ensemble_retrieval(ens, svd_cfg::Dict; out_nc::AbstractString)
         log_trans=sh.log_trans,
     )
 end
-
-"""α_coeff = 10/(1+e^{-α_raw}) + 1  (same as make_svd_forward_model_λ)."""
-alpha_coeff_from_raw(α_raw::Real) = 10.0 / (1.0 + exp(-Float64(α_raw))) + 1.0
 
 """
 Reconstruct T1 (trans_up) and T2 (trans_updown) from SVD state.
@@ -744,8 +911,9 @@ function plot_retrieval_comparison(ens, ret; out_dir::AbstractString)
     lims = extrema(vcat(t, r))
     pad = 0.05 * (lims[2] - lims[1] + eps())
     lims = (lims[1] - pad, lims[2] + pad)
+    lbl678 = _sif678_axis_label()
     p_sc = scatter(t, r; ms=2, alpha=0.35, label="samples (n=$(length(ok)))",
-                   xlabel="True SIF×T₁ @ 678 nm", ylabel="Retrieved SIF×T₁ @ 678 nm",
+                   xlabel="True $lbl678", ylabel="Retrieved $lbl678",
                    title="SIF@678: bias=$(round(bias, digits=3)), RMSE=$(round(rmse_s, digits=3)), R²=$(round(r2, digits=3))",
                    size=(700, 650), legend=:topleft)
     plot!(p_sc, [lims[1], lims[2]], [lims[1], lims[2]]; color=:black, ls=:dash, label="1:1")
@@ -790,9 +958,15 @@ function plot_retrieval_comparison(ens, ret; out_dir::AbstractString)
 
     plots_s = []
     for (k, i) in enumerate(ex)
-        pk = plot(λ, ens.R_sif_toa[:, i]; label="true SIF×T₁", color=:forestgreen, lw=2,
-                  title="sample $i", xlabel="λ [nm]", ylabel="SIF×T₁", legend=:outerright)
-        plot!(pk, λ, ret.sif_toa_ret[:, i]; label="retrieved", color=:darkgreen, lw=1.5, ls=:dash)
+        if SIF_678_WATERLEAVING && hasproperty(ret, :sif_wl_ret)
+            pk = plot(λ, ens.SIF[:, i]; label="true WL SIF", color=:forestgreen, lw=2,
+                      title="sample $i", xlabel="λ [nm]", ylabel="WL SIF", legend=:outerright)
+            plot!(pk, λ, ret.sif_wl_ret[:, i]; label="retrieved WL SIF", color=:darkgreen, lw=1.5, ls=:dash)
+        else
+            pk = plot(λ, ens.R_sif_toa[:, i]; label="true SIF×T₁", color=:forestgreen, lw=2,
+                      title="sample $i", xlabel="λ [nm]", ylabel="SIF×T₁", legend=:outerright)
+            plot!(pk, λ, ret.sif_toa_ret[:, i]; label="retrieved", color=:darkgreen, lw=1.5, ls=:dash)
+        end
         push!(plots_s, pk)
     end
     p_sx = plot(plots_s...; layout=(2, 3), size=(1400, 700))
@@ -812,6 +986,8 @@ function plot_retrieval_comparison(ens, ret; out_dir::AbstractString)
         println(io, "sif678_r2\t$r2")
         println(io, "sif678_slope\t$(β[2])")
         println(io, "sif678_intercept\t$(β[1])")
+        println(io, "sif_678_metric\t$(SIF_678_WATERLEAVING ? "water_leaving" : "sif_toa")")
+        println(io, "fixed_sif_ev1\t$(Int(FIXED_SIF_EV1))")
         println(io, "median_rmse\t$(median(Float64.(ret.rmse[ok])))")
         println(io, "median_rchi2\t$(median(Float64.(ret.reduced_chi2[ok])))")
     end
@@ -832,6 +1008,7 @@ function load_retrieval_for_plots(ret_nc::AbstractString, svd_cfg::Dict, λ::Abs
         sif_678_ret=Float32.(ds["sif_678_ret"][:]),
         sif_toa_mean_true=Float32.(ds["sif_toa_mean_true"][:]),
         sif_toa_mean_ret=Float32.(ds["sif_toa_mean_ret"][:]),
+        sif_wl_ret=haskey(ds, "sif_wl_ret") ? Float32.(ds["sif_wl_ret"][:, :]) : nothing,
         sif_toa_ret=Float32.(ds["sif_toa_ret"][:, :]),
         R_fit=Float32.(ds["R_fit"][:, :]),
         resid=Float32.(ds["resid"][:, :]),
@@ -839,6 +1016,9 @@ function load_retrieval_for_plots(ret_nc::AbstractString, svd_cfg::Dict, λ::Abs
         status=Int16.(ds["status"][:]),
         rmse=Float32.(ds["rmse"][:]),
         reduced_chi2=Float32.(ds["reduced_chi2"][:]),
+        ak_trace=haskey(ds, "ak_trace") ? Float32.(ds["ak_trace"][:]) : nothing,
+        averaging_kernel=haskey(ds, "averaging_kernel") ?
+            Float32.(ds["averaging_kernel"][:, :, :]) : nothing,
         n_pc=Int(get(ds.attrib, "n_pc", -1)),
         n_leg=Int(get(ds.attrib, "n_legendre", -1)),
     )
@@ -861,23 +1041,32 @@ function main_ensemble()
 
     println("="^60)
     println("Surrogate ensemble: N_SAMPLES=$N_SAMPLES  N_ATM_POOL=$N_ATM_POOL  N_CONT_POOL=$N_CONT_POOL")
-    println("SVD config: $SVD_CONFIG")
-    println("REUSE_TRUTH=$REUSE_TRUTH  ZERO_SIF=$ZERO_SIF")
+    println("Ensemble config (truth + retrieval): $ENSEMBLE_CONFIG")
+    println("MWE base (forward-model paths): $MWE_BASE_CONFIG")
+    println("REUSE_TRUTH=$REUSE_TRUTH  ZERO_SIF=$ZERO_SIF  FIXED_SIF_EV1=$FIXED_SIF_EV1  OUT_SUFFIX=$(repr(OUT_SUFFIX))")
+    println("SIF_678 metric: $(SIF_678_WATERLEAVING ? "water_leaving" : "sif_toa")")
+    println("Decay range (per sample): $DECAY_RANGE")
     println("SIF strength range: $SIF_STRENGTH_RANGE_ENS")
     println("="^60)
 
-    isfile(SVD_CONFIG) || error("Missing SVD config: $SVD_CONFIG")
-    svd_cfg = TOML.parsefile(SVD_CONFIG)
+    isfile(ENSEMBLE_CONFIG) || error("Missing ensemble config: $ENSEMBLE_CONFIG")
+    svd_cfg = TOML.parsefile(ENSEMBLE_CONFIG)
+    truth_mwe_path, truth_cfg, λ_min_cfg, λ_max_cfg = prepare_truth_config(ENSEMBLE_CONFIG)
+    noise_degrade = parse_noise_degrade(svd_cfg)
+    println("Truth spectral window: [$λ_min_cfg, $λ_max_cfg] nm  (merged → $truth_mwe_path)")
+    if noise_degrade !== nothing
+        println("Noise degrade: λ∈[$(noise_degrade.lambda_min_nm), $(noise_degrade.lambda_max_nm)] nm, σ×$(noise_degrade.sigma_factor)")
+    end
     n_pc_cfg = Int(get(get(get(svd_cfg, "fit", Dict()), "svd", Dict()), "n_pc", -1))
     n_leg_cfg = Int(get(get(get(svd_cfg, "fit", Dict()), "svd", Dict()), "n_legendre", -1))
     println("Config check: n_pc=$n_pc_cfg  n_legendre=$n_leg_cfg")
-    n_pc_cfg > 0 || error("Invalid n_pc in $SVD_CONFIG")
-    n_leg_cfg > 0 || error("Invalid n_legendre in $SVD_CONFIG")
+    n_pc_cfg > 0 || error("Invalid n_pc in $ENSEMBLE_CONFIG")
+    n_leg_cfg > 0 || error("Invalid n_legendre in $ENSEMBLE_CONFIG")
 
     tag = _nleg_tag(n_leg_cfg)
     plot_dir = joinpath(OUT_DIR, "plots_$(tag)")
     ret_nc = joinpath(OUT_DIR, "retrieval_ensemble_$(tag).nc")
-    truth_nc = joinpath(OUT_DIR, ZERO_SIF ? "truth_ensemble_zeroSIF.nc" : "truth_ensemble.nc")
+    truth_nc = joinpath(OUT_DIR, _truth_nc_name())
     mkpath(OUT_DIR)
     mkpath(plot_dir)
     println("Output tag: $tag")
@@ -887,6 +1076,8 @@ function main_ensemble()
 
     ENV["PACE_LUT_INTERPOLATION"] = LUT_INTERPOLATION
     plot_only = lowercase(get(ENV, "PLOT_ONLY", "0")) in ("1", "true", "yes")
+
+    FIXED_SIF_EV1 && ZERO_SIF && error("FIXED_SIF_EV1 and ZERO_SIF are incompatible")
 
     # Zero-SIF must not reuse the nominal (non-zero) truth ensemble.
     reuse = REUSE_TRUTH && isfile(truth_nc)
@@ -900,6 +1091,27 @@ function main_ensemble()
             reuse = false
         end
     end
+    if FIXED_SIF_EV1 && REUSE_TRUTH && isfile(truth_nc)
+        ds_chk = Dataset(truth_nc)
+        fixed_ok = get(ds_chk.attrib, "fixed_sif_ev1", 0) == 1
+        close(ds_chk)
+        if !fixed_ok
+            @warn "FIXED_SIF_EV1 set but $truth_nc is not a fixed-EV1 truth file; regenerating"
+            reuse = false
+        end
+    end
+    if !FIXED_SIF_EV1 && REUSE_TRUTH && isfile(truth_nc)
+        ds_chk = Dataset(truth_nc)
+        if get(ds_chk.attrib, "fixed_sif_ev1", 0) == 1
+            @warn "FIXED_SIF_EV1=0 but $truth_nc is fixed-EV1; regenerating nominal truth"
+            reuse = false
+        end
+        close(ds_chk)
+    end
+    if reuse && isfile(truth_nc) && !_truth_matches_config(truth_nc, ENSEMBLE_CONFIG, λ_min_cfg, λ_max_cfg, noise_degrade)
+        @warn "Ensemble config or spectral window changed; regenerating truth"
+        reuse = false
+    end
 
     if reuse
         ens = load_truth_nc(truth_nc)
@@ -909,9 +1121,8 @@ function main_ensemble()
         end
     else
         println("\n=== Preparing MWE context ===")
-        ctx = MWEF.prepare_mwe_inputs(CONFIG_PATH)
-        mwe_cfg = TOML.parsefile(CONFIG_PATH)
-        ens = generate_ensemble(ctx, mwe_cfg; n_samples=N_SAMPLES)
+        ctx = MWEF.prepare_mwe_inputs(truth_mwe_path)
+        ens = generate_ensemble(ctx, truth_cfg; n_samples=N_SAMPLES)
         if ZERO_SIF
             maximum(ens.sif_strength) == 0 || error("ZERO_SIF generation failed: max strength=$(maximum(ens.sif_strength))")
             println("  verified sif_strength ≡ 0 for all $(size(ens.R_toa_noisy, 2)) samples")

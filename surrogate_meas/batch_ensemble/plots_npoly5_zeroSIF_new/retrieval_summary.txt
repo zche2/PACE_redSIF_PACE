@@ -1,0 +1,13 @@
+n_samples	5000
+n_converged	4307
+n_pc	15
+n_legendre	5
+sif678_bias	0.021561638187346032
+sif678_rmse	0.03780960317396615
+sif678_r2	0.0
+sif678_slope	0.0
+sif678_intercept	0.021561638187346032
+sif_678_metric	sif_toa
+fixed_sif_ev1	0
+median_rmse	0.019515374675393105
+median_rchi2	1.4762623310089111

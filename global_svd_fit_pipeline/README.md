@@ -29,7 +29,7 @@ Preprocess/merge → per-pixel SVD transmittance LM on **sorted interim red band
 julia --project=. -t 8 global_fit_pipeline/svd_retrieval/run_svd_fit.jl global_fit_pipeline/global_fit_pipeline.toml
 ```
 
-Outputs NetCDF under `[svd_retrieval].output_dir/YYYY/MM/DD/` with suffix `[batch_fit].output_suffix_parallel`, with variables aligned to the batch-fit swath style (`x_hat`, diagnostics, `state_names_csv`).
+Outputs NetCDF under `[svd_retrieval].output_dir/YYYY/MM/DD/` with suffix `[batch_fit].output_suffix_parallel`, with variables aligned to the batch-fit swath style (`x_hat`, diagnostics, `state_names_csv`). By default `[batch_fit].save_posterior = true` writes `S_posterior_diag` (posterior variance per state element; ~380 MB/granule vs ~3 GB for the full covariance matrix). Set `save_posterior = false` to omit it.
 
 The tropomi helper [`fetch_pace_earthaccess.py`](../toolbox/pace_tropomi_coincidence/fetch_pace_earthaccess.py) still uses **environment-only** login.
 

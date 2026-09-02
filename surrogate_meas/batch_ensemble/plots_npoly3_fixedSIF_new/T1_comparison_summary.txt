@@ -1,0 +1,11 @@
+n_converged	4587
+n_pc	15
+n_legendre	3
+log_transform	true
+mean_T1_bias	0.027126304335145863
+mean_T1_rmse	0.029283138350475742
+mean_T1_r2	0.8908642855878267
+mean_T1_slope	0.07330478911532506
+mean_T1_intercept	0.926726470560025
+median_alpha_coeff	17.496333350428074
+mean_alpha_coeff	17.315174000159132

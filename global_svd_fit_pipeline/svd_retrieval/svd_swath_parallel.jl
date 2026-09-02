@@ -267,6 +267,7 @@ function _create_output_dataset(
     pixel_range::UnitRange{Int},
     scan_range::UnitRange{Int};
     compression_level::Int = 1,
+    save_posterior::Bool = true,
 )
     ds = Dataset(output_path, "c")
     defDim(ds, "pixels", n_pix)
@@ -299,10 +300,12 @@ function _create_output_dataset(
     defVar(ds, "sif_ev1", Float32, ("pixels", "scans"); comp...)
     defVar(ds, "sif_coeffs", Float32, ("pixels", "scans", "sif_nev"); comp...)
     defVar(ds, "sif_radiance_678nm", Float32, ("pixels", "scans"); comp...)
-    # Posterior covariance Σ = (Jᵀ Sₑ⁻¹ J + Sₐ⁻¹)⁻¹ at the final state (physical units).
-    v_spost = defVar(ds, "S_posterior", Float32, ("pixels", "scans", "state", "state"); comp...)
-    v_spost.attrib["long_name"] = "posterior covariance of retrieved state"
-    v_spost.attrib["formula"] = "inv(J' * Se_inv * J + Sa_inv) at final x_hat"
+    if save_posterior
+        # Posterior variance only (diag of Σ); full n_state×n_state matrix is omitted to save space.
+        v_spost = defVar(ds, "S_posterior_diag", Float32, ("pixels", "scans", "state"); comp...)
+        v_spost.attrib["long_name"] = "posterior variance (diagonal of S_posterior)"
+        v_spost.attrib["formula"] = "diag(inv(J' * Se_inv * J + Sa_inv)) at final x_hat"
+    end
     defVar(ds, "is_dark", UInt8, ("pixels", "scans"); comp...)
     defVar(ds, "is_ocean", UInt8, ("pixels", "scans"); comp...)
     defVar(ds, "source_pixel_index", Int32, ("pixels",))
@@ -611,7 +614,7 @@ function _process_one_pixel_svd!(
     sif1_scan,
     sif_coeffs_scan,
     sif_678_scan,
-    spost_scan,
+    spost_diag_scan,
     dark_scan,
     ocean_scan,
 )
@@ -674,39 +677,44 @@ function _process_one_pixel_svd!(
             σ_prior[leg1] = max(abs(c01[2]) * sh.leg01_frac, sh.prior_min_sigma)
         end
     end
-    stats = _run_one_svd_retrieval!(
-        buf.x_tmp,
-        fm,
-        jac_eval,
-        layout,
-        buf.y_obs,
-        copy(sh.x0),
-        x_a,
-        σ_prior,
-        sh.lower,
-        sh.upper,
-        sh.x_scale_template,
-        sh.use_leg01,
-        sh.A01,
-        sh.prior_min_sigma,
-        sh.leg01_frac,
-        sh.use_band_snr,
-        sh.band_snr_coeffs,
-        sh.meas_sigma,
-        sh.lm,
-        (
-            dx_rel_tol = sh.conv.dx_rel_tol,
-            rmse_rel_tol = sh.conv.rmse_rel_tol,
-            rmse_abs_tol = sh.conv.rmse_abs_tol,
-            enabled = sh.conv.enabled,
-            window = sh.conv.window,
-            redchi2_target = sh.conv.redchi2_target,
-            redchi2_abs_tol = sh.conv.redchi2_abs_tol,
-            redchi2_rel_tol = sh.conv.redchi2_rel_tol,
-        ),
-        sh.conv.dx_rel_tol_stall,
-        max_outer_steps,
-    )
+    stats = try
+        _run_one_svd_retrieval!(
+            buf.x_tmp,
+            fm,
+            jac_eval,
+            layout,
+            buf.y_obs,
+            copy(sh.x0),
+            x_a,
+            σ_prior,
+            sh.lower,
+            sh.upper,
+            sh.x_scale_template,
+            sh.use_leg01,
+            sh.A01,
+            sh.prior_min_sigma,
+            sh.leg01_frac,
+            sh.use_band_snr,
+            sh.band_snr_coeffs,
+            sh.meas_sigma,
+            sh.lm,
+            (
+                dx_rel_tol = sh.conv.dx_rel_tol,
+                rmse_rel_tol = sh.conv.rmse_rel_tol,
+                rmse_abs_tol = sh.conv.rmse_abs_tol,
+                enabled = sh.conv.enabled,
+                window = sh.conv.window,
+                redchi2_target = sh.conv.redchi2_target,
+                redchi2_abs_tol = sh.conv.redchi2_abs_tol,
+                redchi2_rel_tol = sh.conv.redchi2_rel_tol,
+            ),
+            sh.conv.dx_rel_tol_stall,
+            max_outer_steps,
+        )
+    catch
+        status_scan[i_pix_out] = Int16(4)
+        return
+    end
     state_scan[i_pix_out, :] .= Float32.(buf.x_tmp)
     conv_scan[i_pix_out] = stats.converged ? UInt8(1) : UInt8(0)
     status_scan[i_pix_out] = stats.status
@@ -715,7 +723,9 @@ function _process_one_pixel_svd!(
     rchi2_scan[i_pix_out] = Float32(stats.reduced_chi2)
     obj_scan[i_pix_out] = Float32(stats.objective)
     dof_scan[i_pix_out] = Float32(stats.dof)
-    spost_scan[i_pix_out, :, :] .= Float32.(stats.S_posterior)
+    if spost_diag_scan !== nothing
+        spost_diag_scan[i_pix_out, :] .= Float32.(diag(stats.S_posterior))
+    end
     sif_coeff = buf.x_tmp[layout.idx_sif]
     if length(sif_coeff) >= 1
         sif1_scan[i_pix_out] = Float32(sif_coeff[1])
@@ -747,7 +757,7 @@ function _flush_svd_tile!(
     sif1_scan::Vector{Float32},
     sif_coeffs_scan::Matrix{Float32},
     sif_678_scan::Vector{Float32},
-    spost_scan::Array{Float32, 3},
+    spost_diag_scan::Union{Nothing, Matrix{Float32}},
     dark_scan::Vector{UInt8},
     ocean_scan::Vector{UInt8},
     use_cuda::Bool,
@@ -821,11 +831,20 @@ function _flush_svd_tile!(
         )
         Jk = ForwardDiff.jacobian(fm_k, collect(xv))
         H_obs = Jk' * Se * Jk
-        Spost = inv(Matrix(H_obs + S_a_inv))
-        spost_scan[io, :, :] .= Float32.(Spost)
-        dof_k = Float64(tr(Spost * H_obs))
-        dof_scan[io] = Float32(dof_k)
-        rchi2_scan[io] = Float32(χ / max(dof_k, eps(Float64)))
+        Spost, post_ok = _posterior_covariance(H_obs, S_a_inv)
+        if spost_diag_scan !== nothing
+            spost_diag_scan[io, :] .= Float32.(diag(Spost))
+        end
+        if !post_ok
+            status_scan[io] = Int16(4)
+            conv_scan[io] = UInt8(0)
+            dof_scan[io] = Float32(NaN)
+            rchi2_scan[io] = Float32(NaN)
+        else
+            dof_k = Float64(tr(Spost * H_obs))
+            dof_scan[io] = Float32(dof_k)
+            rchi2_scan[io] = Float32(χ / max(dof_k, eps(Float64)))
+        end
         sc = xv[layout.idx_sif]
         if length(sc) >= 1
             sif1_scan[io] = Float32(sc[1])
@@ -857,6 +876,7 @@ function run_svd_orbit_full_nc_parallel(
     prefetch_input = Bool(get(batch_cfg, "prefetch_input", true))
     compression_level = Int(get(batch_cfg, "output_compression_level", 1))
     deferred_write = Bool(get(batch_cfg, "deferred_write", true))
+    save_posterior = Bool(get(batch_cfg, "save_posterior", true))
     show_progress = Bool(get(batch_cfg, "show_progress", _default_show_progress()))
 
     wavelength_var = String(get(pace_cfg, "wavelength_var", "red_wavelength"))
@@ -904,6 +924,7 @@ function run_svd_orbit_full_nc_parallel(
         pixel_range,
         scan_range;
         compression_level = compression_level,
+        save_posterior = save_posterior,
     )
     ds_out["latitude"][:, :] = lat[pixel_range, scan_range]
     ds_out["longitude"][:, :] = lon[pixel_range, scan_range]
@@ -922,7 +943,8 @@ function run_svd_orbit_full_nc_parallel(
     println("  pixels: ", first(pixel_range), ":", last(pixel_range), " (", length(pixel_range), ")")
     println("  scans:  ", first(scan_range), ":", last(scan_range), " (", length(scan_range), ")")
     println("  output: ", output_path)
-    println("  prefetch_input: ", prefetch_input, "  deferred_write: ", deferred_write, "  compression_level: ", compression_level)
+    println("  prefetch_input: ", prefetch_input, "  deferred_write: ", deferred_write,
+        "  compression_level: ", compression_level, "  save_posterior: ", save_posterior)
 
     use_cuda_eff = sh.use_gpu && CUDA.functional()
     if sh.use_gpu && !CUDA.functional()
@@ -958,7 +980,8 @@ function run_svd_orbit_full_nc_parallel(
     buf_sif1     = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
     buf_sifcoeff = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out, n_sif_ev) : nothing
     buf_sif678   = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out)          : nothing
-    buf_spost    = deferred_write ? fill(Float32(NaN), n_pix_out, n_scan_out, n_state, n_state) : nothing
+    buf_spost_diag = (deferred_write && save_posterior) ?
+        fill(Float32(NaN), n_pix_out, n_scan_out, n_state) : nothing
     buf_dark     = deferred_write ? fill(UInt8(0),     n_pix_out, n_scan_out)          : nothing
     buf_ocean    = deferred_write ? fill(UInt8(0),     n_pix_out, n_scan_out)          : nothing
 
@@ -997,7 +1020,8 @@ function run_svd_orbit_full_nc_parallel(
         sif1_scan = fill(Float32(NaN), length(pixel_range))
         sif_coeffs_scan = fill(Float32(NaN), length(pixel_range), n_sif_ev)
         sif_678_scan = fill(Float32(NaN), length(pixel_range))
-        spost_scan = fill(Float32(NaN), length(pixel_range), sh.layout.n_state, sh.layout.n_state)
+        spost_diag_scan = save_posterior ?
+            fill(Float32(NaN), length(pixel_range), sh.layout.n_state) : nothing
         dark_scan = fill(UInt8(0), length(pixel_range))
         ocean_scan = fill(UInt8(0), length(pixel_range))
 
@@ -1038,7 +1062,7 @@ function run_svd_orbit_full_nc_parallel(
                     sif1_scan,
                     sif_coeffs_scan,
                     sif_678_scan,
-                    spost_scan,
+                    spost_diag_scan,
                     dark_scan,
                     ocean_scan,
                     true,
@@ -1127,7 +1151,7 @@ function run_svd_orbit_full_nc_parallel(
                     sif1_scan,
                     sif_coeffs_scan,
                     sif_678_scan,
-                    spost_scan,
+                    spost_diag_scan,
                     dark_scan,
                     ocean_scan,
                 )
@@ -1161,7 +1185,7 @@ function run_svd_orbit_full_nc_parallel(
                     sif1_scan,
                     sif_coeffs_scan,
                     sif_678_scan,
-                    spost_scan,
+                    spost_diag_scan,
                     dark_scan,
                     ocean_scan,
                 )
@@ -1180,7 +1204,9 @@ function run_svd_orbit_full_nc_parallel(
             buf_sif1[:, j_scan_out]        = sif1_scan
             buf_sifcoeff[:, j_scan_out, :] = sif_coeffs_scan
             buf_sif678[:, j_scan_out]      = sif_678_scan
-            buf_spost[:, j_scan_out, :, :] = spost_scan
+            if save_posterior
+                buf_spost_diag[:, j_scan_out, :] = spost_diag_scan
+            end
             buf_dark[:, j_scan_out]        = dark_scan
             buf_ocean[:, j_scan_out]       = ocean_scan
         else
@@ -1195,7 +1221,9 @@ function run_svd_orbit_full_nc_parallel(
             ds_out["sif_ev1"][:, j_scan_out]           = sif1_scan
             ds_out["sif_coeffs"][:, j_scan_out, :]     = sif_coeffs_scan
             ds_out["sif_radiance_678nm"][:, j_scan_out] = sif_678_scan
-            ds_out["S_posterior"][:, j_scan_out, :, :] = spost_scan
+            if save_posterior
+                ds_out["S_posterior_diag"][:, j_scan_out, :] = spost_diag_scan
+            end
             ds_out["is_dark"][:, j_scan_out]           = dark_scan
             ds_out["is_ocean"][:, j_scan_out]          = ocean_scan
         end
@@ -1221,7 +1249,9 @@ function run_svd_orbit_full_nc_parallel(
             ds_out["sif_ev1"][:, :]              = buf_sif1
             ds_out["sif_coeffs"][:, :, :]        = buf_sifcoeff
             ds_out["sif_radiance_678nm"][:, :]   = buf_sif678
-            ds_out["S_posterior"][:, :, :, :]    = buf_spost
+            if save_posterior
+                ds_out["S_posterior_diag"][:, :, :] = buf_spost_diag
+            end
             ds_out["is_dark"][:, :]              = buf_dark
             ds_out["is_ocean"][:, :]             = buf_ocean
         end

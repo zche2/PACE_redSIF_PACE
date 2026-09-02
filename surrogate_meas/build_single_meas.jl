@@ -36,6 +36,7 @@ using Statistics
 using LinearAlgebra
 using TOML
 using NCDatasets
+using Dates
 # Headless GR backend — without this, savefig can write a 0-byte PNG on SSH/CI.
 get!(ENV, "GKSwstype", "100")
 using Plots
@@ -53,6 +54,40 @@ using .SimplePACEXSecFitMWEFunctions
 const MWEF = SimplePACEXSecFitMWEFunctions
 
 include(joinpath(REPO_ROOT, "global_svd_fit_pipeline", "svd_retrieval", "svd_helpers.jl"))
+include(joinpath(SCRIPT_DIR, "alpha_mapping.jl"))
+include(joinpath(SCRIPT_DIR, "noise_degrade.jl"))
+
+# Surrogate retrieval: α_coeff ∈ [1, 20] (global svd_helpers defaults to [1, 11]).
+function make_svd_forward_model_λ(
+    λ_obs::AbstractVector{Float64},
+    solar_eff::AbstractVector{Float64},
+    PCs_obs::Matrix{Float64},
+    sif_basis_obs::Matrix{Float64};
+    n_pc::Int,
+    n_legendre::Int,
+    log_transform::Bool,
+)
+    length(λ_obs) == length(solar_eff) || error("λ and solar_eff length mismatch")
+    PCs = Float64.(PCs_obs[:, 1:n_pc])
+    SIF = Float64.(sif_basis_obs)
+    z_obs = _normalized_grid(λ_obs)
+    leg_basis = _legendre_design_matrix(z_obs, n_legendre)
+    layout = svd_state_layout(; n_pc = n_pc, n_legendre = n_legendre, n_ev = size(SIF, 2))
+
+    function fm_svd(x::AbstractVector)
+        length(x) == layout.n_state || error("SVD state length $(length(x)) != $(layout.n_state)")
+        c_vec = @view x[layout.idx_pc]
+        alpha_coeff = alpha_coeff_from_raw(x[first(layout.idx_alpha)])
+        leg_coeff = @view x[layout.idx_legendre]
+        sif_coeff = @view x[layout.idx_sif]
+        trans_up = log_transform ? exp.(PCs * c_vec) : 1.0 .+ PCs * c_vec
+        trans_updown = exp.(alpha_coeff .* log.(max.(trans_up, eps(Float64))))
+        rho_obs = leg_basis * leg_coeff
+        sif_toa = trans_up .* (SIF * sif_coeff)
+        return @.(solar_eff * trans_updown * rho_obs / π + sif_toa)
+    end
+    return fm_svd, layout
+end
 
 # ── user settings ─────────────────────────────────────────────────────────────
 const CONFIG_PATH = joinpath(REPO_ROOT, "demo_example", "Simple_PACE_xSecFit_MWE_zcheVer.toml")
@@ -62,7 +97,7 @@ const RANDOM_SEED = 42
 const SZA_DEG = 30.0
 const VZA_DEG = 0.0
 const REFLECTANCE_SHAPE = :exponential   # :exponential or :beta (both non-χ²)
-const REFLECTANCE_DECAY = 4.0            # larger => more weight near the surface
+const REFLECTANCE_DECAY = 10.0            # larger => more weight near the surface
 # Linear LUT interp avoids cubic overshoot → negative xsecs / transmittance > 1
 const LUT_INTERPOLATION = "linear"
 const SVD_RETRIEVAL_CONFIG = joinpath(REPO_ROOT, "svd_configs", "global_fit_pipeline.st.npoly3.configs.toml")
@@ -650,7 +685,8 @@ end
 # ── (C) SIF + one-way T₁ ──────────────────────────────────────────────────────
 
 """
-Load one random SIF shape from `SIF_shapes` in the library JLD2 and map to `λ_dst`.
+Load one random SIF shape from `SIF_shapes` in the library JLD2 and map to `λ_dst`
+(cubic spline onto OCI bands when the library grid is evenly spaced).
 """
 function load_random_sif_shape(
     sif_path::AbstractString,
@@ -664,7 +700,7 @@ function load_random_sif_shape(
     size(shapes, 1) == length(λ_ref) ||
         error("SIF_shapes first dimension must match SIF_wavelen length")
     idx = rand(1:size(shapes, 2))
-    shape_band = map_spectrum_to_bands(λ_ref, shapes[:, idx], λ_dst)
+    shape_band = map_sif_shape_to_bands(λ_ref, shapes[:, idx], λ_dst)
     return (
         λ=collect(Float64.(λ_dst)),
         shape=shape_band,
@@ -785,6 +821,38 @@ function add_sif_component(
 end
 
 # ── (D) TOA radiance + SNR white noise ────────────────────────────────────────
+
+"""
+Map SIF library shape `y_src(λ_src)` onto OCI band centers `λ_dst`.
+
+Uses cubic spline interpolation when `λ_src` is evenly spaced (as for
+`SIF_wavelen` in `SIF_singular_vector.jld2`), otherwise linear interpolation.
+Values outside the source wavelength range are set to zero.
+"""
+function map_sif_shape_to_bands(
+    λ_src::AbstractVector{<:Real},
+    y_src::AbstractVector{<:Real},
+    λ_dst::AbstractVector{<:Real},
+)
+    length(λ_src) == length(y_src) || error("λ_src / y_src length mismatch")
+    λs = collect(Float64.(λ_src))
+    ys = Float64.(y_src)
+    λt = collect(Float64.(λ_dst))
+    dλ = diff(λs)
+    step = dλ[1]
+    tol = max(1e-10, abs(step) * 1e-8)
+    use_cubic = all(abs.(dλ .- step) .<= tol)
+    if use_cubic
+        λ_knots = range(λs[1], step=step, length=length(λs))
+        itp = CubicSplineInterpolation(λ_knots, ys; extrapolation_bc=Line())
+        out = itp.(λt)
+        out[(λt .< λs[1]) .| (λt .> λs[end])] .= 0.0
+        return out
+    else
+        itp = LinearInterpolation(λs, ys; extrapolation_bc=0.0)
+        return itp.(λt)
+    end
+end
 
 """
 Map `y_src(λ_src)` onto `λ_dst` by nearest-band sampling (OCI band grids align closely).
@@ -1044,6 +1112,12 @@ function prepare_svd_retrieval_setup(retrieval_cfg::Dict{String, Any}, λ_ctx::A
     band_snr_coeffs = use_band_snr ?
         load_pace_band_snr_coeffs(pace_snr_path, λ_ctx; λ_min=λ_min, λ_max=λ_max) :
         nothing
+    noise_degrade = parse_noise_degrade(retrieval_cfg)
+    if noise_degrade !== nothing && band_snr_coeffs !== nothing
+        band_snr_coeffs = copy_snr_coeffs_with_degrade(band_snr_coeffs, λ_ctx, noise_degrade)
+        n_deg = length(noise_degrade_band_mask(λ_ctx, noise_degrade))
+        println("  noise_degrade retrieval: λ∈[$(noise_degrade.lambda_min_nm), $(noise_degrade.lambda_max_nm)] nm, σ×$(noise_degrade.sigma_factor) ($n_deg bands)")
+    end
 
     lm = (
         lambda0 = Float64(get(fit_cfg, "lm_lambda0", 1.0)),
@@ -1083,6 +1157,7 @@ function prepare_svd_retrieval_setup(retrieval_cfg::Dict{String, Any}, λ_ctx::A
         use_band_snr=use_band_snr,
         band_snr_coeffs=band_snr_coeffs,
         meas_sigma=meas_sigma,
+        noise_degrade=noise_degrade,
         lm=lm,
         conv=conv,
         max_outer_steps=max_outer_steps,
@@ -1103,7 +1178,7 @@ function svd_obs_components(
     log_transform::Bool,
 )
     c_vec = @view x[layout.idx_pc]
-    alpha_coeff = 10.0 / (1.0 + exp(-x[first(layout.idx_alpha)])) + 1.0
+    alpha_coeff = alpha_coeff_from_raw(x[first(layout.idx_alpha)])
     leg_coeff = @view x[layout.idx_legendre]
     sif_coeff = @view x[layout.idx_sif]
     leg_basis = _legendre_design_matrix(_normalized_grid(λ_obs), layout.n_legendre)
@@ -1297,6 +1372,119 @@ function pseudo_retrieval_from_surrogate(
     return ret
 end
 
+"""Write all plot spectra + profile/weight metadata for one surrogate case."""
+function write_surrogate_profile_nc(
+    out_path::AbstractString;
+    profile_index::Int,
+    prof,
+    weights::AbstractVector{<:Real},
+    reflectance_decay::Float64,
+    reflectance_shape::AbstractString,
+    amf_down::Float64,
+    amf_up::Float64,
+    λ_hres::AbstractVector{<:Real},
+    λ_band::AbstractVector{<:Real},
+    τ_2way::AbstractVector{<:Real},
+    T_solar::AbstractVector{<:Real},
+    T2_atm::AbstractVector{<:Real},
+    T2_hres::AbstractVector{<:Real},
+    T_solar_band::AbstractVector{<:Real},
+    T2_atm_band::AbstractVector{<:Real},
+    T2_band::AbstractVector{<:Real},
+    reflectance,
+    sif,
+    toa,
+    retrieval,
+)
+    n_layer = length(weights)
+    n_hres = length(λ_hres)
+    n_band = length(λ_band)
+    length(prof.p_full) == n_layer || error("p_full / weights length mismatch")
+    length(τ_2way) == n_hres || error("τ_2way / λ_hres length mismatch")
+    length(T2_band) == n_band || error("T2_band / λ_band length mismatch")
+
+    height_mid = (prof.height_km[1:end-1] .+ prof.height_km[2:end]) ./ 2
+    λ_refl = collect(Float64.(reflectance.obs.λ))
+    n_refl = length(λ_refl)
+
+    isfile(out_path) && rm(out_path)
+    ds = Dataset(out_path, "c")
+    defDim(ds, "layer", n_layer)
+    defDim(ds, "band", n_band)
+    defDim(ds, "hres", n_hres)
+    defDim(ds, "refl_band", n_refl)
+
+    defVar(ds, "layer_index", Int32.(1:n_layer), ("layer",))
+    defVar(ds, "pressure", Float64.(prof.p_full), ("layer",); attrib=Dict("units"=>"hPa"))
+    defVar(ds, "height", Float64.(height_mid), ("layer",); attrib=Dict("units"=>"km"))
+    defVar(ds, "temperature", Float64.(prof.temp), ("layer",); attrib=Dict("units"=>"K"))
+    defVar(ds, "vmr_h2o", Float64.(prof.vmr_h2o), ("layer",); attrib=Dict("units"=>"mol mol-1"))
+    defVar(ds, "reflectance_weight", Float64.(weights), ("layer",);
+           attrib=Dict("long_name"=>"normalized layer reflectance weights"))
+
+    defVar(ds, "wavelength_hres", Float64.(λ_hres), ("hres",); attrib=Dict("units"=>"nm"))
+    defVar(ds, "tau_2way", Float64.(τ_2way), ("hres",))
+    defVar(ds, "T_solar_hres", Float64.(T_solar), ("hres",);
+           attrib=Dict("long_name"=>"solar continuum-normalized transmittance on hi-res grid"))
+    defVar(ds, "T2_atm_hres", Float64.(T2_atm), ("hres",))
+    defVar(ds, "T2_hres", Float64.(T2_hres), ("hres",);
+           attrib=Dict("long_name"=>"two-way atm × solar on hi-res grid"))
+
+    defVar(ds, "wavelength", Float64.(λ_band), ("band",); attrib=Dict("units"=>"nm"))
+    defVar(ds, "T_solar", Float64.(T_solar_band), ("band",))
+    defVar(ds, "T2_atm", Float64.(T2_atm_band), ("band",))
+    defVar(ds, "T2", Float64.(T2_band), ("band",);
+           attrib=Dict("long_name"=>"two-way atm × solar on OCI bands"))
+    defVar(ds, "T1", Float64.(sif.T1.T1_band), ("band",);
+           attrib=Dict("long_name"=>"one-way atmospheric transmittance on OCI bands"))
+    defVar(ds, "SIF", Float64.(sif.sif.SIF), ("band",);
+           attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "SIF_toa", Float64.(sif.sif.R_sif_toa), ("band",);
+           attrib=Dict("long_name"=>"SIF × T1", "units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "R_cont", Float64.(toa.R_cont), ("band",);
+           attrib=Dict("long_name"=>"rescaled continuum radiance", "units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "R_bg", Float64.(toa.R_bg), ("band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "R_toa_clean", Float64.(toa.R_toa), ("band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "R_toa_noisy", Float64.(toa.R_noisy), ("band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "R_toa_noisy_bg", Float64.(toa.R_noisy_bg), ("band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "noise_sigma", Float64.(toa.σ), ("band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "snr", Float64.(toa.snr), ("band",))
+
+    defVar(ds, "R_fit", Float64.(retrieval.y_fit), ("band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "SIF_toa_fit", Float64.(retrieval.sif_toa_fit), ("band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "residual", Float64.(retrieval.resid), ("band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+
+    defVar(ds, "wavelength_refl", λ_refl, ("refl_band",); attrib=Dict("units"=>"nm"))
+    defVar(ds, "R_l1b", Float64.(reflectance.obs.R), ("refl_band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "R_legendre", Float64.(reflectance.fit.R_fit), ("refl_band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "R_legendre_rescaled", Float64.(reflectance.resc.R), ("refl_band",); attrib=Dict("units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "rho_legendre_rescaled", Float64.(reflectance.resc.ρ), ("refl_band",))
+
+    ds.attrib["title"] = "Surrogate measurement spectra for plotting (profile $profile_index)"
+    ds.attrib["profile_index"] = profile_index
+    ds.attrib["ps_hpa"] = Float64(prof.ps_hpa)
+    ds.attrib["stored_amf"] = Float64(prof.amf)
+    ds.attrib["sza_deg"] = Float64(SZA_DEG)
+    ds.attrib["vza_deg"] = Float64(VZA_DEG)
+    ds.attrib["amf_down"] = amf_down
+    ds.attrib["amf_up"] = amf_up
+    ds.attrib["reflectance_shape"] = String(reflectance_shape)
+    ds.attrib["reflectance_decay"] = reflectance_decay
+    ds.attrib["sif_library_index"] = Int(sif.sif.library_index)
+    ds.attrib["sif_strength"] = Float64(sif.sif.strength)
+    ds.attrib["l1b_pixel"] = Int(reflectance.obs.pixel)
+    ds.attrib["l1b_scan"] = Int(reflectance.obs.scan)
+    ds.attrib["retrieval_status"] = Int(retrieval.stats.status)
+    ds.attrib["retrieval_converged"] = Int(retrieval.stats.converged)
+    ds.attrib["retrieval_rmse"] = Float64(retrieval.stats.rmse)
+    ds.attrib["retrieval_reduced_chi2"] = Float64(retrieval.stats.reduced_chi2)
+    ds.attrib["retrieval_dof"] = Float64(retrieval.stats.dof)
+    ds.attrib["created"] = string(Dates.now())
+    close(ds)
+    println("Saved spectra NetCDF: ", out_path)
+    return out_path
+end
+
 function main()
     mkpath(OUTPUT_DIR)
     Random.seed!(RANDOM_SEED)
@@ -1380,6 +1568,7 @@ function main()
         println(io, "amf_down\t$(amf_down)")
         println(io, "amf_up\t$(amf_up)")
         println(io, "reflectance_shape\t$(REFLECTANCE_SHAPE)")
+        println(io, "reflectance_decay\t$(REFLECTANCE_DECAY)")
         println(io, "tau_2way_min\t$(minimum(τ_2way))")
         println(io, "tau_2way_max\t$(maximum(τ_2way))")
         println(io, "T2_hres_min\t$(minimum(T2_hres))")
@@ -1469,6 +1658,31 @@ function main()
         println(io, "retrieval_dof\t$(retrieval.stats.dof)")
     end
 
+    nc_path = joinpath(OUTPUT_DIR, "profile_$(profile_index)_spectra.nc")
+    write_surrogate_profile_nc(
+        nc_path;
+        profile_index=profile_index,
+        prof=prof,
+        weights=weights,
+        reflectance_decay=REFLECTANCE_DECAY,
+        reflectance_shape=String(REFLECTANCE_SHAPE),
+        amf_down=amf_down,
+        amf_up=amf_up,
+        λ_hres=collect(Float64.(ctx.λ_hres)),
+        λ_band=λ_band,
+        τ_2way=τ_2way,
+        T_solar=T_solar,
+        T2_atm=T2_atm,
+        T2_hres=T2_hres,
+        T_solar_band=T_solar_band,
+        T2_atm_band=T2_atm_band,
+        T2_band=T2_band,
+        reflectance=refl,
+        sif=sif,
+        toa=toa,
+        retrieval=retrieval,
+    )
+
     return (
         profile=prof,
         weights=weights,
@@ -1484,6 +1698,7 @@ function main()
         sif=sif,
         toa=toa,
         retrieval=retrieval,
+        spectra_nc=nc_path,
     )
 end
 
