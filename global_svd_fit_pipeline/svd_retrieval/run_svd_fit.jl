@@ -3,7 +3,12 @@
 # plus [data], [spectral], [fit], …). No demo_example paths.
 #
 # Usage:
-#   julia -t 8 global_fit_pipeline/svd_retrieval/run_svd_fit.jl [path/to/global_fit_pipeline.toml]
+#   julia -t 8 global_svd_fit_pipeline/svd_retrieval/run_svd_fit.jl [path/to/pipeline.toml]
+#   julia -t 8 .../run_svd_fit.jl pipeline.toml --date 20250701
+#   julia -t 8 .../run_svd_fit.jl pipeline.toml --granule 20250701T000124
+#
+# `--date` / `--granule` override [svd_retrieval] so many OS processes can share one TOML
+# (see scripts/run_svd_fit_multitask.sh).
 
 using Base.Threads
 using Dates
@@ -379,14 +384,50 @@ end
 
 function main()
     pipeline_path = get(ENV, "PACE_SVD_PIPELINE_CONFIG", normpath(joinpath(_PIPE_DIR, "global_fit_pipeline.toml")))
-    if !isempty(ARGS)
-        pipeline_path = ARGS[1]
+    date_cli = get(ENV, "PACE_SVD_DATE", "")
+    granule_cli = get(ENV, "PACE_SVD_GRANULE", "")
+
+    positional = String[]
+    i = 1
+    while i <= length(ARGS)
+        a = ARGS[i]
+        if a == "--date" || a == "-d"
+            i += 1
+            i > length(ARGS) && error("$a requires YYYYMMDD")
+            date_cli = String(ARGS[i])
+        elseif a == "--granule" || a == "-g"
+            i += 1
+            i > length(ARGS) && error("$a requires YYYYMMDDTHHMMSS")
+            granule_cli = String(ARGS[i])
+        elseif startswith(a, "--date=")
+            date_cli = String(a[8:end])
+        elseif startswith(a, "--granule=")
+            granule_cli = String(a[11:end])
+        elseif startswith(a, "-")
+            error("Unknown option: $a (supported: --date YYYYMMDD, --granule ID)")
+        else
+            push!(positional, a)
+        end
+        i += 1
     end
+    if !isempty(positional)
+        pipeline_path = positional[1]
+    end
+    !isempty(date_cli) && !isempty(granule_cli) &&
+        error("Pass only one of --date / --granule (got both)")
+
     isfile(pipeline_path) || error("Pipeline config not found: $pipeline_path")
     cfg = TOML.parsefile(pipeline_path)
     svd = get(cfg, "svd_retrieval", Dict{String, Any}())
     mode = String(get(svd, "mode", "date"))
-    if mode == "date"
+
+    if !isempty(granule_cli)
+        println("CLI override: granule=$granule_cli (ignoring [svd_retrieval].mode=$mode)")
+        run_svd_global_fit_granule(pipeline_path, granule_cli)
+    elseif !isempty(date_cli)
+        println("CLI override: date=$date_cli (ignoring [svd_retrieval].mode=$mode)")
+        run_svd_global_fit_date(pipeline_path; date_override = date_cli)
+    elseif mode == "date"
         run_svd_global_fit_date(pipeline_path)
     elseif mode == "dates"
         run_svd_global_fit_dates(pipeline_path)

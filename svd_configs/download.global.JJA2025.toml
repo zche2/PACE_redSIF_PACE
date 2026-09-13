@@ -25,8 +25,8 @@ L2BGC_dir = "/kiwi-data/Data/satellite/PACE_OCI/L2_BGC_V3.2"
 
 # =============================================================================
 [download.temporal]
-start = "2025-04-01T00:00:00"
-end   = "2025-05-31T23:59:59"
+start = "2025-06-01T00:00:00"
+end   = "2025-06-30T23:59:59"
 
 [download.spatial]
 # use_bounding_box = false

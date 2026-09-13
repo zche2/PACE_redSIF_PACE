@@ -26,8 +26,29 @@ python global_fit_pipeline/download/download_pace_products.py global_fit_pipelin
 Preprocess/merge → per-pixel SVD transmittance LM on **sorted interim red bands** inside `**(spectral.lambda_min_nm, spectral.lambda_max_nm)`** (same slice for `Rtoa_red` and L1B `red_solar_irradiance`). Transmittance PCs and SIF basis are interpolated onto those wavelengths; measurement noise uses `**pace_snr_file**` when band SNR is enabled. Per-thread scratch buffers are sized for `Threads.maxthreadid()`.
 
 ```bash
-julia --project=. -t 8 global_fit_pipeline/svd_retrieval/run_svd_fit.jl global_fit_pipeline/global_fit_pipeline.toml
+julia --project=. -t 8 global_svd_fit_pipeline/svd_retrieval/run_svd_fit.jl path/to/pipeline.toml
 ```
+
+### Multitask many days/granules (same TOML)
+
+One Julia process still runs granules **sequentially** (NetCDF/HDF5-safe). To use many CPUs across days, launch **separate OS processes** that share the same pipeline file:
+
+```bash
+# one process per calendar day in [svd_retrieval] date range / dates list
+MAX_JOBS=4 JULIA_THREADS=8 \
+  ./global_svd_fit_pipeline/scripts/run_svd_fit_multitask.sh path/to/pipeline.toml
+
+# or one process per L1B granule (more processes; lower JULIA_THREADS)
+SPLIT=granule MAX_JOBS=8 JULIA_THREADS=4 \
+  ./global_svd_fit_pipeline/scripts/run_svd_fit_multitask.sh path/to/pipeline.toml
+
+# preview commands only
+DRY_RUN=1 ./global_svd_fit_pipeline/scripts/run_svd_fit_multitask.sh path/to/pipeline.toml
+```
+
+Each worker calls `run_svd_fit.jl … --date YYYYMMDD` or `--granule ID` (CLI overrides `[svd_retrieval].mode`). Set `[svd_retrieval].skip_existing = true` so restarts skip finished granules. Logs go under `<output_dir>/multitask_logs/` (or `LOG_DIR=`).
+
+With GPU, prefer fewer processes and `JULIA_THREADS=1`–`2`.
 
 Outputs NetCDF under `[svd_retrieval].output_dir/YYYY/MM/DD/` with suffix `[batch_fit].output_suffix_parallel`, with variables aligned to the batch-fit swath style (`x_hat`, diagnostics, `state_names_csv`). By default `[batch_fit].save_posterior = true` writes `S_posterior_diag` (posterior variance per state element; ~380 MB/granule vs ~3 GB for the full covariance matrix). Set `save_posterior = false` to omit it.
 
