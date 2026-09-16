@@ -86,7 +86,11 @@ function load_ocean_column_aerosols!(
         τ_ref = sum(aod)
         τ_ref < aod_min && continue
 
-        w = aod ./ τ_ref
+        # Callers that pass aod_min=0.0 (to keep a fixed species count for
+        # BatchContext) rely on this not producing NaN when τ_ref is exactly
+        # zero; 0/0 would otherwise poison μ/p₀/σp even though the species
+        # contributes no optical depth.
+        w = τ_ref > 0 ? aod ./ τ_ref : fill(inv(n_lev), n_lev)
         μ = clamp(sum(w .* rad), 1e-3, r_max)
         p₀ = sum(w .* p_mid)
         σp = max(sqrt(sum(w .* (p_mid .- p₀) .^ 2)), _SIGP_MIN)
