@@ -6,15 +6,27 @@ using vSmartMOM.SolarModel
 using NCDatasets
 using JLD2
 using Interpolations
+using Dates
 
 # Same kernel as the SVD pipeline (`build_kernel_from_rsr_nc` + `KernelInstrument`).
 include(joinpath(@__DIR__, "..", "..", "src", "tools", "Instrument.jl"))
+include(joinpath(@__DIR__, "ocean_column_aerosols.jl"))
 
 const PACE_RSR_NC = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/PACE_OCI_RSRs.nc"
+const OCEAN_YAML = joinpath(@__DIR__, "..", "configs", "ocean_coxmunk_0912.yaml")
+# 1) SIF
 const SIF_LIB = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/SIF_singular_vector.jld2"
 const SIF_LIBRARY_INDEX = 1          # column of SIF_shapes
 const SIF_PEAK = 0.3                 # water-leaving radiance at SIF_λ, W m⁻² sr⁻¹ μm⁻¹
 const SIF_λ = 678.0                  # nm; scale the shape here, not at its maximum
+# 2) Aerosol columns
+const ENABLE_AEROSOLS = false
+const OCEAN_COLS_NC = joinpath(@__DIR__, "output_aerosol_profiles", "geoschem_ocean_columns_n500.nc")
+const COLUMN_INDEX = 100
+# 3) Whitecap and wind speed
+const INCLUDE_WHITECAPS = true
+const WHITECAP_ALBEDO = 0.22
+const WIND_SPEED = 5.0
 
 # conversion factor from photon flux to radiance
 h = 6.62607015e-34   # J⋅s
@@ -22,8 +34,28 @@ c = 299792458.0      # m/s
     # λ_nm = 1e7/ν, λ_m = λ_nm⋅1e-9 = 0.01/ν
     # E = hc/λ_m = 100⋅h⋅c⋅ν
 
-# config
-params = parameters_from_yaml("./surrogate_meas/configs/ocean_coxmunk_0912.yaml")
+# config + aerosols from n500 ocean column
+params = parameters_from_yaml(OCEAN_YAML)
+# Override Cox-Munk surface from script params (YAML is only a template).
+surf0 = only(params.brdf)
+surf0 isa vSmartMOM.CoreRT.CoxMunkSurface ||
+    error("Expected CoxMunkSurface in YAML surface:; got $(typeof(surf0))")
+FT = typeof(surf0.wind_speed)
+params.brdf = [vSmartMOM.CoreRT.CoxMunkSurface{FT}(
+    wind_speed = FT(WIND_SPEED),
+    n_water = surf0.n_water,
+    whitecap_albedo = FT(WHITECAP_ALBEDO),
+    include_whitecaps = INCLUDE_WHITECAPS,
+    shadowing = surf0.shadowing,
+)]
+println("Cox-Munk: wind=$(WIND_SPEED) m/s, whitecaps=$(INCLUDE_WHITECAPS), albedo=$(WHITECAP_ALBEDO)")
+if ENABLE_AEROSOLS
+    load_ocean_column_aerosols!(params, OCEAN_COLS_NC, COLUMN_INDEX; yaml_path=OCEAN_YAML)
+else
+    # Drop YAML scattering stub so model_from_parameters builds Rayleigh-only.
+    params.scattering_params = nothing
+    println("Aerosols disabled (ENABLE_AEROSOLS=false); ignoring YAML scattering: / ocean columns")
+end
 model = model_from_parameters(params)
 ν     = params.spec_bands[1]
 n_to_radiance = @. 100 * h * c * ν   # J per photon; ν in cm⁻¹
@@ -110,6 +142,82 @@ R_oci = zeros(nview, npol, length(λ_oci))
 for iv in 1:nview, ip in 1:npol
     R_oci[iv, ip, :] = kernel.RSR_out * vec(R_λ[iv, ip, :])
 end
+
+# Identify this run in the filename + NetCDF attributes.
+const OUT_DIR = joinpath(@__DIR__, "output")
+mkpath(OUT_DIR)
+surf = only(params.brdf)
+surf isa vSmartMOM.CoreRT.CoxMunkSurface ||
+    error("Expected CoxMunkSurface in params.brdf; got $(typeof(surf))")
+wind_speed = Float64(surf.wind_speed)
+include_whitecaps = Bool(surf.include_whitecaps)
+whitecap_albedo = Float64(surf.whitecap_albedo)
+shadowing = Bool(surf.shadowing)
+# Sanity: NC tags follow the script overrides, not the YAML defaults.
+wind_speed ≈ WIND_SPEED || @warn "wind_speed mismatch" surf=wind_speed script=WIND_SPEED
+include_whitecaps == INCLUDE_WHITECAPS || @warn "include_whitecaps mismatch"
+whitecap_albedo ≈ WHITECAP_ALBEDO || @warn "whitecap_albedo mismatch"
+
+_num_tag(x; digits=3) = replace(string(round(x; digits=digits)), "." => "p")
+peak_tag = _num_tag(SIF_PEAK)
+λ_tag = _num_tag(SIF_λ; digits=1)
+ws_tag = _num_tag(wind_speed; digits=1)
+wc_on_tag = include_whitecaps ? "true" : "false"
+wc_alb_tag = _num_tag(whitecap_albedo; digits=2)
+aer_suf = ENABLE_AEROSOLS ? "" : "_noaerosol"
+out_nc = joinpath(OUT_DIR,
+    "toa_col$(lpad(COLUMN_INDEX, 3, '0'))_siflib$(SIF_LIBRARY_INDEX)_peak$(peak_tag)_$(λ_tag)nm" *
+    "_ws$(ws_tag)_wc$(wc_on_tag)_wc$(wc_alb_tag)$(aer_suf).nc")
+isfile(out_nc) && rm(out_nc)
+
+ds_out = NCDataset(out_nc, "c")
+defDim(ds_out, "view", nview)
+defDim(ds_out, "pol", npol)
+defDim(ds_out, "band_hres", length(λ_hres))
+defDim(ds_out, "band_oci", length(λ_oci))
+
+defVar(ds_out, "wavelength_hres", Float64.(λ_hres), ("band_hres",);
+       attrib=Dict("units" => "nm", "long_name" => "high-resolution wavelength (ascending)"))
+defVar(ds_out, "wavelength_oci", Float64.(λ_oci), ("band_oci",);
+       attrib=Dict("units" => "nm", "long_name" => "OCI band centers"))
+defVar(ds_out, "radiance_hres", Float32.(R_λ), ("view", "pol", "band_hres");
+       attrib=Dict("units" => "W m-2 sr-1 um-1",
+                   "long_name" => "TOA upwelling Stokes radiance (hi-res)",
+                   "pol_order" => "I,Q,U,V"))
+defVar(ds_out, "radiance_oci", Float32.(R_oci), ("view", "pol", "band_oci");
+       attrib=Dict("units" => "W m-2 sr-1 um-1",
+                   "long_name" => "TOA upwelling Stokes radiance (OCI RSR)",
+                   "pol_order" => "I,Q,U,V"))
+defVar(ds_out, "sif_waterleaving_hres", Float32.(reverse(I_wl)), ("band_hres",);
+       attrib=Dict("units" => "W m-2 sr-1 um-1",
+                   "long_name" => "water-leaving SIF on hi-res grid (ascending λ)"))
+defVar(ds_out, "sza", Float64(params.sza), ();
+       attrib=Dict("units" => "degree"))
+defVar(ds_out, "vza", Float64.(params.vza), ("view",);
+       attrib=Dict("units" => "degree"))
+defVar(ds_out, "vaz", Float64.(params.vaz), ("view",);
+       attrib=Dict("units" => "degree"))
+
+ds_out.attrib["title"] = "vSmartMOM Cox-Munk TOA spectra"
+ds_out.attrib["created"] = string(Dates.now())
+ds_out.attrib["ocean_yaml"] = OCEAN_YAML
+ds_out.attrib["enable_aerosols"] = Int8(ENABLE_AEROSOLS)
+ds_out.attrib["ocean_columns_nc"] = OCEAN_COLS_NC
+ds_out.attrib["column_index"] = Int32(COLUMN_INDEX)
+ds_out.attrib["sif_library"] = SIF_LIB
+ds_out.attrib["sif_library_index"] = Int32(SIF_LIBRARY_INDEX)
+ds_out.attrib["sif_peak"] = Float64(SIF_PEAK)
+ds_out.attrib["sif_peak_units"] = "W m-2 sr-1 um-1"
+ds_out.attrib["sif_lambda_nm"] = Float64(SIF_λ)
+ds_out.attrib["pace_rsr_nc"] = PACE_RSR_NC
+ds_out.attrib["wind_speed"] = wind_speed
+ds_out.attrib["wind_speed_units"] = "m s-1"
+ds_out.attrib["include_whitecaps"] = Int8(include_whitecaps)
+ds_out.attrib["whitecap_albedo"] = whitecap_albedo
+ds_out.attrib["shadowing"] = Int8(shadowing)
+ds_out.attrib["run_id"] = basename(out_nc)
+close(ds_out)
+println("Wrote $out_nc")
 
 # Plot
 stokes = ("I", "Q", "U", "V")
