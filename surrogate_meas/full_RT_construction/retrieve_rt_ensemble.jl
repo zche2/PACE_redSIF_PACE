@@ -24,8 +24,8 @@ using Dates
 include(joinpath(@__DIR__, "..", "build_single_meas.jl"))
 
 const DEFAULT_SVD_TOML = joinpath(@__DIR__, "..", "configs", "svd_nPC15_npoly5.toml")
-const RT_NC = get(ENV, "RT_NC", joinpath(@__DIR__, "output", "rt_toa_ensemble.nc"))
-const OUT_DIR = joinpath(@__DIR__, "output")
+const RT_NC = get(ENV, "RT_NC", joinpath(@__DIR__, "output_test_realRT_noAerosol", "rt_toa_ensemble.nc"))
+const OUT_DIR = joinpath(@__DIR__, "output_test_realRT_noAerosol")
 const SOLAR_L1B = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/sample_granule_20240830T131442_new_chl.nc"
 
 function resolve_config_path()

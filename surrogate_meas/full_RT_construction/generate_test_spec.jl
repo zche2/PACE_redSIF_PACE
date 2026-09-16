@@ -52,6 +52,8 @@ const WHITECAP_ALBEDO_RANGE = (0.1, 0.5)  # 0-1
 const INCLUDE_WHITECAPS_RANGE = (0, 1)    # 0 or 1
 # MERRA has 72 layers / 73 half-levels; stride 3 → ~24 RT layers.
 const PROFILE_STRIDE = parse(Int, get(ENV, "PROFILE_STRIDE", "3"))
+# Force CPU if GPUs are busy: ARCH=CPU julia generate_test_spec.jl
+const ARCH = uppercase(get(ENV, "ARCH", "DEFAULT"))
 
 const h = 6.62607015e-34
 const c_light = 299792458.0
@@ -300,6 +302,25 @@ end
 function main()
     println("Building RT model from $OCEAN_YAML  (aerosols=$(ENABLE_AEROSOLS))")
     params = parameters_from_yaml(OCEAN_YAML)
+    if ARCH == "CPU"
+        params.architecture = CPU()
+        println("Architecture forced to CPU() via ARCH=CPU")
+    elseif ARCH == "GPU"
+        params.architecture = GPU()
+        println("Architecture forced to GPU() via ARCH=GPU")
+    end
+    try
+        if params.architecture isa GPU
+            free = CUDA.available_memory()
+            total = CUDA.total_memory()
+            println("CUDA device $(CUDA.device()): free=$(round(free/2^30; digits=1)) GiB / " *
+                    "total=$(round(total/2^30; digits=1)) GiB")
+            free < 8 * 2^30 && @warn "Low GPU free memory; aerosol RT may OOM. " *
+                "Use ARCH=CPU or free the A100s (nvidia-smi)."
+        end
+    catch
+        # CUDA.jl may be unavailable when forced to CPU
+    end
     surf0 = only(params.brdf)
     surf0 isa vSmartMOM.CoreRT.CoxMunkSurface ||
         error("Expected CoxMunkSurface in OCEAN_YAML surface:; got $(typeof(surf0))")
@@ -347,7 +368,16 @@ function main()
         done = Int(get(existing.attrib, "n_completed", 0))
         stored_n = Int(existing.dim["sample"])
         stored_seed = Int(get(existing.attrib, "seed", -1))
-        if stored_n == N_SAMPLES && stored_seed == SEED && done < N_SAMPLES
+        stored_layers = Int(existing.dim["layer"])
+        stored_stride = Int(get(existing.attrib, "profile_stride", -1))
+        layers_ok = stored_layers == n_layer &&
+            (stored_stride == -1 || stored_stride == PROFILE_STRIDE)
+        if !layers_ok
+            close(existing)
+            error("Existing $OUT_NC has layer=$stored_layers (stride=$(stored_stride)), " *
+                  "but this run uses layer=$n_layer (PROFILE_STRIDE=$PROFILE_STRIDE). " *
+                  "Remove it or set a new OUT_NC.")
+        elseif stored_n == N_SAMPLES && stored_seed == SEED && done < N_SAMPLES
             println("Resuming $OUT_NC at sample $(done + 1) / $N_SAMPLES")
             existing, done + 1
         elseif done >= N_SAMPLES && stored_n == N_SAMPLES && stored_seed == SEED
@@ -413,6 +443,11 @@ function main()
         ds["q"][:, i] = Float32.(q)
         ds.attrib["n_completed"] = i
         sync(ds)
+        # Free transient GPU buffers from Mie / layer-optics between samples.
+        if params.architecture isa GPU
+            GC.gc(false)
+            try CUDA.reclaim() catch end
+        end
 
         dt = time() - t0
         rate = dt / (i - start_i + 1)
