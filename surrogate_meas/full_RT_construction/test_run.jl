@@ -21,7 +21,7 @@ const SIF_PEAK = 0.3                 # water-leaving radiance at SIF_λ, W m⁻�
 const SIF_λ = 678.0                  # nm; scale the shape here, not at its maximum
 # 2) Aerosol columns
 const ENABLE_AEROSOLS = false
-const OCEAN_COLS_NC = joinpath(@__DIR__, "output_aerosol_profiles", "geoschem_ocean_columns_n500.nc")
+const OCEAN_COLS_NC = joinpath(@__DIR__, "output_aerosol_profiles", "gchp_ocean_columns_n500.nc")
 const COLUMN_INDEX = 100
 # 3) Whitecap and wind speed
 const INCLUDE_WHITECAPS = true

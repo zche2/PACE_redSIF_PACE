@@ -10,6 +10,7 @@
 # folder
 PACE_proposal_materials/
 Manifest.toml
+.claude/
 
 # archive & configs
 archive/

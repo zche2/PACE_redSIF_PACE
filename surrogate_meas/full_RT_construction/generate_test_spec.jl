@@ -1,12 +1,14 @@
 # Generate an ensemble of TOA Stokes-I spectra with the test_run.jl RT path.
 #
 # Sampling per sample:
-#   - p, T, q from a random MERRA-2 profile, downsampled every PROFILE_STRIDE
-#     half-levels (~24 layers for stride=3) before RT
+#   - p, T, q from merra2_sea_Tpq_columns_n1500.nc (sea surface, |lat|≤60°,
+#     already PROFILE_STRIDE-reduced; TOA→BOA, p_half increasing)
+#   - aerosols (if ENABLE_AEROSOLS): GCHP ocean-column microphysics + realistic
+#     layer-AOD vertical profiles (native BOA→TOA) remapped onto the MERRA RT
+#     p_half grid; p and AOD are reversed together so they cannot be mismatched
 #   - SIF shape from SIF_shapes, magnitude at 678 nm in SIF_STRENGTH
 #   - geometry: SZA / VZA / VAZ
 #   - Cox-Munk: wind_speed, whitecap_albedo, include_whitecaps
-#   - aerosols (if ENABLE_AEROSOLS): random GEOS-Chem ocean column
 #   - white noise from the PACE OCI SNR model after OCI convolution
 #
 # Resume: if OUT_NC already exists with the same seed and N_SAMPLES, unfinished
@@ -34,12 +36,13 @@ include(joinpath(@__DIR__, "ocean_column_aerosols.jl"))
 const OCEAN_YAML = joinpath(@__DIR__, "..", "configs", "ocean_coxmunk_0912.yaml")
 const PACE_RSR_NC = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/PACE_OCI_RSRs.nc"
 const SIF_LIB = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/SIF_singular_vector.jld2"
-const OCEAN_COLS_NC = joinpath(@__DIR__, "output_aerosol_profiles", "geoschem_ocean_columns_n500.nc")
-const TRANS_NC = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/convolved_transmittance/transmittance_summer_FineWvResModel_FullRange_Aug01.nc"
+const OCEAN_COLS_NC = joinpath(@__DIR__, "output_aerosol_profiles", "gchp_ocean_columns_n500.nc")
+const MERRA_SEA_TPQ_NC = get(ENV, "MERRA_SEA_TPQ_NC",
+    joinpath(@__DIR__, "merra2_sea_Tpq_columns_n1500.nc"))
 const SNR_FILE = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt"
 const OUT_NC = get(ENV, "OUT_NC", joinpath(@__DIR__, "output", "rt_toa_ensemble.nc"))
 
-const N_SAMPLES = parse(Int, get(ENV, "N_SAMPLES", "1000"))
+const N_SAMPLES = parse(Int, get(ENV, "N_SAMPLES", "500"))
 const ENABLE_AEROSOLS = parse(Bool, get(ENV, "ENABLE_AEROSOLS", "true"))
 const SEED = parse(Int, get(ENV, "ENSEMBLE_SEED", "20260913"))
 const SIF_λ = 678.0
@@ -50,7 +53,7 @@ const VAZ_RANGE = (0.0, 180.0)           # deg; relative azimuth (glint vs dark)
 const WIND_SPEED_RANGE = (0.0, 10.0)     # m/s
 const WHITECAP_ALBEDO_RANGE = (0.1, 0.5)  # 0-1
 const INCLUDE_WHITECAPS_RANGE = (0, 1)    # 0 or 1
-# MERRA has 72 layers / 73 half-levels; stride 3 → ~24 RT layers.
+# Sea Tpq NC was built with PROFILE_STRIDE=3 → 24 layers / 25 half-levels.
 const PROFILE_STRIDE = parse(Int, get(ENV, "PROFILE_STRIDE", "3"))
 # Force CPU if GPUs are busy: ARCH=CPU julia generate_test_spec.jl
 const ARCH = uppercase(get(ENV, "ARCH", "DEFAULT"))
@@ -99,71 +102,64 @@ function make_coxmunk(surf0, wind_speed, whitecap_albedo, include_whitecaps)
     )
 end
 
-"""Push GEOS-Chem ocean column `icol` into `ctx` aerosol optics (fixed species count)."""
+"""Push GCHP ocean column `icol` microphysics into `ctx`; return layer-AOD cache.
+
+`RT_Aerosol.profile` stays a Normal placeholder. Call `apply_gchp_layer_aod!`
+after `update_model!` to install the realistic vertical AOD on the RT grid.
+"""
 function apply_ocean_column!(ctx, params, icol)
-    load_ocean_column_aerosols!(params, OCEAN_COLS_NC, icol; yaml_path=OCEAN_YAML, aod_min=0.0)
+    p_mid, layer_aods, p_half_gchp = load_ocean_column_aerosols!(
+        params, OCEAN_COLS_NC, icol; yaml_path=OCEAN_YAML, aod_min=0.0)
     rt_list = params.scattering_params.rt_aerosols
     length(rt_list) == ctx.n_aerosols || error(
         "Column $icol has $(length(rt_list)) aerosols but BatchContext expects $(ctx.n_aerosols)")
+    length(layer_aods) == ctx.n_aerosols || error(
+        "Column $icol layer_aods length $(length(layer_aods)) ≠ n_aerosols=$(ctx.n_aerosols)")
     for i in 1:ctx.n_aerosols
         rta = rt_list[i]
+        # Microphysics (Mie) + placeholder loading; vertical shape overwritten next.
         vSmartMOM.CoreRT.update_aerosol_loading!(
             ctx, i; τ_ref=rta.τ_ref, profile_dist=rta.profile)
         vSmartMOM.CoreRT.update_aerosol_microphysics!(
             ctx, i, rta.aerosol; τ_ref=rta.τ_ref)
     end
-    return nothing
+    return p_mid, layer_aods, p_half_gchp
 end
 
-function merra_profile(ds, i)
-    T = Float64.(ds["temperature"][i, :])
+"""Load sea-surface MERRA T/p/q sample `i` (TOA→BOA, p_half increasing).
+
+`merra2_sea_Tpq_columns_*.nc` is written (layer|half, sample) but NCDatasets
+exposes arrays as (sample, layer|half).
+"""
+function sea_tpq_profile(ds, i)
+    T = Float64.(ds["T"][i, :])
     q = Float64.(ds["q"][i, :])
-    ps = Float64(ds["pressure"][i])
-    ak = Float64.(ds.attrib["ak"])
-    bk = Float64.(ds.attrib["bk"])
-    p_half = (ak .+ bk .* (ps * 100.0)) ./ 100.0   # hPa
-    return (T=T, q=q, p_half=p_half, ps=ps)
+    p_half = Float64.(ds["p_half"][i, :])
+    ps = Float64(ds["ps"][i])
+    length(p_half) == length(T) + 1 || error(
+        "Sea Tpq sample $i: n_half=$(length(p_half)) ≠ n_layer+1=$(length(T)+1)")
+    p_half[1] < p_half[end] || error(
+        "Sea Tpq sample $i: p_half must be TOA→BOA (increasing); got $(p_half[1]) → $(p_half[end])")
+    all(diff(p_half) .> 0) || error("Sea Tpq sample $i: p_half not strictly increasing")
+    return (T=T, q=max.(q, 0.0), p_half=p_half, ps=ps)
 end
 
-"""Keep every `stride`-th MERRA half-level, always including the surface (~24 layers for stride=3)."""
-function downsample_half_levels(p_half; stride::Int=PROFILE_STRIDE)
-    stride >= 1 || error("PROFILE_STRIDE must be ≥ 1")
-    n = length(p_half)
-    idx = collect(1:stride:n)
-    idx[end] == n || push!(idx, n)
-    return p_half[idx]
-end
-
-"Map a MERRA-2 profile onto the model's half-level count. Surface pressure is the MERRA value."
-function resample_profile(src, p_half_template)
-    p_src = src.p_half
-    p_src[1] < p_src[end] || error("MERRA p_half must increase downward")
-    logp_t = log.(p_half_template)
-    f = (logp_t .- logp_t[1]) ./ (logp_t[end] - logp_t[1])
-    p_half = exp.(log(p_src[1]) .+ f .* (log(p_src[end]) - log(p_src[1])))
-    p_full_src = 0.5 .* (p_src[1:end-1] .+ p_src[2:end])
-    p_full = 0.5 .* (p_half[1:end-1] .+ p_half[2:end])
-    itpT = LinearInterpolation(log.(p_full_src), src.T; extrapolation_bc=Flat())
-    itpQ = LinearInterpolation(log.(p_full_src), src.q; extrapolation_bc=Flat())
-    T = itpT.(log.(p_full))
-    q = max.(itpQ.(log.(p_full)), 0.0)
-    return p_half, T, q
-end
-
-"""Replace YAML p/T/q with a MERRA half-level grid downsampled by PROFILE_STRIDE."""
-function apply_downsampled_atmosphere!(params, merra_ds)
+"""Install sample-1 sea T/p/q on `params` so BatchContext allocates the right Nz."""
+function apply_sea_atmosphere!(params, sea_ds)
     FT = params.float_type
-    src0 = merra_profile(merra_ds, 1)
-    p_half_ds = downsample_half_levels(src0.p_half)
-    p_half, T, q = resample_profile(src0, p_half_ds)
-    params.p = FT.(p_half)
-    params.T = FT.(T)
-    params.q = FT.(q)
+    src0 = sea_tpq_profile(sea_ds, 1)
+    params.p = FT.(src0.p_half)
+    params.T = FT.(src0.T)
+    params.q = FT.(src0.q)
     params.profile_reduction_n = -1   # already at the target layer count
-    n_layer = length(T)
-    println("RT atmosphere: $(length(src0.T)) MERRA layers → $n_layer layers " *
-            "(every $PROFILE_STRIDE half-levels)")
-    return p_half
+    n_layer = length(src0.T)
+    file_stride = Int(get(sea_ds.attrib, "profile_stride", PROFILE_STRIDE))
+    file_stride == PROFILE_STRIDE || @warn "Sea Tpq NC profile_stride=$file_stride " *
+        "≠ PROFILE_STRIDE=$PROFILE_STRIDE (using file layers)"
+    println("RT atmosphere: $n_layer layers from $MERRA_SEA_TPQ_NC " *
+            "(TOA→BOA, p_half $(round(src0.p_half[1]; digits=3)) → " *
+            "$(round(src0.p_half[end]; digits=1)) hPa)")
+    return src0.p_half
 end
 
 function oci_kernel(λ_hres, ν_asc)
@@ -257,7 +253,7 @@ function create_output(path, λ_oci, p_full, design, n_layer)
         "units" => "W m-2 sr-1 um-1", "long_name" => "water-leaving SIF at 678 nm"))
     defVar(ds, "sif_library_index", Int32, ("sample",))
     defVar(ds, "profile_index", Int32, ("sample",); attrib=Dict(
-        "long_name" => "1-based index in $TRANS_NC"))
+        "long_name" => "1-based index in $MERRA_SEA_TPQ_NC"))
     defVar(ds, "sza", Float32, ("sample",); attrib=Dict("units" => "degree"))
     defVar(ds, "vza", Float32, ("sample",); attrib=Dict("units" => "degree"))
     defVar(ds, "vaz", Float32, ("sample",); attrib=Dict(
@@ -293,7 +289,9 @@ function create_output(path, λ_oci, p_full, design, n_layer)
     ds.attrib["enable_aerosols"] = Int8(ENABLE_AEROSOLS)
     ds.attrib["ocean_columns_nc"] = OCEAN_COLS_NC
     ds.attrib["ocean_yaml"] = OCEAN_YAML
+    ds.attrib["merra_sea_tpq_nc"] = MERRA_SEA_TPQ_NC
     ds.attrib["profile_stride"] = PROFILE_STRIDE
+    ds.attrib["vertical_order"] = "TOA→BOA (p_half increasing)"
     ds.attrib["radiance"] = "TOA Stokes I from Cox-Munk + SurfaceSIF, OCI-convolved"
     ds.attrib["pressure_template_hpa"] = join(string.(p_full), ",")
     return ds
@@ -325,20 +323,25 @@ function main()
     surf0 isa vSmartMOM.CoreRT.CoxMunkSurface ||
         error("Expected CoxMunkSurface in OCEAN_YAML surface:; got $(typeof(surf0))")
 
-    merra = NCDataset(TRANS_NC)
-    n_profiles = merra.dim["profile"]
-    # Replace YAML ~33-layer grid with MERRA half-levels downsampled every PROFILE_STRIDE.
-    p_template = apply_downsampled_atmosphere!(params, merra)
+    isfile(MERRA_SEA_TPQ_NC) || error("Missing sea T/p/q file: $MERRA_SEA_TPQ_NC")
+    sea = NCDataset(MERRA_SEA_TPQ_NC)
+    n_profiles = Int(sea.dim["sample"])
+    # Replace YAML grid with pre-reduced sea MERRA T/p/q (TOA→BOA).
+    p_template = apply_sea_atmosphere!(params, sea)
     n_layer = length(p_template) - 1
 
     n_cols = 0
+    gchp_p_mid = nothing
+    gchp_layer_aods = nothing
+    gchp_p_half = nothing
     if ENABLE_AEROSOLS
         isfile(OCEAN_COLS_NC) || error("Missing ocean columns file: $OCEAN_COLS_NC")
         ds_cols = NCDataset(OCEAN_COLS_NC)
         n_cols = Int(ds_cols.dim["sample"])
         close(ds_cols)
         # Seed aerosols so BatchContext allocates a fixed species count (aod_min=0).
-        load_ocean_column_aerosols!(params, OCEAN_COLS_NC, 1; yaml_path=OCEAN_YAML, aod_min=0.0)
+        gchp_p_mid, gchp_layer_aods, gchp_p_half = load_ocean_column_aerosols!(
+            params, OCEAN_COLS_NC, 1; yaml_path=OCEAN_YAML, aod_min=0.0)
     else
         params.scattering_params = nothing
         println("Aerosols disabled; Rayleigh-only optics")
@@ -383,7 +386,7 @@ function main()
         elseif done >= N_SAMPLES && stored_n == N_SAMPLES && stored_seed == SEED
             println("Already complete: $OUT_NC")
             close(existing)
-            close(merra)
+            close(sea)
             return
         else
             close(existing)
@@ -411,12 +414,24 @@ function main()
         wc_on = Bool(Int(ds["include_whitecaps"][i]))
         icol = Int(ds["column_index"][i])
 
-        p_half, T, q = resample_profile(merra_profile(merra, ip), p_template)
+        src = sea_tpq_profile(sea, ip)
+        length(src.T) == n_layer || error(
+            "Sea Tpq sample $ip has $(length(src.T)) layers, expected $n_layer")
+        p_half, T, q = src.p_half, src.T, src.q
+        # RT / GCHP remap expect TOA→BOA (already asserted in sea_tpq_profile).
         vSmartMOM.CoreRT.update_model!(ctx; T=T, p_half=p_half, q=q)
 
-        if ENABLE_AEROSOLS && icol != last_col
-            apply_ocean_column!(ctx, params, icol)
-            last_col = icol
+        if ENABLE_AEROSOLS
+            if icol != last_col
+                gchp_p_mid, gchp_layer_aods, gchp_p_half = apply_ocean_column!(ctx, params, icol)
+                last_col = icol
+            end
+            # update_model! redistributes τ_aer with the Normal placeholder;
+            # always re-install the remapped GCHP layer profile on this p_half.
+            # GCHP p_half/AOD are BOA→TOA; RT p_half is TOA→BOA — remap flips
+            # GCHP pressure and AOD together.
+            apply_gchp_layer_aod!(
+                ctx, gchp_p_mid, gchp_layer_aods, p_half; p_half_gchp=gchp_p_half)
         end
 
         surf = make_coxmunk(surf0, wind, wc_alb, wc_on)
@@ -457,7 +472,7 @@ function main()
                 "$(round(rate, digits=1)) s/sample  ETA $(round(eta / 60, digits=1)) min")
     end
     close(ds)
-    close(merra)
+    close(sea)
     println("Done: $OUT_NC")
 end
 
