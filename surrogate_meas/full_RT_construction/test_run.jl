@@ -63,7 +63,8 @@ n_to_radiance = @. 100 * h * c * ν   # J per photon; ν in cm⁻¹
 # solar beam
 F_sol = SolarModel.default_solar_spectrum_at_earth(ν)[:, 2] 
 
-F₀    = zeros(4, length(ν))          # 4 if Stokes_IQUV
+n_stokes = params.polarization_type.n
+F₀    = zeros(n_stokes, length(ν))   # 1 for Stokes_I(), 4 for Stokes_IQUV()
 F₀[1, :] .= F_sol
 
 # SIF source. SIF_shapes is a shape library (640–850 nm), not a physical radiance.
@@ -87,7 +88,7 @@ I_wl .*= SIF_PEAK / sif_at_ref          # I_wl(SIF_λ) = SIF_PEAK, not the spect
 # SurfaceSIF.SIF₀ is hemispheric irradiance; the solver divides by π to get
 # Lambertian radiance. Keep the same per-μm photon unit as F_sol, not mW/cm⁻¹,
 # or the two sources cannot be added.
-SIF₀ = zeros(4, length(ν))               # unpolarized: Q=U=V=0
+SIF₀ = zeros(n_stokes, length(ν))        # unpolarized: I only (Q=U=V unused if n=1)
 SIF₀[1, :] .= π .* I_wl ./ n_to_radiance
 println("SIF library index $SIF_LIBRARY_INDEX, I_wl($(SIF_λ) nm) = $(SIF_PEAK) W m⁻² sr⁻¹ μm⁻¹, spectral max $(maximum(I_wl))")
 

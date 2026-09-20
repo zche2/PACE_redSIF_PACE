@@ -188,15 +188,31 @@ function snr_coeffs(λ_oci)
     c1 = parse.(Float64, data[red, 4])
     c2 = parse.(Float64, data[red, 5])
     p = sortperm(λ)
-    itp1 = LinearInterpolation(λ[p], c1[p]; extrapolation_bc=Flat())
-    itp2 = LinearInterpolation(λ[p], c2[p]; extrapolation_bc=Flat())
+    λs, c1s, c2s = λ[p], c1[p], c2[p]
+    # Drop duplicate LUT wavelengths (keep last) so LinearInterpolation knots are unique.
+    keep = trues(length(λs))
+    for i in 2:length(λs)
+        if λs[i] == λs[i - 1]
+            keep[i - 1] = false
+        end
+    end
+    λs, c1s, c2s = λs[keep], c1s[keep], c2s[keep]
+    issorted(λs; lt=<) || error("SNR wavelengths not strictly increasing after dedupe")
+    itp1 = LinearInterpolation(λs, c1s; extrapolation_bc=Flat())
+    itp2 = LinearInterpolation(λs, c2s; extrapolation_bc=Flat())
     return itp1.(λ_oci), itp2.(λ_oci)
 end
 
 "Library shapes as water-leaving radiance with I(678 nm) = 1, in wavenumber order."
 function unit_sif_shapes(ν, λ_lib, shapes)
+    λ_lib = Float64.(λ_lib)
+    length(λ_lib) >= 2 || error("SIF library needs ≥2 wavelengths")
+    all(diff(λ_lib) .> 0) || error(
+        "SIF library wavelengths must be strictly increasing (no duplicate knots)")
     dλ = λ_lib[2] - λ_lib[1]
-    knots = range(λ_lib[1]; step=dλ, length=length(λ_lib))
+    # Uniform grid → range knots (guaranteed unique). Non-uniform → use λ_lib as-is.
+    knots = all(x -> abs(x - dλ) ≤ 1e-12 * max(abs(dλ), 1.0), diff(λ_lib)) ?
+        range(λ_lib[1]; step=dλ, length=length(λ_lib)) : λ_lib
     λ_model = 1e7 ./ ν
     nspec = length(ν)
     nlib = size(shapes, 2)
@@ -349,10 +365,12 @@ function main()
 
     ctx = vSmartMOM.CoreRT.BatchContext(params)
     ν = params.spec_bands[1]
+    n_stokes = params.polarization_type.n
     n_to_radiance = @. 100 * h * c_light * ν
     F_sol = SolarModel.default_solar_spectrum_at_earth(ν)[:, 2]
-    F₀ = zeros(4, length(ν))
+    F₀ = zeros(n_stokes, length(ν))
     F₀[1, :] .= F_sol
+    println("polarization: $(typeof(params.polarization_type))  n_stokes=$n_stokes")
 
     λ_hres = 1e7 ./ reverse(ν)
     kernel = oci_kernel(λ_hres, reverse(ν))
@@ -438,7 +456,7 @@ function main()
         scene = with_geometry(ctx.model, params, sza, vza, vaz, surf)
 
         I_wl = sif_unit[:, isif] .* strength
-        SIF₀ = zeros(4, length(ν))
+        SIF₀ = zeros(n_stokes, length(ν))
         SIF₀[1, :] .= π .* I_wl ./ n_to_radiance
         sources = SolarBeam(F₀=F₀) + SurfaceSIF(SIF₀=SIF₀)
         R, = rt_run(scene; sources=sources)

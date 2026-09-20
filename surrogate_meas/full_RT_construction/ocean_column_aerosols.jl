@@ -225,6 +225,35 @@ function _strictly_increasing!(ph::Vector{Float64})
     return ph
 end
 
+"""Unique strictly increasing log-p knots with cumulative AOD merged at clips.
+
+GCHP TOA half-levels are often floored at ~1e-4 hPa, so `p` and `log(p)`
+repeat. Do **not** fix this with `nextfloat(p)`: one ulp in `p` is often still
+0 ulp in `log(p)`, and Interpolations.jl then warns about duplicated /
+successive-repeated knots on the full 73-edge vector. Merge degenerate edges
+instead (column τ is carried in `cum`).
+"""
+function _cum_vs_logp(p_edge::AbstractVector, aod::AbstractVector)
+    length(p_edge) == length(aod) + 1 ||
+        error("p_edge length $(length(p_edge)) ≠ length(aod)+1=$(length(aod) + 1)")
+    logp = log.(Float64.(p_edge))
+    cum = vcat(0.0, cumsum(Float64.(aod)))
+    lp = Float64[logp[1]]
+    cc = Float64[cum[1]]
+    for i in 2:length(logp)
+        # Require a true Float64 increase in log-p (rejects == and nextfloat noise).
+        if logp[i] > nextfloat(lp[end])
+            push!(lp, logp[i])
+            push!(cc, cum[i])
+        else
+            cc[end] = cum[i]   # same / tiny log-p edge: keep later column τ
+        end
+    end
+    length(lp) >= 2 || error("Need ≥2 distinct log-p edges after merging TOA clips")
+    all(diff(lp) .> 0) || error("log-p knots not strictly increasing after merge")
+    return lp, cc
+end
+
 """RT p_half must already be TOA→BOA (increasing p). Do not reverse it here —
 that would desynchronize τ_aer from the atmosphere layers."""
 function _rt_half_toa_boa(p_half_rt)
@@ -261,9 +290,10 @@ function remap_gchp_aod_to_rt_layers(
 
     ph_rt = _rt_half_toa_boa(p_half_rt)
 
+    # Do not call `_strictly_increasing!` on GCHP edges: that invents near-duplicate
+    # log-p knots. `_cum_vs_logp` merges clipped TOA edges instead.
     p_src, a, p_edge = if p_half_gchp !== nothing
         ph, a = _edges_toa_boa(p_half_gchp, aod_gchp)
-        _strictly_increasing!(ph)
         p_mids = @. 0.5 * (ph[1:end-1] + ph[2:end])
         p_mids, a, ph
     else
@@ -274,7 +304,6 @@ function remap_gchp_aod_to_rt_layers(
             p_edge[i + 1] = sqrt(p[i] * p[i + 1])
         end
         p_edge[n + 1] = max(p[n]^2 / p[n - 1], p[n] * 1.001)
-        _strictly_increasing!(p_edge)
         p, a, p_edge
     end
 
@@ -283,8 +312,8 @@ function remap_gchp_aod_to_rt_layers(
     τ = zeros(Float64, Nz)
     τ_col == 0 && return τ
 
-    cum = vcat(0.0, cumsum(a))                      # TOA → BOA at p_edge
-    itp = LinearInterpolation(log.(p_edge), cum; extrapolation_bc=Flat())
+    lp, cum = _cum_vs_logp(p_edge, a)
+    itp = LinearInterpolation(lp, cum; extrapolation_bc=Flat())
     for i in 1:Nz
         τ[i] = max(0.0, itp(log(ph_rt[i + 1])) - itp(log(ph_rt[i])))
     end
