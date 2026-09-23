@@ -67,7 +67,7 @@ mode = "dates"
 # granule_id = "20250701T000124"
 
 # --- mode = "dates" ---
-date_start         = "20250104"
+date_start         = "20250101"
 date_end           = "20250131"
 date_interval_days = 1
 # dates = ["20250701", "20250702"]
@@ -78,7 +78,7 @@ date_interval_days = 1
 # scan_start  = 1
 # scan_end    = 100
 
-output_dir  = "/home/zhe2/data/PACE/new_svd_retrieval_output"   # retrievals written under output_dir/YYYY/MM/DD/
+output_dir  = "/home/zhe2/data/PACE/new_svd_retrieval_output_O2A"   # retrievals written under output_dir/YYYY/MM/DD/
 interim_dir = "/home/zhe2/data/PACE/svd_retrieval_interim"
 
 # Granules run sequentially inside one process (HDF5/NetCDF are not safe with

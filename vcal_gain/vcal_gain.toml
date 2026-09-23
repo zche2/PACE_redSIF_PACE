@@ -1,0 +1,33 @@
+# Vicarious gain for a given date (AddingSIF spectral rmse, or SVD x_hat rebuild).
+#
+# Usage:
+#   julia --project=. vcal_gain/compute_vcal_gain.jl vcal_gain/vcal_gain.toml
+#   DATE=20250125 julia --project=. vcal_gain/compute_vcal_gain.jl vcal_gain/vcal_gain.toml
+#
+# Gain: vcal_gain = 1 + residual / Rtoa
+#   AddingSIF: residual = 3D spectral "rmse" on retrieval NC
+#   SVD:       residual = FM(x_hat) − L1B Rtoa  (requires L1B + svd_config)
+# Pixels with missing/non-finite L2 AOP nflh are skipped (vcal_gain left as NaN).
+
+[vcal_gain]
+date = "20250125"   # YYYYMMDD; overridden by env DATE if set
+
+# Directory of retrieval NetCDFs. SVD outputs live under retrieval_dir/YYYY/MM/DD/.
+retrieval_dir = "/home/zhe2/data/PACE/new_svd_retrieval_output"
+# Glob relative to the day folder (and flat root). {date} → YYYYMMDD.
+# SVD:   interim_{date}T*_svd_retrieval*.nc
+# AddingSIF (flat): PACE_OCI.{date}T*.nc
+retrieval_glob = "interim_{date}T*_svd_retrieval*.nc"
+
+L1B_dir   = "/kiwi-data/Data/satellite/PACE_OCI/L1B_V3"
+L2AOP_dir = "/kiwi-data/Data/satellite/PACE_OCI/L2_AOP_V3.2"
+L2BGC_dir = "/kiwi-data/Data/satellite/PACE_OCI/L2_BGC_V3.2"
+
+# SVD basis / spectral window (used when retrieval has scalar rmse + x_hat).
+# Falls back to retrieval attrib config_file, then Sep26 multitask default.
+svd_config = "/home/zhe2/FraLab/PACE_redSIF_PACE/svd_configs/global_fit_new_Sep26/multitask.new.Jan25global_fit_pipeline.npoly3nPC15.toml"
+
+output_dir = "/home/zhe2/data/PACE/new_svd_retrieval_output/vcal_gain"
+
+# If true, only process the first matching retrieval (smoke / debug).
+first_only = false

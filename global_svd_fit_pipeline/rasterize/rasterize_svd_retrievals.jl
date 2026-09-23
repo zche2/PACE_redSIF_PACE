@@ -10,8 +10,9 @@ Usage:
   julia --project=. global_fit_pipeline/rasterize/rasterize_svd_retrievals.jl \\
         global_fit_pipeline/rasterize/rasterize.example.toml
 
-Input files must match:  interim_<YYYYMMDDTHHmmss>_svd_retrieval_*.nc
-  under input_dir/ or input_dir/YYYY/MM/DD/ (same layout as SVD retrieval output).
+Input files must match:  interim_<YYYYMMDDTHHmmss>_svd_retrieval.nc
+  or interim_<YYYYMMDDTHHmmss>_svd_retrieval_*.nc, under input_dir/ or
+  input_dir/YYYY/MM/DD/ (walked recursively for cross-date windows).
 Output files are named:  sif678_raster_<YYYYMMDD>_<YYYYMMDD>.nc
 Filters: [rasterize.filters].status_codes = [1, ...] (or legacy valid_status_only).
          [rasterize.filters].l2_flags_reject = "ALL" | ["FLAG1","FLAG2"] | omit
@@ -157,15 +158,17 @@ function parse_config(path::String)::RasterConfig
     max_sif  = Float64(_get(filt, "max_sif",  Inf))
     max_chi2 = Float64(_get(filt, "max_chi2", Inf))
 
-    # Parse L1B settings early — needed by chi2 auto-detection below
-    max_mean_radiance = Float64(_get(r, "max_mean_radiance", Inf))
+    # L1B paths / fitting window live on [rasterize]; the radiance threshold is a filter.
+    # Accept either location for max_mean_radiance (filters preferred).
+    max_mean_radiance = Float64(_get(filt, "max_mean_radiance",
+                                     _get(r, "max_mean_radiance", Inf)))
     l1b_dir           = String(_get(r, "l1b_dir", ""))
     lambda_min_nm     = Float64(_get(r, "lambda_min_nm", 640.0))
     lambda_max_nm     = Float64(_get(r, "lambda_max_nm", 756.0))
     lambda_min_nm < lambda_max_nm ||
         _die("[rasterize] lambda_min_nm must be < lambda_max_nm")
     max_mean_radiance < Inf && isempty(l1b_dir) &&
-        _die("[rasterize] l1b_dir is required when max_mean_radiance is set")
+        _die("[rasterize] l1b_dir is required when [rasterize.filters].max_mean_radiance is set")
 
     # --- chi2 distribution filter ---
     # The filter is enabled only when at least one chi2_* key is present in [rasterize.filters].
@@ -203,7 +206,7 @@ function parse_config(path::String)::RasterConfig
             n_state = sample_f !== nothing ? _infer_n_state_from_retrieval(sample_f) : nothing
             n_bands = nothing
             if n_state !== nothing && !isempty(l1b_dir)
-                m = match(r"^interim_(\d{8}T\d{6})_svd_retrieval_", basename(sample_f))
+                m = match(_GRANULE_ID_RE, basename(sample_f))
                 if m !== nothing
                     gid = String(m.captures[1])
                     l1b_cand = _resolve_l1b_path(l1b_dir, gid)
@@ -310,9 +313,10 @@ end
 # Granule discovery
 # ---------------------------------------------------------------------------
 
-# Matches: interim_20250702T123456_svd_retrieval_*.nc
-const _GRANULE_RE = r"^interim_(\d{8})T\d{6}_svd_retrieval_.*\.nc$"
-const _GRANULE_ID_RE = r"^interim_(\d{8}T\d{6})_svd_retrieval_"
+# Matches: interim_20250702T123456_svd_retrieval.nc
+#      and: interim_20250702T123456_svd_retrieval_<suffix>.nc
+const _GRANULE_RE = r"^interim_(\d{8})T\d{6}_svd_retrieval(?:_.*)?\.nc$"
+const _GRANULE_ID_RE = r"^interim_(\d{8}T\d{6})_svd_retrieval"
 const _L2AOP_FNAME_RE = r"^PACE_OCI\.(\d{8}T\d{6})\.L2\.OC_AOP.*\.nc$"
 const _L1B_FNAME_RE   = r"^PACE_OCI\.(\d{8}T\d{6})\.L1B\."
 
@@ -332,17 +336,30 @@ function _l2aop_granule_id_from_fname(fname::String)
 end
 
 function _resolve_l2aop_path(l2aop_dir::String, granule_id::String)
-    exact = joinpath(l2aop_dir, "PACE_OCI.$(granule_id).L2.OC_AOP.V3_1.nc")
-    isfile(exact) && return exact
+    isdir(l2aop_dir) || return nothing
+    search_dirs = String[l2aop_dir]
+    if length(granule_id) >= 8
+        day_dir = joinpath(l2aop_dir, granule_id[1:4], granule_id[5:6], granule_id[7:8])
+        isdir(day_dir) && pushfirst!(search_dirs, day_dir)
+    end
+    # Exact granule id; accept any AOP version suffix (V3_1, V3_2, …).
+    for search_dir in search_dirs
+        for fname in readdir(search_dir)
+            startswith(fname, "PACE_OCI.$(granule_id).L2.OC_AOP.") &&
+                endswith(fname, ".nc") && return joinpath(search_dir, fname)
+        end
+    end
 
     prefix = _granule_id_coarse_prefix(granule_id)
     candidates = Tuple{String, String}[]  # (path, l2_granule_id)
-    for fname in readdir(l2aop_dir)
-        endswith(fname, ".nc") || continue
-        l2_id = _l2aop_granule_id_from_fname(fname)
-        l2_id === nothing && continue
-        if _granule_id_coarse_prefix(l2_id) == prefix
-            push!(candidates, (joinpath(l2aop_dir, fname), l2_id))
+    for search_dir in search_dirs
+        for fname in readdir(search_dir)
+            endswith(fname, ".nc") || continue
+            l2_id = _l2aop_granule_id_from_fname(fname)
+            l2_id === nothing && continue
+            if _granule_id_coarse_prefix(l2_id) == prefix
+                push!(candidates, (joinpath(search_dir, fname), l2_id))
+            end
         end
     end
     isempty(candidates) && return nothing
@@ -411,6 +428,16 @@ Formula (matching merge_interim.jl):
 Reads one band at a time to keep peak RAM ≈ one (scans × pixels) Float32 array.
 Returns a (pixels, scans) Float32 matrix, or `nothing` if no bands fall in the window.
 """
+function _as_float32_nan(A)
+    # L1B NetCDF often yields Union{Missing,Float32}; Missing → NaN for filtering.
+    out = similar(A, Float32)
+    @inbounds for i in eachindex(A)
+        v = A[i]
+        out[i] = v === missing ? NaN32 : Float32(v)
+    end
+    return out
+end
+
 function _read_l1b_mean_radiance(
     l1b_path::String,
     lambda_min_nm::Float64,
@@ -424,17 +451,19 @@ function _read_l1b_mean_radiance(
         (wl_var === nothing || F0_var === nothing ||
          sza_var === nothing || rhot_var === nothing) && return nothing
 
-        wl  = Float64.(Array(wl_var))                    # (n_bands,)
-        F0  = Float64.(Array(F0_var))                    # (n_bands,)
+        wl  = Float64.(_as_float32_nan(Array(wl_var)))     # (n_bands,)
+        F0  = Float64.(_as_float32_nan(Array(F0_var)))     # (n_bands,)
         esd = Float64(get(ds.attrib, "earth_sun_distance_correction", 1.0))
 
-        # NCDatasets applies scale_factor automatically → SZA already in degrees
-        sza_raw = Array(sza_var)                         # (scans, pixels) or (pixels, scans)
-        sza_2d  = let d = collect(String.(dimnames(sza_var)))
-            if d == ["number_of_lines", "pixels_per_line"] || d == ["scans", "pixels"]
-                permutedims(Float32.(sza_raw), (2, 1))   # → (pixels, scans)
+        # Orient SZA to (pixels, scans), matching retrieval interim layout.
+        sza_2d = let d = collect(String.(dimnames(sza_var)))
+            raw = _as_float32_nan(Array(sza_var))
+            if d == ["pixels", "scans"] || d == ["pixels_per_line", "number_of_lines"]
+                raw
+            elseif d == ["scans", "pixels"] || d == ["number_of_lines", "pixels_per_line"]
+                permutedims(raw, (2, 1))
             else
-                Float32.(sza_raw)
+                error("Unsupported solar_zenith dims: $d")
             end
         end
         cos_sza = cos.(deg2rad.(sza_2d))                 # (pixels, scans)
@@ -442,11 +471,37 @@ function _read_l1b_mean_radiance(
         win = findall(b -> lambda_min_nm <= wl[b] <= lambda_max_nm, 1:length(wl))
         isempty(win) && return nothing
 
+        rhot_dims = collect(String.(dimnames(rhot_var)))
+        ndims(rhot_var) == 3 || error("Expected 3D rhot_red, got dims=$rhot_dims")
+        i_band = findfirst(x -> occursin("band", lowercase(x)), rhot_dims)
+        i_pix  = findfirst(x -> occursin("pixel", lowercase(x)), rhot_dims)
+        i_scan = findfirst(x -> occursin("scan", lowercase(x)) || occursin("line", lowercase(x)), rhot_dims)
+        (i_band !== nothing && i_pix !== nothing && i_scan !== nothing) ||
+            error("Cannot locate pixels/scans/bands axes in rhot_red dims=$rhot_dims")
+
         # Accumulate mean band by band (peak RAM ≈ one band)
         mean_rad = zeros(Float32, size(cos_sza))
         for bi in win
-            rhot_b_raw = Array(rhot_var[bi, :, :])       # (scans, pixels) in L1B layout
-            rhot_b = permutedims(Float32.(rhot_b_raw), (2, 1))  # → (pixels, scans)
+            # Slice one band; NCDatasets keeps other dims in file order.
+            rhot_b_raw = if i_band == 1
+                Array(rhot_var[bi, :, :])
+            elseif i_band == 2
+                Array(rhot_var[:, bi, :])
+            else
+                Array(rhot_var[:, :, bi])
+            end
+            # Remaining 2D dims after dropping the band axis.
+            rem = [rhot_dims[i] for i in 1:3 if i != i_band]
+            rhot_b = _as_float32_nan(rhot_b_raw)
+            if rem == ["pixels", "scans"] || rem == ["pixels_per_line", "number_of_lines"]
+                # already (pixels, scans)
+            elseif rem == ["scans", "pixels"] || rem == ["number_of_lines", "pixels_per_line"]
+                rhot_b = permutedims(rhot_b, (2, 1))
+            else
+                error("Unsupported rhot_red spatial dims after band slice: $rem")
+            end
+            size(rhot_b) == size(cos_sza) ||
+                error("rhot band $bi size $(size(rhot_b)) ≠ solar_zenith $(size(cos_sza))")
             @. mean_rad += rhot_b * Float32(F0[bi]) * cos_sza / Float32(π * esd)
         end
         mean_rad ./= length(win)
@@ -596,8 +651,9 @@ end
 
 """Return Dict{Date, Vector{String}}: sensing date → list of matching file paths.
 
-Accepts flat `input_dir/interim_*.nc` (legacy) and dated
-`input_dir/YYYY/MM/DD/interim_*.nc` (current retrieval layout).
+Recursively walks `input_dir` so both flat `input_dir/interim_*.nc` (legacy)
+and dated `input_dir/YYYY/MM/DD/interim_*.nc` layouts are included; cross-date
+windows then pull granules from every day folder that falls in the window.
 """
 function discover_granules(input_dir::String)::Dict{Date, Vector{String}}
     isdir(input_dir) || _die("input_dir not found: $input_dir")
@@ -695,7 +751,9 @@ function accumulate_file!(g::Grid, fpath::String, cfg::RasterConfig)
             end
             # mean radiance threshold (independent of is_dark flag)
             # keep only dim scenes (mean Lt ≤ max_mean_radiance) — rejects bright land/cloud
-            mean_rad !== nothing && mean_rad[idx] > cfg.max_mean_radiance && continue
+            # and L1B fill / Missing (NaN after _as_float32_nan)
+            mean_rad !== nothing &&
+                (!isfinite(mean_rad[idx]) || mean_rad[idx] > cfg.max_mean_radiance) && continue
 
             i, j = _cell(g, lon[idx], lat[idx])
             g.counts[i, j] += Int32(1)
@@ -841,8 +899,11 @@ function main()
     @info "Rasterize SVD retrievals" input_dir=cfg.input_dir output_dir=cfg.output_dir start=cfg.start_date end_=cfg.end_date resolution=cfg.resolution status_filter=status_desc
 
     date_map = discover_granules(cfg.input_dir)
-    n_granules = sum(length(v) for v in values(date_map))
+    n_granules = sum(length(v) for v in values(date_map); init=0)
     @info "Discovered granules" n_dates=length(date_map) n_files=n_granules
+    if n_granules == 0
+        @warn "No interim_*_svd_retrieval*.nc granules found under input_dir (including YYYY/MM/DD subfolders)" input_dir=cfg.input_dir
+    end
     println("Input: $(cfg.input_dir)  ($(n_granules) granule file(s) over $(length(date_map)) date(s))")
     println("Output: $(cfg.output_dir)  (created if missing)")
     println("Status filter: $(status_desc)")

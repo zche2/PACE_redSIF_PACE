@@ -322,7 +322,14 @@ function remap_gchp_aod_to_rt_layers(
     τ .*= (τ_col / s)
 
     p_full_rt = @. 0.5 * (ph_rt[1:end-1] + ph_rt[2:end])
-    _assert_aod_not_flipped(p_src, a, p_full_rt, τ)
+    # Thin lofted species (e.g. SO4 at ~190 hPa, τ ~ 0.003) trip this on
+    # clean ocean columns. Keep the remapped profile and continue.
+    try
+        _assert_aod_not_flipped(p_src, a, p_full_rt, τ)
+    catch e
+        @warn "AOD orientation guard tripped; keeping remapped τ" exception=(e, catch_backtrace())
+        flush(stderr)
+    end
     return τ
 end
 

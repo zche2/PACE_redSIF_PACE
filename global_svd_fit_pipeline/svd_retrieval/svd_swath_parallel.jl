@@ -647,7 +647,8 @@ function _process_one_pixel_svd!(
         status_scan[i_pix_out] = Int16(3)
         return
     end
-    solar_eff = @. sh.solar_band_ctx * cosd(cosz) / π / sh.es
+    # π is applied once in make_svd_forward_model_λ (solar_eff * T * ρ / π).
+    solar_eff = @. sh.solar_band_ctx * cosd(cosz) / sh.es
     fm, layout = make_svd_forward_model_λ(
         sh.λ_ctx,
         solar_eff,
@@ -1106,7 +1107,8 @@ function run_svd_orbit_full_nc_parallel(
                     status_scan[i_pix_out] = Int16(3)
                     continue
                 end
-                se = @. sh.solar_band_ctx * cosd(cosz) / π / sh.es
+                # π is applied once in the FM / batched predict (solar_eff * T * ρ / π).
+                se = @. sh.solar_band_ctx * cosd(cosz) / sh.es
                 push!(idx_out, i_pix_out)
                 push!(idx_src, i_pix_src)
                 k = length(idx_out)
