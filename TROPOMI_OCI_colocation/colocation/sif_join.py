@@ -63,6 +63,29 @@ def pace_ret_path(pace_dir: Path, stamp: str) -> Path | None:
     return preferred[0] if preferred else candidates[0]
 
 
+def _nc_float_array(var) -> np.ndarray:
+    """Read a netCDF variable as float32 with masked/fill values → NaN.
+
+    ``np.asarray(masked)`` densifies CF fills (e.g. 9.96921e36) into ordinary
+    floats that still pass ``np.isfinite``, so unfilled retrieval pixels look
+    like huge valid SIF. Always unmask into NaN and scrub classic fills.
+    """
+    arr = np.ma.array(var[:], copy=False)
+    out = np.ma.filled(arr, np.nan).astype(np.float32, copy=False)
+    out = np.where(np.isfinite(out), out, np.nan).astype(np.float32, copy=False)
+    # Classic netCDF4 default float fill, in case auto-mask was off
+    out[np.abs(out) > 1.0e35] = np.nan
+    return out
+
+
+def _nc_uint8_array(var) -> np.ndarray:
+    """Read uint8 flag; CF fill 255 → 0 (not converged / unknown)."""
+    arr = np.ma.array(var[:], copy=False)
+    out = np.ma.filled(arr, 0).astype(np.uint8, copy=False)
+    out[out == 255] = 0
+    return out
+
+
 def fill_tropomi_fs_ret(
     orbit_to_file: dict[str, Path],
     orbits: np.ndarray,
@@ -137,9 +160,9 @@ def fill_pace_svd(
         with nc.Dataset(path) as ds:
             sp = np.asarray(ds["source_pixel_index"][:], dtype=np.int32)
             ss = np.asarray(ds["source_scan_index"][:], dtype=np.int32)
-            sif = np.asarray(ds["sif_radiance_678nm"][:], dtype=np.float32)
-            chi2 = np.asarray(ds["reduced_chi2"][:], dtype=np.float32)
-            conv = np.asarray(ds["converged"][:], dtype=np.uint8)
+            sif = _nc_float_array(ds["sif_radiance_678nm"])
+            chi2 = _nc_float_array(ds["reduced_chi2"])
+            conv = _nc_uint8_array(ds["converged"])
         pix_lut = {int(v): j for j, v in enumerate(sp)}
         scan_lut = {int(v): j for j, v in enumerate(ss)}
         for i in idxs:
@@ -148,15 +171,15 @@ def fill_pace_svd(
             if ia is None or ja is None:
                 n_pix_miss += 1
                 continue
-            val = sif[ja, ia]
+            val = float(sif[ja, ia])
+            if not np.isfinite(val):
+                n_pix_miss += 1
+                continue
             sif_out[i] = val
             chi2_out[i] = chi2[ja, ia]
             converged_out[i] = conv[ja, ia]
-            found_out[i] = 1 if np.isfinite(val) else 0
-            if found_out[i]:
-                n_hit += 1
-            else:
-                n_pix_miss += 1
+            found_out[i] = 1
+            n_hit += 1
     return {
         "n_hit": n_hit,
         "n_file_miss": n_file_miss,
