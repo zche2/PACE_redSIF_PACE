@@ -55,10 +55,12 @@ def build_swath_list(cfg: Config, log=print) -> list[dict]:
         if i == 1 or i == len(pace_sub) or i % 50 == 0:
             log(f"  PACE bbox [{i}/{len(pace_sub)}] {tw.path.name}")
 
+    # granule prefilter must be at least as loose as the pixel Δt cut, or it silently drops pairs
+    dt_granule = max(cfg.dt_max_min_granule, cfg.max_dt_min)
     tropo_chunk_cache: dict[Path, list[BBox]] = {}
     pairs: list[dict] = []
     for pace_tw, pace_bb in pace_meta:
-        time_hits = [t for t in tropo_times if time_close(pace_tw, t, cfg.dt_max_min_granule)]
+        time_hits = [t for t in tropo_times if time_close(pace_tw, t, dt_granule)]
         for tropo_tw in time_hits:
             if tropo_tw.path not in tropo_chunk_cache:
                 log(f"  TROPOMI geo orbit={tropo_tw.orbit} {tropo_tw.path.name}")

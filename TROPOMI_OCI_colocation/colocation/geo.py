@@ -70,10 +70,16 @@ def bbox_from_latlon(lat: np.ndarray, lon: np.ndarray) -> BBox | None:
     return BBox(float(lat_v.min()), float(lat_v.max()), float(lo), float(hi))
 
 
+def time_gap_min(a: TimeWindow, b: TimeWindow) -> float:
+    """Minimum separation (minutes) between two time windows; 0 if they overlap."""
+    gap_s = max((b.start - a.end).total_seconds(), (a.start - b.end).total_seconds(), 0.0)
+    return gap_s / 60.0
+
+
 def time_close(a: TimeWindow, b: TimeWindow, dt_max_min: float) -> bool:
-    if a.start <= b.end and b.start <= a.end:
-        return True
-    return abs((a.mid - b.mid).total_seconds()) / 60.0 <= dt_max_min
+    # Edge-to-edge gap, not mid-to-mid: TROPOMI files span a full ~101 min orbit, so a
+    # mid-to-mid test drops PACE granules that are within dt of the file's first/last scans.
+    return time_gap_min(a, b) <= dt_max_min
 
 
 def lonlat_to_xyz(lon: np.ndarray, lat: np.ndarray) -> np.ndarray:

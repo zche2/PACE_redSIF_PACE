@@ -208,10 +208,12 @@ def run_sif_matchup(
 
     if colocation_json is not None:
         swath_list, coloc_meta = load_swath_list_from_json(colocation_json)
+        # fingerprint the pairing content, not just path + count: a regenerated JSON with the
+        # same number of swaths but more PACE granules per swath must invalidate the matches cache
         pairs_fp = cache.fingerprint(
             {
                 "colocation_json": str(Path(colocation_json).resolve()),
-                "n_swaths": len(swath_list),
+                "swaths": [(s["tropomi_path"], sorted(s["pace_paths"])) for s in swath_list],
                 "meta": {k: coloc_meta.get(k) for k in ("year", "month", "day_start", "day_end", "pace_dir")},
             }
         )
