@@ -67,8 +67,8 @@ mode = "dates"
 # granule_id = "20250701T000124"
 
 # --- mode = "dates" ---
-date_start         = "20250101"
-date_end           = "20250131"
+date_start         = "20250401"
+date_end           = "20250430"
 date_interval_days = 1
 # dates = ["20250701", "20250702"]
 
@@ -89,7 +89,7 @@ parallel_pixels    = true
 use_in_memory_merge = true
 # Skip granule when any retrieval NetCDF exists: interim_<granule_id>_*.nc under
 # output_dir/YYYY/MM/DD/ (or flat output_dir for legacy runs).
-skip_existing = true
+skip_existing = false
 # Progress bars (granules per day + scans per granule). Default: on when stdout is a TTY, off under nohup.
 # Scan updates are serial (safe with parallel_pixels / julia -t N).
 # show_progress = true
@@ -115,7 +115,7 @@ float_type = "Float64"
 
 [spectral]
 lambda_min_nm          = 640.0
-lambda_max_nm          = 756.0
+lambda_max_nm          = 780.0
 sif_nev                = 1
 normalize_sif_first_ev = true
 

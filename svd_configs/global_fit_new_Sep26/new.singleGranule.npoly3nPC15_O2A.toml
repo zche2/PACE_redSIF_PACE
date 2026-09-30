@@ -58,18 +58,18 @@ skip_existing = true  # overwrite the existing file:: default true
 #   "date"    → all granules for a day: set date = "YYYYMMDD"
 #   "dates"   → date range or list:     set date_start + date_end  OR  dates = ["YYYYMMDD", ...]
 [svd_retrieval]
-mode = "dates"
+mode = "granule"
 
 # --- mode = "date" ---
 # date = "20250701"
 
 # --- mode = "granule" ---
-# granule_id = "20250701T000124"
+granule_id = "20240524T184220"
 
 # --- mode = "dates" ---
-date_start         = "20250101"
-date_end           = "20250131"
-date_interval_days = 1
+# date_start         = "20250101"
+# date_end           = "20250131"
+# date_interval_days = 1
 # dates = ["20250701", "20250702"]
 
 # Optional pixel/scan subsets (commented out = full swath):
@@ -115,7 +115,7 @@ float_type = "Float64"
 
 [spectral]
 lambda_min_nm          = 640.0
-lambda_max_nm          = 756.0
+lambda_max_nm          = 780.0
 sif_nev                = 1
 normalize_sif_first_ev = true
 
