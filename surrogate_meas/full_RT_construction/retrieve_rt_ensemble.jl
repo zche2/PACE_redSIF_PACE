@@ -4,6 +4,25 @@
 #   julia --project=. surrogate_meas/full_RT_construction/retrieve_rt_ensemble.jl \
 #       surrogate_meas/configs/svd_nPC15_npoly3.toml
 #
+# Choose the input ensemble and the output location / names:
+#   julia --project=. surrogate_meas/full_RT_construction/retrieve_rt_ensemble.jl \
+#       surrogate_meas/configs/svd_nPC15_npoly3.toml \
+#       --input=surrogate_meas/full_RT_construction/output/rt_toa_ensemble.nc \
+#       --outdir=surrogate_meas/full_RT_construction/output \
+#       --label=coxmunk
+#   → output/rt_retrieval_coxmunk_nPC15_npoly3.nc
+#     output/rt_retrieval_toa_sif_coxmunk_nPC15_npoly3.png
+#     output/rt_retrieval_sif678_coxmunk_nPC15_npoly3.png
+#
+# Options (command-line flags win over environment variables):
+#   --input=PATH   / RT_NC      ensemble NetCDF to retrieve on
+#   --outdir=DIR   / OUT_DIR    where the .nc / .png (and the input snapshot) go
+#                               (default: the input file's directory)
+#   --label=NAME   / OUT_LABEL  inserted into all output names; default: the input
+#                               basename minus "rt_toa_ensemble" (empty for
+#                               rt_toa_ensemble.nc, so old names are kept)
+#                               put label="O2A" to denote the retrieval includes O2 A-band
+#
 # n_pc and n_legendre (npoly) are read from [fit.svd] of the TOML (filename
 # nPC*/npoly* is only a fallback). Output files are tagged so npoly3 and
 # npoly5 do not overwrite each other.
@@ -24,12 +43,40 @@ using Dates
 include(joinpath(@__DIR__, "..", "build_single_meas.jl"))
 
 const DEFAULT_SVD_TOML = joinpath(@__DIR__, "..", "configs", "svd_nPC15_npoly5.toml")
-const RT_NC = get(ENV, "RT_NC", joinpath(@__DIR__, "output", "rt_toa_ensemble.nc"))
-const OUT_DIR = joinpath(@__DIR__, "output")
+const DEFAULT_RT_NC = joinpath(@__DIR__, "output_new_Lambertian", "rt_toa_ensemble_lambertian.nc")
 const SOLAR_L1B = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/sample_granule_20240830T131442_new_chl.nc"
 
-function resolve_config_path()
-    raw = !isempty(ARGS) ? ARGS[1] : get(ENV, "SVD_TOML", DEFAULT_SVD_TOML)
+"Split ARGS into positional arguments and `--key=value` options."
+function parse_args(args)
+    positional = String[]
+    opts = Dict{String,String}()
+    for a in args
+        if startswith(a, "--")
+            k, v = occursin("=", a) ? split(a[3:end], "="; limit=2) : (a[3:end], "")
+            isempty(v) && error("Option --$k needs a value, e.g. --$k=...")
+            opts[String(k)] = String(v)
+        else
+            push!(positional, a)
+        end
+    end
+    unknown = setdiff(keys(opts), ("input", "outdir", "label"))
+    isempty(unknown) || error("Unknown option(s): $(join("--" .* collect(unknown), ", ")). Use --input, --outdir, --label")
+    return positional, opts
+end
+
+"Input ensemble, output directory and file label from flags / ENV / defaults."
+function resolve_io(opts)
+    rt_nc = abspath(get(opts, "input", get(ENV, "RT_NC", DEFAULT_RT_NC)))
+    isfile(rt_nc) || error("Ensemble file not found: $rt_nc")
+    out_dir = abspath(get(opts, "outdir", get(ENV, "OUT_DIR", dirname(rt_nc))))
+    mkpath(out_dir)
+    default_label = replace(splitext(basename(rt_nc))[1], r"^rt_toa_ensemble_?" => "")
+    label = get(opts, "label", get(ENV, "OUT_LABEL", default_label))
+    return rt_nc, out_dir, label
+end
+
+function resolve_config_path(positional)
+    raw = !isempty(positional) ? positional[1] : get(ENV, "SVD_TOML", DEFAULT_SVD_TOML)
     path = isabspath(raw) ? raw : abspath(raw)
     isfile(path) || error("SVD config not found: $path")
     return path
@@ -59,8 +106,8 @@ function detect_svd_ranks(cfg, config_path)
     return n_pc, n_leg, "nPC$(n_pc)_npoly$(n_leg)"
 end
 
-function snapshot_nc(src)
-    snap = joinpath(OUT_DIR, "rt_toa_ensemble_snap.nc")
+function snapshot_nc(src, out_dir)
+    snap = joinpath(out_dir, splitext(basename(src))[1] * "_snap.nc")
     cp(src, snap; force=true)
     return snap
 end
@@ -95,14 +142,19 @@ function pick_examples(sza, sif_678; n_show=4)
 end
 
 function main()
-    svd_toml = resolve_config_path()
+    positional, opts = parse_args(ARGS)
+    svd_toml = resolve_config_path(positional)
+    rt_nc, out_dir, label = resolve_io(opts)
     cfg = TOML.parsefile(svd_toml)
-    n_pc, n_leg, tag = detect_svd_ranks(cfg, svd_toml)
+    n_pc, n_leg, rank_tag = detect_svd_ranks(cfg, svd_toml)
+    tag = isempty(label) ? rank_tag : "$(label)_$(rank_tag)"
     λ_min = Float64(get(get(cfg, "spectral", Dict()), "lambda_min_nm", 640.0))
     λ_max = Float64(get(get(cfg, "spectral", Dict()), "lambda_max_nm", 756.0))
-    println("Config $(basename(svd_toml)): $tag")
+    println("Config $(basename(svd_toml)): $rank_tag")
+    println("Input  $rt_nc")
+    println("Output $out_dir  (names tagged \"$tag\")")
 
-    snap = snapshot_nc(RT_NC)
+    snap = snapshot_nc(rt_nc, out_dir)
     ens = load_completed(snap, λ_min, λ_max)
     n = length(ens.sza)
     λ = ens.λ
@@ -112,7 +164,7 @@ function main()
     solar = load_l1b_solar_on_bands(SOLAR_L1B, λ)
     i678 = argmin(abs.(λ .- 678.0))
     (sh.n_pc == n_pc && sh.n_leg == n_leg) ||
-        error("Setup ranks ($(sh.n_pc), $(sh.n_leg)) do not match detected $tag")
+        error("Setup ranks ($(sh.n_pc), $(sh.n_leg)) do not match detected $rank_tag")
     println("  n_pc=$(sh.n_pc)  n_legendre=$(sh.n_leg)  n_state=$(sh.layout.n_state)  solar=$(basename(solar.pace_path))")
 
     R_fit = fill(NaN, length(λ), n)
@@ -143,7 +195,7 @@ function main()
     n_ok = count(==(Int16(1)), status)
     println("Converged (status=1): $n_ok / $n")
 
-    out_nc = joinpath(OUT_DIR, "rt_retrieval_$(tag).nc")
+    out_nc = joinpath(out_dir, "rt_retrieval_$(tag).nc")
     isfile(out_nc) && rm(out_nc)
     ds = NCDataset(out_nc, "c")
     defDim(ds, "band", length(λ))
@@ -161,7 +213,9 @@ function main()
     defVar(ds, "sza", Float32.(ens.sza), ("sample",))
     defVar(ds, "status", status, ("sample",))
     ds.attrib["svd_config"] = svd_toml
-    ds.attrib["rank_tag"] = tag
+    ds.attrib["rank_tag"] = rank_tag
+    ds.attrib["label"] = label
+    ds.attrib["input_ensemble"] = rt_nc
     ds.attrib["n_pc"] = sh.n_pc
     ds.attrib["n_legendre"] = sh.n_leg
     ds.attrib["created"] = string(Dates.now())
@@ -190,7 +244,7 @@ function main()
     end
     fig = plot(plots...; layout=(length(picks), 2), size=(1100, 280 * length(picks)),
                left_margin=4Plots.mm, bottom_margin=3Plots.mm)
-    out_png = joinpath(OUT_DIR, "rt_retrieval_toa_sif_$(tag).png")
+    out_png = joinpath(out_dir, "rt_retrieval_toa_sif_$(tag).png")
     savefig(fig, out_png)
     println("Wrote $out_png  ($(filesize(out_png)) bytes)")
 
@@ -218,7 +272,7 @@ function main()
         xlims!(p, lim)
         ylims!(p, lim)
         println("$tag SIF@678: bias=$(round(bias, digits=4))  RMSE=$(round(rmse_s, digits=4))  R²=$(round(r2, digits=3))  slope=$(round(β[2], digits=3))  intercept=$(round(β[1], digits=3))")
-        scatter_png = joinpath(OUT_DIR, "rt_retrieval_sif678_$(tag).png")
+        scatter_png = joinpath(out_dir, "rt_retrieval_sif678_$(tag).png")
         savefig(p, scatter_png)
         println("Wrote $scatter_png")
     end
