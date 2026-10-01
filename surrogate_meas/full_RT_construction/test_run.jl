@@ -166,8 +166,11 @@ ws_tag = _num_tag(wind_speed; digits=1)
 wc_on_tag = include_whitecaps ? "true" : "false"
 wc_alb_tag = _num_tag(whitecap_albedo; digits=2)
 aer_suf = ENABLE_AEROSOLS ? "" : "_noaerosol"
+# Only tag the column index when aerosols are actually on, matching
+# TOA_spectra_configs.ipynb's no-aerosol filename (no col segment).
+col_tag = ENABLE_AEROSOLS ? "col$(lpad(COLUMN_INDEX, 3, '0'))_" : ""
 out_nc = joinpath(OUT_DIR,
-    "toa_col$(lpad(COLUMN_INDEX, 3, '0'))_siflib$(SIF_LIBRARY_INDEX)_peak$(peak_tag)_$(λ_tag)nm" *
+    "toa_$(col_tag)siflib$(SIF_LIBRARY_INDEX)_peak$(peak_tag)_$(λ_tag)nm" *
     "_ws$(ws_tag)_wc$(wc_on_tag)_wc$(wc_alb_tag)$(aer_suf).nc")
 isfile(out_nc) && rm(out_nc)
 
