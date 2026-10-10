@@ -4,6 +4,7 @@ rasterize_svd_retrievals.jl
 Bin PACE SVD retrieval granules into a regular lat/lon grid using centered
 rolling time windows.  One NetCDF output file is written per window containing:
   • sif_radiance_678nm(lon, lat)  — unweighted mean of valid soundings
+  • sif_radiance_678nm_uncertainty(lon, lat) — √(Σσᵢ²)/n from per-sounding posterior σ
   • counts(lon, lat)              — number of valid soundings per cell
 
 Usage:
@@ -23,6 +24,7 @@ using Dates
 using Distributions
 using NCDatasets
 using ProgressMeter
+using Statistics
 using TOML
 
 
@@ -536,6 +538,47 @@ function _find_ncvar_optional(ds, varname::String)
     return haskey(ds, varname) ? ds[varname] : nothing
 end
 
+"""
+Per-sounding 1σ posterior uncertainty of `sif_radiance_678nm`, as (pixels, scans).
+
+With a single SIF eigenvector (sif_nev = 1), SIF₆₇₈ = b₆₇₈ · c, where c (`sif_ev1`) is the
+last state element, so σ₆₇₈ = |b₆₇₈| · √(S_posterior_diag[:, :, end]).  b₆₇₈ is a constant
+recovered as the granule median of sif_radiance_678nm / sif_ev1 (same as the Figure 2
+SNR notebooks).  Returns `nothing` when S_posterior_diag is absent (save_posterior = false)
+or sif_nev > 1 (the diagonal alone then misses the coefficient covariances).
+"""
+function _read_sif678_unc(ds, sif::AbstractMatrix{Float64})
+    haskey(ds, "S_posterior_diag") || return nothing
+    haskey(ds, "sif_ev1") || return nothing
+    if haskey(ds.dim, "sif_nev") && ds.dim["sif_nev"] != 1
+        @warn "sif_nev > 1 — SIF uncertainty not computed (needs off-diagonal posterior terms)"
+        return nothing
+    end
+
+    v = ds["S_posterior_diag"]
+    d = collect(String.(dimnames(v)))
+    i_state = findfirst(==("state"), d)
+    i_state === nothing && error("S_posterior_diag has no 'state' dim: $d")
+    n_state = size(v, i_state)
+    raw = if i_state == 1
+        Array(v[n_state, :, :])
+    elseif i_state == 2
+        Array(v[:, n_state, :])
+    else
+        Array(v[:, :, n_state])
+    end
+    rem = [d[i] for i in 1:3 if i != i_state]
+    var_c = Float64.(_as_float32_nan(rem == ["scans", "pixels"] ? permutedims(raw, (2, 1)) : raw))
+    size(var_c) == size(sif) || error("S_posterior_diag slice $(size(var_c)) ≠ sif $(size(sif))")
+
+    c = Float64.(_as_float32_nan(_read_pixels_scans_2d(ds, "sif_ev1")))
+    ratios = [sif[k] / c[k] for k in eachindex(c) if isfinite(sif[k]) && isfinite(c[k]) && abs(c[k]) > 1e-6]
+    isempty(ratios) && return nothing
+    b678 = abs(median(ratios))
+
+    return b678 .* sqrt.(max.(var_c, 0.0))
+end
+
 """Read 2D field as (pixels, scans) from root or child groups."""
 function _read_pixels_scans_2d(ds, varname::String)
     v = _find_ncvar_optional(ds, varname)
@@ -678,6 +721,8 @@ end
 struct Grid
     sif::Matrix{Float64}    # n_lon × n_lat, running mean
     counts::Matrix{Int32}   # n_lon × n_lat
+    sum_unc2::Matrix{Float64}  # Σ σᵢ² of per-sounding SIF uncertainty
+    n_unc::Matrix{Int32}       # soundings that contributed a finite σᵢ
     n_lon::Int
     n_lat::Int
     res_step::Float64       # degrees per cell
@@ -687,7 +732,9 @@ function Grid(resolution::Int)
     n_lon = 2 * resolution
     n_lat = resolution
     res_step = 180.0 / resolution
-    Grid(zeros(Float64, n_lon, n_lat), zeros(Int32, n_lon, n_lat), n_lon, n_lat, res_step)
+    Grid(zeros(Float64, n_lon, n_lat), zeros(Int32, n_lon, n_lat),
+         zeros(Float64, n_lon, n_lat), zeros(Int32, n_lon, n_lat),
+         n_lon, n_lat, res_step)
 end
 
 @inline function _cell(g::Grid, lon::Float64, lat::Float64)
@@ -705,6 +752,8 @@ function accumulate_file!(g::Grid, fpath::String, cfg::RasterConfig)
         stat = _read_pixels_scans_2d(ds, "status_code")
         chi2 = Float64.(_read_pixels_scans_2d(ds, "reduced_chi2"))
         lat = Float64.(lat_raw)
+        unc = _read_sif678_unc(ds, sif)
+        unc === nothing && @warn "No SIF posterior uncertainty — cells touched by this granule get NaN uncertainty" file=basename(fpath)
 
         # --- L2 AOP flags filter ---
         flags_ok = nothing
@@ -759,6 +808,10 @@ function accumulate_file!(g::Grid, fpath::String, cfg::RasterConfig)
             g.counts[i, j] += Int32(1)
             n = g.counts[i, j]
             g.sif[i, j] += (sif[idx] - g.sif[i, j]) / n
+            if unc !== nothing && isfinite(unc[idx])
+                g.sum_unc2[i, j] += unc[idx]^2
+                g.n_unc[i, j] += Int32(1)
+            end
         end
     end
 end
@@ -802,6 +855,11 @@ function save_netcdf(g::Grid, win_start::Date, win_end::Date,
     # Build SIF array: cells with no observations → NaN
     sif_out = Float32.(g.sif)
     sif_out[g.counts .== 0] .= NaN32
+
+    # Uncertainty of the cell mean, assuming independent errors: σ_cell = √(Σσᵢ²) / n.
+    # NaN unless every sounding in the cell carried a finite σᵢ.
+    unc_out = Float32.(sqrt.(g.sum_unc2) ./ max.(g.counts, 1))
+    unc_out[(g.counts .== 0) .| (g.n_unc .!= g.counts)] .= NaN32
 
     NCDatasets.Dataset(fpath, "c") do ds
         ds.attrib["Conventions"]  = "CF-1.8"
@@ -869,6 +927,15 @@ function save_netcdf(g::Grid, win_start::Date, win_end::Date,
                       "_FillValue"   => NaN32,
                       "coordinates"  => "lon lat"])
         v_sif[:, :] = sif_out
+
+        v_unc = defVar(ds, "sif_radiance_678nm_uncertainty", Float32, ("lon", "lat"),
+            attrib = ["long_name"    => "1-sigma posterior uncertainty of mean SIF radiance at 678 nm",
+                      "units"        => "W m-2 sr-1 um-1",
+                      "formula"      => "sqrt(sum(sigma_i^2)) / counts; sigma_i = |b678| * sqrt(S_posterior_diag[SIF])",
+                      "comment"      => "random (retrieval-noise) component only, assuming independent soundings; excludes systematic error",
+                      "_FillValue"   => NaN32,
+                      "coordinates"  => "lon lat"])
+        v_unc[:, :] = unc_out
 
         v_cnt = defVar(ds, "counts", Int32, ("lon", "lat"),
             attrib = ["long_name"   => "Number of valid soundings",
