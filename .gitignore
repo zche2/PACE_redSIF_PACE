@@ -19,3 +19,6 @@ visualize/
 # configs
 */configs*/
 */config.run.yaml
+
+# figures that belong to documents under document/ are tracked
+!document/**/*.png
