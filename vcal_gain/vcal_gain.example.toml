@@ -10,23 +10,22 @@
 # Pixels with missing/non-finite L2 AOP nflh are skipped (vcal_gain left as NaN).
 
 [vcal_gain]
-date = "20260125"   # YYYYMMDD; overridden by env DATE if set
+date = "20250106"   # YYYYMMDD; overridden by env DATE if set
 
 # Directory of retrieval NetCDFs. SVD outputs live under retrieval_dir/YYYY/MM/DD/.
-retrieval_dir = "/home/zhe2/data/PACE/adding_sif_output"
+retrieval_dir = "/home/zhe2/data/PACE/new_svd_retrieval_output_O2A"
 # Glob relative to the day folder (and flat root). {date} → YYYYMMDD.
 # SVD:   interim_{date}T*_svd_retrieval*.nc
-# AddingSIF (flat): PACE_OCI.{date}T*.nc
-retrieval_glob = "PACE_OCI.{date}T*.nc"
+retrieval_glob = "interim_{date}T*_svd_retrieval*.nc"
 
 L1B_dir   = "/kiwi-data/Data/satellite/PACE_OCI/L1B_V3"   # required for SVD rebuild / missing Rtoa_red
 L2AOP_dir = "/kiwi-data/Data/satellite/PACE_OCI/L2_AOP_V3.2"
 L2BGC_dir = "/kiwi-data/Data/satellite/PACE_OCI/L2_BGC_V3.2"
 
 # Optional for SVD scalar-rmse products (falls back to retrieval attrib / Sep26 default).
-# svd_config = "svd_configs/global_fit_new_Sep26/multitask.new.Jan25global_fit_pipeline.npoly3nPC15.toml"
+svd_config = "svd_configs/global_fit_new_Sep26/multitask.O2A.Jan25global_fit_pipeline.npoly3nPC15.toml"
 
-output_dir = "/home/zhe2/FraLab/PACE_redSIF_PACE/vcal_gain/output"
+output_dir = "/home/zhe2/FraLab/PACE_redSIF_PACE/vcal_gain/output_O2A"
 
 # If true, only process the first matching retrieval (smoke / debug).
-first_only = true
+first_only = false
