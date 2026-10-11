@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spectral Grid Aliasing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column (~68ch) with figures allowed to run wider; figures sit on a fixed light plate so the matplotlib PNGs read in both themes. */
+:root{
+  --bg:#f6f7f8; --surface:#ffffff; --fg:#1d2329; --muted:#5b6670; --rule:#d9dee2;
+  --accent:#1f6fb4; --warm:#c2414f; --plate:#ffffff; --code:#eef1f4;
+  --display:"Newsreader",Georgia,"Times New Roman",serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.62;padding-inline:20px;padding-block:40px 72px}
+main{max-width:1060px;margin:0 auto;display:grid;gap:44px}
+.col{max-width:68ch;min-width:0}
+header{display:grid;gap:14px}
+.eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(34px,5vw,50px);line-height:1.08;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-weight:600;font-size:clamp(23px,3vw,29px);line-height:1.2;margin:0 0 10px;text-wrap:balance}
+p{margin:0 0 12px}
+.lede{font-size:18.5px;color:var(--fg)}
+section{display:grid;gap:16px}
+.math{font-family:var(--mono);font-size:14.5px;background:var(--code);border-radius:6px;padding:14px 16px;overflow-x:auto;white-space:pre;line-height:1.55}
+code,.num{font-family:var(--mono);font-size:.92em;font-variant-numeric:tabular-nums}
+figure{margin:0;display:grid;gap:10px}
+figure .plate{background:var(--plate);border:1px solid var(--rule);border-radius:8px;padding:10px;overflow-x:auto}
+figure img{display:block;width:100%;height:auto;max-width:100%}
+figcaption{font-size:14px;color:var(--muted);max-width:80ch}
+figcaption b{color:var(--fg);font-weight:600}
+.key{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.key div{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:14px 16px;display:grid;gap:4px;min-width:0}
+.key .v{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
+.key .l{font-size:13.5px;color:var(--muted)}
+.tbl{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:620px}
+th,td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--rule);font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+thead th{font-weight:600;color:var(--muted);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase}
+tbody tr:last-child td{border-bottom:0}
+.bad{color:var(--warm);font-weight:600}
+.callout{border-left:3px solid var(--accent);padding:4px 0 4px 16px}
+ol,ul{margin:0 0 12px;padding-left:22px}
+li{margin-bottom:6px}
+footer{font-size:13.5px;color:var(--muted);border-top:1px solid var(--rule);padding-top:18px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<main>
+<header class="col">
+  <div class="eyebrow">PACE OCI red SIF · surrogate RT · vSmartMOM 2.1 / HITRAN 2016</div>
+  <h1>Why a coarse spectral grid gets O₂‑B wrong</h1>
+  <p class="lede">The surrogate TOA spectra were computed line by line on a 1 cm⁻¹ wavenumber grid. O₂ and H₂O lines are only 0.03–0.1 cm⁻¹ wide, so each grid point either lands on a line core or misses it. Where the points land is set by the grid's starting wavenumber, the <em>grid offset</em>. This page shows how that offset decides the error, and why O₂‑B happens to be the band where it does the most damage.</p>
+</header>
+
+<section class="key" aria-label="Key numbers">
+  <div><span class="v">±0.06</span><span class="l">O₂‑B band transmittance error at 1 cm⁻¹, sign set by the offset</span></div>
+  <div><span class="v">0.91</span><span class="l">worst O₂‑B TOA radiance error, W m⁻² sr⁻¹ µm⁻¹ (6%)</span></div>
+  <div><span class="v">0.31</span><span class="l">worst error on the SIF shoulder, 670–685 nm</span></div>
+  <div><span class="v">≤ 0.02</span><span class="l">grid step (cm⁻¹) where every band is converged to below 10⁻⁴</span></div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>What the RT is approximating</h2>
+    <p>Each OCI band value is a response‑weighted average of the high‑resolution spectrum over roughly 100 cm⁻¹. The RT replaces that integral by a sum over grid points spaced Δν apart, starting at ν₀:</p>
+  </div>
+  <div class="math">T̄_band = ∫ RSR(ν) e^(−τ(ν)) dν / ∫ RSR(ν) dν
+        ≈ Σₖ RSR(νₖ) e^(−τ(νₖ)) / Σₖ RSR(νₖ),      νₖ = ν₀ + k·Δν</div>
+  <div class="col">
+    <p>The sum is accurate only if the samples see the spectrum fairly. τ(ν) is a forest of spikes about 2 cm⁻¹ apart and 0.03–0.1 cm⁻¹ wide, so a 1 cm⁻¹ grid is much coarser than the lines it is trying to average.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>One line, one grid</h2>
+    <p>Each sample effectively stands in for a box Δν wide. For a narrow line that box is either far too tall or far too short. What decides it is <span class="num">d</span>, the distance from the line centre to the nearest grid point.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="f1_single_line.png" alt="A Lorentzian line sampled every 1 cm⁻¹ at three grid offsets, with each sample drawn as a 1 cm⁻¹ wide box"></div>
+    <figcaption><b>Figure 1.</b> A line with half‑width 0.05 cm⁻¹ sampled every 1 cm⁻¹ (log scale). With a sample on the core (offset 0) the boxes add up to 6.4× the true area. A quarter step away they give 0.30×, and with the core exactly between two samples only 0.16×.</figcaption>
+  </figure>
+  <figure>
+    <div class="plate"><img src="f2_ratio_vs_offset.png" alt="Sampled-to-true area ratio against offset for several line widths and grid steps"></div>
+    <figcaption><b>Figure 2.</b> Sampled area ÷ true area as the grid slides past a line. The narrower the line relative to Δν, the wilder the swing: from 20× down to 0.05× for a Doppler‑width line (half‑width 0.015 cm⁻¹). Once the grid is about as fine as the line half‑width (dashed: Δν = 0.1, half‑width 0.05) the ratio stays near 1 at every offset.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Real O₂ lines and where the samples fall</h2>
+    <p>The same thing happens in the real spectrum. In O₂‑B the strongest lines sit almost exactly on integer wavenumbers, for example at 14510.0 and 14512.0 cm⁻¹. With the surrogate grid, which starts at 12820 cm⁻¹, the offset‑0 samples land on those cores. Shift the grid by half a step and every sample falls between them.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="f3_real_lines.png" alt="High-resolution O₂-B and O₂-A transmittance with 1 cm⁻¹ grid points at offsets 0 and 0.5"></div>
+    <figcaption><b>Figure 3.</b> Two‑way transmittance at 0.01 cm⁻¹ (blue line) for a profile with 27 kg m⁻² of water vapour, SZA 30°, nadir. Circles: 1 cm⁻¹ grid at offset 0 (the surrogate setting). Squares: offset 0.5. In O₂‑B the circles sit in the dark cores (T ≈ 0) while the squares sit on the bright shoulders. In O₂‑A both sets land at scattered positions.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Why the errors add up in O₂‑B and cancel in O₂‑A</h2>
+    <p>A single mis‑sampled line is harmless if its neighbours are mis‑sampled the other way. That depends on whether line centres share the same position relative to the grid. Plotting each line centre modulo 1 cm⁻¹, weighted by line strength, shows the difference directly.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="f4_line_phase.png" alt="Histograms of line-centre position modulo 1 cm⁻¹ for O₂-B and O₂-A"></div>
+    <figcaption><b>Figure 4.</b> Strength‑weighted position of O₂ line centres within each 1 cm⁻¹ interval (HITRAN 2016, main isotopologue). O₂‑B lines bunch within about ±0.3 cm⁻¹ of an integer: phase coherence R = 0.50, where 1 means all aligned and 0 means random. O₂‑A lines are spread across the interval (R = 0.18). Coherent lines are mis‑counted in the same direction together; scattered lines average out within an OCI band.</figcaption>
+  </figure>
+  <figure>
+    <div class="plate"><img src="f5_offset_sweep.png" alt="OCI band transmittance error versus grid offset for four bands"></div>
+    <figcaption><b>Figure 5.</b> Error in OCI‑band transmittance (1 cm⁻¹ minus 0.01 cm⁻¹) as the grid is slid across one full step. O₂‑B at 689.4 nm swings smoothly from <b>−0.056 to +0.059</b> and crosses zero near offsets 0.2 and 0.7. O₂‑A, the 727 nm water band and the 652 nm window stay within about ±0.015, with no consistent pattern. The surrogates were run at offset 0: close to the worst case for O₂‑B.</figcaption>
+  </figure>
+  <div class="col callout">
+    <p><b>Saturation also protects O₂‑A.</b> Its lines are about 15× stronger, so their cores are already black along the path whether or not a sample hits them. Most of the band's absorption comes from broad, slowly varying pressure‑broadened wings, which a coarse grid samples well enough. O₂‑B's weaker lines keep most of their absorption in narrow cores, the part a coarse grid either catches or misses entirely.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>How fine is fine enough</h2>
+    <p>The rule is that the grid step must be comparable to the line half‑width, about 0.015 cm⁻¹ for Doppler and 0.05 cm⁻¹ for pressure broadening near the surface. Then every line is sampled across its profile and the offset no longer matters.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="f7_convergence_offsets.png" alt="Transmittance error versus grid step with shading across all grid offsets"></div>
+    <figcaption><b>Figure 6.</b> Transmittance error against grid step; shading spans every offset and the line marks the worst one. At 1 cm⁻¹ the error depends on the offset by up to three orders of magnitude, which is the aliasing signature. Below 0.05 cm⁻¹ every band and every offset converges together.</figcaption>
+  </figure>
+  <figure>
+    <div class="plate"><img src="f8_radiance_vs_step.png" alt="Maximum TOA radiance error versus grid step, absolute and relative"></div>
+    <figcaption><b>Figure 7.</b> Worst OCI‑band TOA radiance error over 5 MERRA profiles (2–72 kg m⁻² water vapour) and 9 view angles, with full RT (Rayleigh plus gas absorption, Lambertian albedo 0.02). The dotted line marks a typical ocean SIF of 0.05 W m⁻² sr⁻¹ µm⁻¹. At 1 cm⁻¹ every band's error is larger than that.</figcaption>
+  </figure>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Grid step (cm⁻¹)</th><th>O₂‑B 686–696</th><th>SIF shoulder 670–685</th><th>H₂O 715–735</th><th>O₂‑A 759–771</th><th>Window 640–670</th></tr></thead>
+      <tbody>
+        <tr><td>1 (surrogates)</td><td class="bad">0.91 (6.1%)</td><td class="bad">0.31 (1.7%)</td><td class="bad">0.21 (2.1%)</td><td class="bad">0.17 (2.1%)</td><td class="bad">0.15 (0.9%)</td></tr>
+        <tr><td>0.5</td><td class="bad">0.083</td><td>0.043</td><td class="bad">0.085</td><td class="bad">0.070</td><td class="bad">0.115</td></tr>
+        <tr><td>0.2</td><td>0.025</td><td>0.0032</td><td>0.022</td><td>0.014</td><td>0.011</td></tr>
+        <tr><td>0.1</td><td>0.0058</td><td>0.0029</td><td>0.0031</td><td>0.0089</td><td>0.0014</td></tr>
+        <tr><td>0.05</td><td>0.0017</td><td>0.00019</td><td>0.00008</td><td>0.0011</td><td>0.00007</td></tr>
+        <tr><td>0.02</td><td>0.00002</td><td>0.000007</td><td>0.0000004</td><td>0.00003</td><td>0.00002</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="col" style="font-size:14px;color:var(--muted)">Maximum |ΔL| against the 0.01 cm⁻¹ reference, W m⁻² sr⁻¹ µm⁻¹. Red marks errors above 0.05.</p>
+</section>
+
+<section>
+  <div class="col">
+    <h2>What this means for the surrogates</h2>
+    <ul>
+      <li>At 1 cm⁻¹ the spectral‑sampling error is larger than the SIF signal itself, and it sits exactly around the SIF peak: on the 670–675 nm shoulder and the O₂‑B edge at 682–690 nm.</li>
+      <li>The error is a fixed spectral pattern, not noise. The retrieval's PCs come from 0.01 cm⁻¹ cross‑sections and cannot reproduce it, so it must be absorbed by the polynomial, the PCs or SIF.</li>
+      <li>Which band suffers, and with what sign, is an accident of the grid's starting wavenumber. A different start would move the large error elsewhere.</li>
+      <li>Regenerating at 0.02 cm⁻¹ (exact) or 0.05 cm⁻¹ (below about 0.002) costs little. On the GPU a full 0.01 cm⁻¹ RT took about 2.3 minutes per profile, similar to 1 cm⁻¹, because aerosol setup dominates. Fine grids need the RT split into spectral chunks to fit in GPU memory.</li>
+    </ul>
+  </div>
+</section>
+
+<footer class="col">
+  <p>Method: vSmartMOM 2.1 (RemoteSensingTools main, 8afe0aec) with AtmosphericAbsorption 0.1.2, HITRAN 2016, Voigt line shape, 30 cm⁻¹ wing cutoff; YAML <code>ocean_lambertian_0929.yaml</code> with only the spectral grid changed; MERRA sea profiles 1090, 503, 628, 1206 and 1242; OCI RSRs from <code>PACE_OCI_RSRs.nc</code>, 640–780 nm. Coarse grids and offsets in Figures 3–6 sample the same line‑by‑line 0.01 cm⁻¹ optical depth, which reproduces the direct RT runs to 3×10⁻⁷ in transmittance. Radiance runs use Rayleigh scattering only, so chunking does not change the aerosol optics. An aerosol run at 1 vs 0.1 cm⁻¹ gave the same picture (1.03 in O₂‑B, 0.35 next to the SIF peak).</p>
+</footer>
+</main>
+</body>
+</html>
