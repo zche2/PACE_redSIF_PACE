@@ -24,6 +24,26 @@
 #   julia surrogate_meas/full_RT_construction/generate_test_spec_lambertian.jl
 #   N_SAMPLES=2 julia surrogate_meas/full_RT_construction/generate_test_spec_lambertian.jl
 #   ENABLE_AEROSOLS=false N_SAMPLES=2 julia ...
+#   OCEAN_YAML=/path/other.yaml OUT_NC=/path/other_out.nc julia ...   (new OUT_NC, or it resumes the old file)
+#
+# Known limitations (checked 2026-10):
+#   - Spectral grid: the YAML's 1 cm⁻¹ step aliases narrow O2/H2O lines (OCI-band TOA
+#     errors up to ~0.9 W m⁻² sr⁻¹ µm⁻¹ in O2-B, ~0.3 next to the SIF peak). Use ≤0.05 cm⁻¹
+#     (0.02 is converged). See document/spectral_grid_aliasing/.
+#   - Aerosols are species-based: each YAML species = one lognormal (σ_g from YAML,
+#     column AOD-weighted wet radius, pure-component RI), built from the TOMAS bins
+#     collapsed by build_gchp_ocean_columns.py. One phase function per species for the
+#     whole column; Mie at the two band ends, AOD linear in between.
+#   - k_ref: scattering.n_ref is not set in the YAML, so vSmartMOM uses the first YAML
+#     aerosol's RI (1.5−1e-8i) for every species' 550 nm reference extinction; the RT AOD
+#     at 550 nm therefore differs from the GCHP AOD for species with other RIs.
+#   - Alternative: Google-RT/GCHPIO builds bin-resolved, layer-resolved optics from the
+#     TOMAS state (SURF.build_layer_optics + build_layer_resolved_model; one λ per band).
+#     For GCHP column 100 it gave 22% lower AOD at 710 nm than this path but a similar
+#     aerosol radiance signal (nadir +7%, 60° views −2…−4%); TOA differences −0.36…+0.10
+#     W m⁻² sr⁻¹ µm⁻¹, smooth except features in the O2/H2O bands.
+#     generate_test_spec_lambertian_gchpio.jl is this pipeline with the GCHPIO optics
+#     (same design/output); document/yaml_vs_gchpio_aerosol/ compares the two schemes.
 
 using Pkg
 Pkg.activate("/home/zhe2/FraLab/vSmartMOM.jl")

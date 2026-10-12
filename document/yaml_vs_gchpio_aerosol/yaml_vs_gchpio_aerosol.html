@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>YAML vs GCHPIO Aerosols</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column (~68ch) with figures allowed to run wider; figures sit on a fixed light plate so the matplotlib PNGs read in both themes. */
+:root{
+  --bg:#f6f7f8; --surface:#ffffff; --fg:#1d2329; --muted:#5b6670; --rule:#d9dee2;
+  --accent:#1f6fb4; --warm:#c2414f; --plate:#ffffff; --code:#eef1f4;
+  --display:"Newsreader",Georgia,"Times New Roman",serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.62;padding-inline:20px;padding-block:40px 72px}
+main{max-width:1060px;margin:0 auto;display:grid;gap:44px}
+.col{max-width:68ch;min-width:0}
+header{display:grid;gap:14px}
+.eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(34px,5vw,50px);line-height:1.08;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-weight:600;font-size:clamp(23px,3vw,29px);line-height:1.2;margin:0 0 10px;text-wrap:balance}
+p{margin:0 0 12px}
+.lede{font-size:18.5px;color:var(--fg)}
+section{display:grid;gap:16px}
+.math{font-family:var(--mono);font-size:14.5px;background:var(--code);border-radius:6px;padding:14px 16px;overflow-x:auto;white-space:pre;line-height:1.55}
+code,.num{font-family:var(--mono);font-size:.92em;font-variant-numeric:tabular-nums}
+figure{margin:0;display:grid;gap:10px}
+figure .plate{background:var(--plate);border:1px solid var(--rule);border-radius:8px;padding:10px;overflow-x:auto}
+figure img{display:block;width:100%;height:auto;max-width:100%}
+figcaption{font-size:14px;color:var(--muted);max-width:80ch}
+figcaption b{color:var(--fg);font-weight:600}
+.key{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.key div{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:14px 16px;display:grid;gap:4px;min-width:0}
+.key .v{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
+.key .l{font-size:13.5px;color:var(--muted)}
+.tbl{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:620px}
+th,td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--rule);font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+thead th{font-weight:600;color:var(--muted);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase}
+tbody tr:last-child td{border-bottom:0}
+.bad{color:var(--warm);font-weight:600}
+.callout{border-left:3px solid var(--accent);padding:4px 0 4px 16px}
+ol,ul{margin:0 0 12px;padding-left:22px}
+li{margin-bottom:6px}
+footer{font-size:13.5px;color:var(--muted);border-top:1px solid var(--rule);padding-top:18px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<main>
+<header class="col">
+  <div class="eyebrow">PACE OCI red SIF · surrogate RT · vSmartMOM 2.1 / Google‑RT GCHPIO</div>
+  <h1>Two ways to turn GCHP aerosols into RT optics</h1>
+  <p class="lede">The surrogate TOA spectra take their aerosols from GEOS‑Chem/TOMAS ocean columns. The YAML path in <code>generate_test_spec_lambertian.jl</code> collapses each column into 12 lognormal <em>species</em>. Google‑RT's GCHPIO keeps the TOMAS <em>size bins</em> and computes optics layer by layer. This page summarises how the two schemes differ, what that does to AOD and TOA radiance, and what each one costs.</p>
+</header>
+
+<section class="key" aria-label="Key numbers">
+  <div><span class="v">≈ same</span><span class="l">AOD at 550 nm (0.069 vs 0.066, column 100): both start from the same TOMAS state</span></div>
+  <div><span class="v">−20 to −30%</span><span class="l">GCHPIO AOD in the 640–780 nm window: steeper spectral slope (Ångström ≈ 1.4 vs 0.5)</span></div>
+  <div><span class="v">−19 to −35%</span><span class="l">GCHPIO aerosol radiance signal on 3 matched ensemble samples</span></div>
+  <div><span class="v">+0.15</span><span class="l">W m⁻² sr⁻¹ µm⁻¹: worst error from running aerosols with NoTruncation at 11 streams (δBGE: &lt; 0.005)</span></div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>The core difference: species vs bins</h2>
+    <p>Both schemes read the same GCHP cell (<code>GEOSChem.Custom.20190702_0000z.nc4</code>, TOMAS 15 bins of sulfate, sea salt, organic and black carbon, dust, and aerosol water). They part ways in what reaches Mie theory.</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Step</th><th style="text-align:left">YAML species path (vSmartMOM)</th><th style="text-align:left">GCHPIO bin path (Google‑RT)</th></tr></thead>
+    <tbody>
+      <tr><td>Pre‑processing</td><td style="text-align:left"><code>build_gchp_ocean_columns.py</code> sums TOMAS bins into 12 species (SO4, SALA, SALC, OCPI, BCPI, DUST1–7) and stores layer AOD at 550 nm and wet radius per species</td><td style="text-align:left">none; reads number, dry mass per component and aerosol water for all 15 bins and 72 layers</td></tr>
+      <tr><td>Size distribution</td><td style="text-align:left">one lognormal per species: median = column AOD‑weighted wet radius, σ_g fixed in the YAML (1.6, dust 1.8)</td><td style="text-align:left">within‑bin distribution rebuilt from two moments (number and mass) per bin and layer, with neighbour bins setting the tilt</td></tr>
+      <tr><td>Refractive index</td><td style="text-align:left">pure component per species (<code>seasalt_sscm</code>, <code>sulfate_suso</code>, …) at λ_ref; no water mixing</td><td style="text-align:left">volume mix of the components plus water per bin and layer (Maxwell Garnett); hygroscopic growth from the GCHP T and q</td></tr>
+      <tr><td>Vertical structure</td><td style="text-align:left">one phase function and single‑scattering albedo per species for the whole column; layer AOD shape from the file, remapped</td><td style="text-align:left">τ, ω̃ and the phase function per layer: humid boundary‑layer particles and dry free‑troposphere particles scatter differently</td></tr>
+      <tr><td>Spectral dependence</td><td style="text-align:left">Mie at λ_ref (550 nm) and at the two band ends; extinction linear in between; one averaged phase function per band</td><td style="text-align:left">SURF's <code>build_layer_optics</code>: one λ per band (default 1.57 µm). The band API <code>compute_aerosol_optics_band</code> runs Mie at Chebyshev nodes with a spline in between (7 nodes for 623–850 nm)</td></tr>
+      <tr><td>Normalisation</td><td style="text-align:left">τ scaled so τ(550) = the file's species AOD, via k_ref; <code>scattering.n_ref</code> is unset, so k_ref uses the first YAML aerosol's RI (1.5−10⁻⁸i) for every species</td><td style="text-align:left">absolute: τ follows from number, size and RI, with no rescaling</td></tr>
+      <tr><td>RT injection</td><td style="text-align:left"><code>model_from_parameters</code> / <code>BatchContext</code>: 12 aerosol modes, each spread over all layers</td><td style="text-align:left">one aerosol mode per active layer (diagonal τ_aer), as in <code>SURF.build_layer_resolved_model</code></td></tr>
+      <tr><td>Phase truncation</td><td style="text-align:left">whatever the YAML says; <code>ocean_lambertian_0929.yaml</code> has <code>NoTruncation()</code> (written for a Rayleigh‑only scene)</td><td style="text-align:left">SURF applies δBGE at 2·nstreams−1; the new pipeline follows the YAML unless <code>AER_TRUNCATION=dbge</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="col callout">
+    <p>The short version: the YAML path is a <b>species‑based</b> design, where each aerosol type is one fixed‑shape distribution for the whole column. GCHPIO is a <b>bin‑based</b> design that carries the model's size distribution, mixing state and humidity into the optics of every layer.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Example 1: one column, two AODs</h2>
+    <p>GCHP column 100 (42.5°N, 24.4°W, sea‑salt fraction 0.28), with both schemes on the 72 GCHP layers. At 550 nm they agree to 4%, because both are tied to the same TOMAS state. In the red they do not agree. GCHPIO's AOD falls from 0.053 at 640 nm to 0.040 at 780 nm (Ångström ≈ 1.4). The YAML path falls only from 0.063 to 0.056 (Ångström ≈ 0.5). In the middle of the window GCHPIO is 22% lower.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="f1_aod_column100.png" alt="Layer AOD profile at 710 nm and spectral column AOD for GCHP column 100, YAML vs GCHPIO"></div>
+    <figcaption><b>Figure 1.</b> Left: layer AOD at 710 nm. Same vertical shape, GCHPIO smaller in every layer. Right: column AOD vs wavelength. The YAML species carry too much of the coarse, spectrally flat mode. Its single column‑mean radius per species, applied with a fixed σ_g, overweights large particles compared with GCHPIO's per‑bin, per‑layer distributions. The horizontal red bar is the single‑λ (710 nm) gray optics used in the first comparison; the new pipeline replaces it with the band API.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Example 2: matched ensemble samples</h2>
+    <p><code>generate_test_spec_lambertian_gchpio.jl</code> reproduces the YAML ensemble's design (seed 20260913, N_SAMPLES = 1000), so sample <i>k</i> has the same MERRA profile, GCHP column, SIF, geometry and albedo in both. For samples 1–3 I also ran both pipelines without aerosols. The two vSmartMOM revisions (main 8afe0aec vs GCHPIO's pin 2cd6934) then agree exactly (difference 0.0000), so every difference below comes from the aerosol optics.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="f2_ensemble_samples.png" alt="Aerosol radiance signal for three ensemble samples and truncation error against a 24-stream reference"></div>
+    <figcaption><b>Figure 2.</b> Top: aerosol signal (run minus the aerosol‑free run) in the YAML ensemble and in the GCHPIO pipeline with each truncation. Bottom: GCHPIO 11‑stream radiance minus a 24‑stream δBGE reference.</figcaption>
+  </figure>
+  <div class="tbl"><table>
+    <thead><tr><th>Sample (GCHP column)</th><th>GCHPIO AOD 710</th><th>YAML signal</th><th>GCHPIO signal (NoTrunc)</th><th>GCHPIO signal (δBGE)</th><th>NoTrunc error</th><th>δBGE error</th></tr></thead>
+    <tbody>
+      <tr><td>1 (col 72, SZA 19°)</td><td>0.006</td><td>0.287</td><td>0.187 (−35%)</td><td>0.188</td><td>+0.001</td><td>+0.002</td></tr>
+      <tr><td>2 (col 237, SZA 40°)</td><td>0.046</td><td>0.950</td><td>0.683 (−28%)</td><td>0.639</td><td class="bad">+0.041</td><td>−0.004</td></tr>
+      <tr><td>3 (col 214, SZA 60°)</td><td>0.071</td><td>1.705</td><td>1.388 (−19%)</td><td>1.260</td><td class="bad">+0.124</td><td>−0.004</td></tr>
+    </tbody>
+  </table></div>
+  <div class="col">
+    <p>Medians over 640–780 nm, in W m⁻² sr⁻¹ µm⁻¹; the errors are relative to the 24‑stream δBGE reference. Two separate effects show up:</p>
+    <ul>
+      <li><b>Optics.</b> With the same truncation, GCHPIO's aerosol signal is 19–35% smaller than the YAML path's, consistent with Figure 1's lower red AOD. That is 0.1–0.3 W m⁻² sr⁻¹ µm⁻¹ of TOA radiance, the same order as ocean SIF.</li>
+      <li><b>Truncation.</b> Running Mie phase functions untruncated at 11 streams overestimates radiance by up to 0.15 (≈ 1%) for aerosol‑rich, sea‑salt‑heavy columns, and the bias is smooth but not flat. δBGE at 11 streams is within 0.005 of the 24‑stream answer and makes the RT about 3× faster. The YAML ensemble was run with NoTruncation, so it probably carries this bias too.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Cost</h2>
+    <p>The YAML path does about 36 single‑distribution Mie calls per column (12 species × 3 λ), which are cheap. GCHPIO does Mie per (bin, layer, node). Deduplication by size and refractive index keeps this manageable, but it is still 10–15× more Mie work per wavelength. In practice:</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Per sample (GPU RT, 16 CPU threads for Mie)</th><th>YAML pipeline</th><th>GCHPIO pipeline</th></tr></thead>
+    <tbody>
+      <tr><td>Aerosol optics (new column)</td><td>Mie inside model update</td><td>22–26 s (7 nodes), cached per column on disk</td></tr>
+      <tr><td>RT, NoTruncation (11 streams)</td><td>≈ 135 s (mean over the 1000‑sample run)</td><td>≈ 85 s</td></tr>
+      <tr><td>RT, δBGE (11 streams)</td><td>not run</td><td>≈ 25 s</td></tr>
+      <tr><td>RT, δBGE (24 streams)</td><td>not run</td><td>≈ 45 s</td></tr>
+    </tbody>
+  </table></div>
+  <div class="col">
+    <p>The extra Mie time is paid once per GCHP column (about 430 unique columns in 1000 samples) and is smaller than what δBGE saves in the RT.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>The new pipeline</h2>
+    <p><code>surrogate_meas/full_RT_construction/generate_test_spec_lambertian_gchpio.jl</code> is <code>generate_test_spec_lambertian.jl</code> with the aerosol block replaced:</p>
+    <ol>
+      <li>Per GCHP column: <code>scene_at</code> on the cell given by <code>i_face/i_y/i_x</code> (lat/lon checked), then <code>compute_aerosol_optics_band</code> on 24 wavelengths spanning the RT grid. Per layer it keeps τ(λ), the band‑mean ω̃ and the τ_sca‑weighted band‑mean Greek coefficients, cached in <code>*_aerosol_optics.jld2</code>.</li>
+      <li>Per sample: the 72 GCHP layers are mapped onto the MERRA RT layers by log‑pressure overlap, conserving τ layer by layer. ω̃ and Greek are τ_sca‑weighted, and τ(ν) is interpolated linearly in λ.</li>
+      <li>The aerosols are injected into the <code>BatchContext</code> model, which already has the gases and Rayleigh: one mode per active layer, with Fourier bounds recomputed. Truncation follows the YAML or <code>AER_TRUNCATION</code>.</li>
+      <li>Everything else is unchanged: design, OCI convolution, SNR noise and the output layout, plus a new <code>aod</code> variable (band, sample). Same seed and N_SAMPLES give the same samples as the YAML ensemble; the noise realisation differs (something in the GCHPIO path draws from the global RNG).</li>
+    </ol>
+  </div>
+  <div class="math">julia --project=surrogate_meas/full_RT_construction/gchpio_env -e 'using Pkg; Pkg.instantiate()'
+N_SAMPLES=1000 AER_TRUNCATION=dbge CUDA_VISIBLE_DEVICES=1 \
+  julia --project=surrogate_meas/full_RT_construction/gchpio_env -t 16 \
+  surrogate_meas/full_RT_construction/generate_test_spec_lambertian_gchpio.jl
+# N_RUN=k computes only the next k samples of the design; MIE_ARCH=GPU moves Mie to CUDA</div>
+</section>
+
+<footer class="col">
+  <p>Method: Example 1 uses GCHP column 100 on its own 72‑layer T/p/q, SZA 30°, Lambertian 0.02, a 0.5 cm⁻¹ grid over 640–780 nm, GCHPIO via <code>SURF.build_layer_optics</code> at 0.71 µm and <code>build_layer_resolved_model</code>. Example 2 uses ensemble samples 1–3 of <code>output_new_Lambertian/rt_toa_ensemble_lambertian.nc</code> and the YAML <code>ocean_lambertian_0929.yaml</code> (1 cm⁻¹, 623–850 nm, 11 streams), with GCHPIO via the new pipeline (N_NODES 3 → auto 7, N_QUERY 24); the reference changes only <code>nstreams: 24</code>. vSmartMOM main 8afe0aec for the YAML pipeline, 2cd6934 (feat/mie-node-api) for GCHPIO. Three samples show the size and sign of the differences, not ensemble statistics.</p>
+</footer>
+</main>
+</body>
+</html>
