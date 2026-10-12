@@ -61,12 +61,16 @@ include(joinpath(@__DIR__, "..", "..", "src", "tools", "Instrument.jl"))
 const REPO_RT = "/home/zhe2/FraLab/PACE_redSIF_PACE/surrogate_meas/full_RT_construction"
 const OCEAN_YAML = get(ENV, "OCEAN_YAML",
     joinpath(REPO_RT, "..", "configs", "ocean_lambertian_0929.yaml"))
-const PACE_RSR_NC = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/PACE_OCI_RSRs.nc"
-const SIF_LIB = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/SIF_singular_vector.jld2"
-const OCEAN_COLS_NC = joinpath(REPO_RT, "output_aerosol_profiles", "gchp_ocean_columns_n500.nc")
+const PACE_RSR_NC = get(ENV, "PACE_RSR_NC",
+    "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/PACE_OCI_RSRs.nc")
+const SIF_LIB = get(ENV, "SIF_LIB",
+    "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/SIF_singular_vector.jld2")
+const OCEAN_COLS_NC = get(ENV, "OCEAN_COLS_NC",
+    joinpath(REPO_RT, "output_aerosol_profiles", "gchp_ocean_columns_n500.nc"))
 const MERRA_SEA_TPQ_NC = get(ENV, "MERRA_SEA_TPQ_NC",
     joinpath(REPO_RT, "merra2_sea_Tpq_columns_n1500.nc"))
-const SNR_FILE = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt"
+const SNR_FILE = get(ENV, "SNR_FILE",
+    "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt")
 const OUT_NC = get(ENV, "OUT_NC",
     joinpath(REPO_RT, "output_new_Lambertian", "rt_toa_ensemble_lambertian_gchpio.nc"))
 # GCHP file the ocean columns were sampled from (its `source` attribute) unless overridden.
