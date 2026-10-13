@@ -18,7 +18,7 @@ DATA=/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use
 
 # ── inputs ──────────────────────────────────────────────────────────────────
 : "${CONFIG_DIR:=$DIR/../configs}"
-: "${OCEAN_YAML:=$CONFIG_DIR/ocean_lambertian_0929.yaml}"            # spectral grid, streams, surface
+: "${OCEAN_YAML:=$CONFIG_DIR/ocean_lambertian_1010_wavnum0p05.yaml}"            # spectral grid, streams, surface
 : "${MERRA_SEA_TPQ_NC:=$DIR/merra2_sea_Tpq_columns_n1500.nc}"         # T/p/q profiles
 : "${OCEAN_COLS_NC:=$DIR/output_aerosol_profiles/gchp_ocean_columns_n500.nc}"  # GCHP cell index
 : "${GCHP_NC:=}"                  # GCHP file; empty = the `source` attribute of OCEAN_COLS_NC
@@ -27,8 +27,8 @@ DATA=/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use
 : "${SNR_FILE:=$DATA/PACE_OCI_L1BLUT_baseline_SNR_1.1.txt}"
 
 # ── outputs ─────────────────────────────────────────────────────────────────
-: "${OUTDIR:=$DIR/output_new_Lambertian}"
-: "${OUT_NC:=$OUTDIR/rt_toa_ensemble_lambertian_gchpio.nc}"          # existing file → resume
+: "${OUTDIR:=$DIR/output_new_Lambertian_gchpio_finerwavnum0p05}"
+: "${OUT_NC:=$OUTDIR/rt_toa_ensemble_lambertian_gchpio_n1000.nc}"          # existing file → resume
 : "${OPTICS_CACHE:=${OUT_NC%.nc}_aerosol_optics.jld2}"               # per-column GCHPIO optics
 : "${LOG:=$OUTDIR/generate_test_spec_lambertian_gchpio_n${N_SAMPLES}_$(date +%Y%m%d_%H%M).log}"
 

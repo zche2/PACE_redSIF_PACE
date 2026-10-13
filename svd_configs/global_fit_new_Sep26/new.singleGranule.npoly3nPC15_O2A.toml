@@ -64,7 +64,7 @@ mode = "granule"
 # date = "20250701"
 
 # --- mode = "granule" ---
-granule_id = "20240524T184220"
+granule_id = "20250724T170203"
 
 # --- mode = "dates" ---
 # date_start         = "20250101"
