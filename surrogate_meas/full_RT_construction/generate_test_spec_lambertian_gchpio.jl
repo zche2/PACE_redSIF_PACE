@@ -82,7 +82,7 @@ const N_SAMPLES = parse(Int, get(ENV, "N_SAMPLES", "500"))
 const N_RUN = parse(Int, get(ENV, "N_RUN", "0"))
 const ENABLE_AEROSOLS = parse(Bool, get(ENV, "ENABLE_AEROSOLS", "true"))
 const SEED = parse(Int, get(ENV, "ENSEMBLE_SEED", "20260913"))
-const SIF_λ = 678.0
+const SIF_λ = 678.2
 const SIF_STRENGTH = (0.0, 0.5)          # W m⁻² sr⁻¹ μm⁻¹ at SIF_λ
 const SZA_RANGE = (5.0, 70.0)            # deg
 const VZA_RANGE = (0.0, 60.0)            # deg; OCI-like swath
@@ -681,4 +681,6 @@ function main()
     println(stop_i == N_SAMPLES ? "Done: $OUT_NC" : "Stopped after sample $stop_i (N_RUN=$N_RUN): $OUT_NC")
 end
 
-main()
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

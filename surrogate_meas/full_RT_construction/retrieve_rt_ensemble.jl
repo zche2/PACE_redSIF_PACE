@@ -45,6 +45,26 @@ include(joinpath(@__DIR__, "..", "build_single_meas.jl"))
 const DEFAULT_SVD_TOML = joinpath(@__DIR__, "..", "configs", "svd_nPC15_npoly5.toml")
 const DEFAULT_RT_NC = joinpath(@__DIR__, "output_new_Lambertian", "rt_toa_ensemble_lambertian.nc")
 const SOLAR_L1B = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/sample_granule_20240830T131442_new_chl.nc"
+# OCI band where SIF is reported, as in global_svd_fit_pipeline (sif_radiance_678nm)
+const SIF_REF_NM = 678.2
+# SIF library of the generators; files written before the sif_lambda_nm attribute used 678.0 nm
+const SIF_LIB = get(ENV, "SIF_LIB", "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/Files_in_use/SIF_singular_vector.jld2")
+const DEFAULT_SIF_AMP_NM = 678.0
+
+"""Library shape `j` at `λ` relative to its value at `λ_amp`, the generator's normalization wavelength
+(same cubic spline as unit_sif_shapes), so the point truth at λ is `sif_678 * ratio`."""
+function sif_point_ratio(lib_idx, λ, λ_amp)
+    wl, shapes = JLD2.jldopen(SIF_LIB) do f
+        Float64.(f["SIF_wavelen"]), Float64.(f["SIF_shapes"])
+    end
+    knots = range(wl[1]; step=wl[2] - wl[1], length=length(wl))
+    ratio = Dict{Int,Float64}()
+    for j in unique(lib_idx)
+        itp = CubicSplineInterpolation(knots, shapes[:, j]; extrapolation_bc=Line())
+        ratio[j] = itp(λ) / itp(λ_amp)
+    end
+    return [ratio[j] for j in lib_idx]
+end
 
 "Split ARGS into positional arguments and `--key=value` options."
 function parse_args(args)
@@ -128,6 +148,7 @@ function load_completed(path, λ_min, λ_max)
         sza = Float64.(ds["sza"][1:n]),
         vza = Float64.(ds["vza"][1:n]),
         idx_lib = Int.(ds["sif_library_index"][1:n]),
+        sif_amp_nm = Float64(get(ds.attrib, "sif_lambda_nm", DEFAULT_SIF_AMP_NM)),
     )
     close(ds)
     return ens
@@ -162,7 +183,10 @@ function main()
 
     sh = prepare_svd_retrieval_setup(cfg, λ)
     solar = load_l1b_solar_on_bands(SOLAR_L1B, λ)
-    i678 = argmin(abs.(λ .- 678.0))
+    i678 = argmin(abs.(λ .- SIF_REF_NM))
+    sif_true = ens.sif_678 .* sif_point_ratio(ens.idx_lib, λ[i678], ens.sif_amp_nm)   # point value at the band centre
+    println("  SIF compared at $(round(λ[i678], digits=2)) nm (point value, not band-averaged); " *
+            "sif_678 is the amplitude at $(ens.sif_amp_nm) nm")
     (sh.n_pc == n_pc && sh.n_leg == n_leg) ||
         error("Setup ranks ($(sh.n_pc), $(sh.n_leg)) do not match detected $rank_tag")
     println("  n_pc=$(sh.n_pc)  n_legendre=$(sh.n_leg)  n_state=$(sh.layout.n_state)  solar=$(basename(solar.pace_path))")
@@ -208,8 +232,18 @@ function main()
            attrib=Dict("long_name"=>"true water-leaving SIF", "units"=>"W m-2 sr-1 um-1"))
     defVar(ds, "sif_wl_ret", Float32.(sif_wl), ("band", "sample");
            attrib=Dict("long_name"=>"retrieved water-leaving SIF", "units"=>"W m-2 sr-1 um-1"))
-    defVar(ds, "sif_678_true", Float32.(ens.sif_678), ("sample",))
-    defVar(ds, "sif_678_ret", Float32.(sif_678_ret), ("sample",))
+    band_txt = "OCI band at $(round(λ[i678], digits=2)) nm"
+    defVar(ds, "sif_678_true", Float32.(sif_true), ("sample",);
+           attrib=Dict("long_name"=>"true water-leaving SIF, point value at the centre of the $band_txt",
+                       "units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "sif_678_true_bandavg", Float32.(ens.SIF[i678, :]), ("sample",);
+           attrib=Dict("long_name"=>"true water-leaving SIF, RSR-averaged over the $band_txt",
+                       "units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "sif_678_ret", Float32.(sif_678_ret), ("sample",);
+           attrib=Dict("long_name"=>"retrieved water-leaving SIF, $band_txt", "units"=>"W m-2 sr-1 um-1"))
+    defVar(ds, "sif_678_amplitude", Float32.(ens.sif_678), ("sample",);
+           attrib=Dict("long_name"=>"ensemble SIF amplitude at exactly $(ens.sif_amp_nm) nm (high-res, before OCI convolution)",
+                       "units"=>"W m-2 sr-1 um-1"))
     defVar(ds, "sza", Float32.(ens.sza), ("sample",))
     defVar(ds, "status", status, ("sample",))
     ds.attrib["svd_config"] = svd_toml
@@ -218,6 +252,7 @@ function main()
     ds.attrib["input_ensemble"] = rt_nc
     ds.attrib["n_pc"] = sh.n_pc
     ds.attrib["n_legendre"] = sh.n_leg
+    ds.attrib["sif_band_nm"] = λ[i678]
     ds.attrib["created"] = string(Dates.now())
     close(ds)
     println("Wrote $out_nc")
@@ -236,10 +271,10 @@ function main()
 
         p_sif = plot(λ, ens.SIF[:, i]; label="true water-leaving", color=:black, lw=1.4)
         plot!(p_sif, λ, sif_wl[:, i]; label="retrieved", color=:darkorange, lw=1.6)
-        vline!(p_sif, [678]; label="", color=:gray, ls=:dot, lw=1)
+        vline!(p_sif, [λ[i678]]; label="", color=:gray, ls=:dot, lw=1)
         xlabel!(p_sif, "Wavelength (nm)")
         ylabel!(p_sif, "SIF")
-        title!(p_sif, "SIF  true@678=$(round(ens.sif_678[i], digits=3))  ret=$(round(sif_678_ret[i], digits=3))")
+        title!(p_sif, "SIF@$(round(λ[i678], digits=1))  true=$(round(sif_true[i], digits=3))  ret=$(round(sif_678_ret[i], digits=3))")
         push!(plots, p_toa, p_sif)
     end
     fig = plot(plots...; layout=(length(picks), 2), size=(1100, 280 * length(picks)),
@@ -250,7 +285,7 @@ function main()
 
     ok = findall(==(Int16(1)), status)
     if !isempty(ok)
-        t = ens.sif_678[ok]
+        t = sif_true[ok]
         r = sif_678_ret[ok]
         β = hcat(ones(length(t)), t) \ r
         r_hat = β[1] .+ β[2] .* t
@@ -261,9 +296,9 @@ function main()
         pad = 0.08 * (lim[2] - lim[1] + eps())
         lim = (lim[1] - pad, lim[2] + pad)
         p = scatter(t, r; ms=5, alpha=0.45, label="samples (n=$(length(ok)))",
-                    xlabel="True water-leaving SIF @ 678 nm",
+                    xlabel="True water-leaving SIF @ $(round(λ[i678], digits=1)) nm",
                     ylabel="Retrieved",
-                    title="$tag  SIF@678  bias=$(round(bias, digits=3))  RMSE=$(round(rmse_s, digits=3))  R²=$(round(r2, digits=3))",
+                    title="$tag  SIF@$(round(λ[i678], digits=1))  bias=$(round(bias, digits=3))  RMSE=$(round(rmse_s, digits=3))  R²=$(round(r2, digits=3))",
                     legend=:topleft, size=(640, 560))
         plot!(p, [lim[1], lim[2]], [lim[1], lim[2]]; color=:black, ls=:dash, label="1:1")
         xx = range(lim[1], lim[2]; length=50)
@@ -271,7 +306,7 @@ function main()
               label="fit: y=$(round(β[1], digits=3))+$(round(β[2], digits=3))x")
         xlims!(p, lim)
         ylims!(p, lim)
-        println("$tag SIF@678: bias=$(round(bias, digits=4))  RMSE=$(round(rmse_s, digits=4))  R²=$(round(r2, digits=3))  slope=$(round(β[2], digits=3))  intercept=$(round(β[1], digits=3))")
+        println("$tag SIF@$(round(λ[i678], digits=1)): bias=$(round(bias, digits=4))  RMSE=$(round(rmse_s, digits=4))  R²=$(round(r2, digits=3))  slope=$(round(β[2], digits=3))  intercept=$(round(β[1], digits=3))")
         scatter_png = joinpath(out_dir, "rt_retrieval_sif678_$(tag).png")
         savefig(p, scatter_png)
         println("Wrote $scatter_png")
