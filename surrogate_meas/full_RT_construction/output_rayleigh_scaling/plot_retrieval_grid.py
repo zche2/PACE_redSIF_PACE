@@ -3,8 +3,8 @@
     python plot_retrieval_grid.py [--case noisy|clean] [--aer-column 100]
 
 rt_retrieval_grid_AerColumn_<k>_scatter_colored_<case>.png
-    retrieved vs true water-leaving SIF at 678.2 nm (truth: point value at the band centre, not the
-    band average); one row per SVD config, columns coloured by
+    retrieved vs true water-leaving SIF in the OCI band at 678.2 nm (truth: RSR band average, which is what
+    a basis sampled at band centres fits); one row per SVD config, columns coloured by
     VZA, aerosol scale and Rayleigh scale (filled: converged, hollow: not converged)
 rt_retrieval_grid_AerColumn_<k>_dsif_vs_od_<case>.png
     ΔSIF against AOD + Rayleigh OD, one column per SIF intensity; top row TOA − water-leaving SIF,
@@ -25,8 +25,9 @@ HERE = Path(__file__).absolute().parent
 CONFIGS = {
     "nPC15_npoly3": "640–756 nm, nPC15, npoly3",
     "nPC15_npoly3_O2A": "640–780 nm (O$_2$-A), nPC15, npoly3",
-    "nPC15_npoly5": "640–756 nm, nPC15, npoly5",
-    "nPC15_npoly5_O2A": "640–780 nm (O$_2$-A), nPC15, npoly5",
+    # "nPC15_npoly5": "640–756 nm, nPC15, npoly5",
+    # "nPC15_npoly5_O2A": "640–780 nm (O$_2$-A), nPC15, npoly5",
+    "nPC15_npoly2_O2A": "640–780 nm (O$_2$-A), nPC15, npoly2",
 }
 UNITS = r"W m$^{-2}$ sr$^{-1}$ µm$^{-1}$"
 ORDER = ("sif", "view", "rayleigh", "aerosol")
@@ -52,12 +53,12 @@ def style(ax):
 
 def scene_text(d):
     return (f"SZA {d.attrs['sza']:g}°, albedo 0.02, GCHPIO column {d.attrs['aer_column']}, "
-            f"true SIF = point value at {d.attrs['band_nm']:.1f} nm")
+            f"true SIF = band average at {d.attrs['band_nm']:.1f} nm")
 
 
 def plot_scatter(R, case, out):
     d0 = next(iter(R.values()))
-    truth = np.broadcast_to(d0.sif_true.values[:, None, None, None], d0.sif_toa.shape)
+    truth = np.broadcast_to(d0.sif_true_bandavg.values[:, None, None, None], d0.sif_toa.shape)
     idx = np.indices(truth.shape)
     groups = [("VZA", 1, [f"{v:g}°" for v in d0.vza.values], "viridis"),
               ("aerosol scale (AOD)", 3, [f"×{a:g} ({t:.3f})" for a, t in zip(d0.aerosol_scale.values, d0.aod.values)], "plasma"),
@@ -86,7 +87,7 @@ def plot_scatter(R, case, out):
             ax.set_ylim(*lim)
             style(ax)
             if row == len(R) - 1:
-                ax.set_xlabel(f"True water-leaving SIF ({UNITS})")
+                ax.set_xlabel(f"True water-leaving SIF, band average ({UNITS})")
             if col == 0:
                 ax.set_ylabel(f"Retrieved SIF ({UNITS})")
     fig.suptitle(f"SVD retrieval vs truth on the RT grid ({case} spectra; {scene_text(d0)})", fontsize=11)
@@ -97,11 +98,10 @@ def plot_scatter(R, case, out):
 
 def plot_dsif(R, case, out):
     d0 = next(iter(R.values()))
-    truth = d0.sif_true.values
+    truth = d0.sif_true_bandavg.values
     tau_r, aod = d0.rayleigh_od.values, d0.aod.values
     tau_tot = tau_r[:, None] + aod[None, :]                       # (rayleigh, aerosol)
-    truth_band = d0.sif_true_bandavg.values                       # sif_toa is band-averaged too
-    rows = [("TOA SIF − water-leaving SIF\n(band-averaged)", d0.sif_toa.values - truth_band[:, None, None, None])] + \
+    rows = [("TOA SIF − water-leaving SIF", d0.sif_toa.values - truth[:, None, None, None])] + \
            [(f"Retrieved − true SIF\n{name}", d[f"sif_ret_{case}"].values - truth[:, None, None, None])
             for name, d in R.items()]
     n_s, n_r, n_v = len(truth), len(tau_r), d0.sizes["view"]
@@ -120,7 +120,7 @@ def plot_dsif(R, case, out):
             ax.set_xlim(-0.002, 0.4)
             style(ax)
             if r_i == 0:
-                ax.set_title(f"true SIF = {truth[s_i]:.3g}", fontsize=10)
+                ax.set_title(f"SIF amplitude {d0.sif_678.values[s_i]:.3g} (band avg {truth[s_i]:.3g})", fontsize=9)
             if r_i == len(rows) - 1:
                 ax.set_xlabel(f"AOD + Rayleigh OD at {d0.attrs['band_nm']:.0f} nm")
             if s_i == 0:

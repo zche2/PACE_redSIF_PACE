@@ -4,6 +4,7 @@
 
 Panels: (a) OCI TOA radiance, (b) radiance relative to scale 1, (c) ΔSIF = TOA SIF signal − water-leaving
 SIF, (d) ΔSIF / water-leaving SIF, (e) RT-grid radiance in the --zoom band (wavelength range from ZOOM_BANDS).
+Both SIF terms are RSR band averages, so ΔSIF carries no point-vs-band-average offset.
 The figure goes next to the NetCDF unless OUTPUT_NAME contains a directory; with no name it is <nc stem>.png.
 """
 import argparse
@@ -20,6 +21,7 @@ HERE = Path(__file__).absolute().parent
 DEFAULT_NC = HERE / "output_rayleigh_scaling" / "rt_toa_rayleigh_scaling_ocean_lambertian_1010_wavnum0p05_NoRayl.nc"
 DEFAULT_OUTPUT_NAME = "sunlight_on.png"   # None → <nc stem>.png
 UNITS = r"W m$^{-2}$ sr$^{-1}$ µm$^{-1}$"
+SIF_REF_NM = 678.2
 # RT-grid zoom windows for panel (e): key → (title label, wavelength range in nm)
 ZOOM_BANDS = {
     "O2-B": ("O$_2$-B band", (660.0, 710.0)),
@@ -54,9 +56,12 @@ def main(path, output_name=DEFAULT_OUTPUT_NAME, zoom=DEFAULT_ZOOM):
     ax_o2 = fig.add_subplot(gs[2, :])
     axes = (ax_r, ax_rel, ax_sif, ax_srel, ax_o2)
     ref = ds["radiance_clean"].values[:, i_ref]
-    sif_wl = ds["sif_waterleaving"].values
+    sif_wl = ds["sif_waterleaving"].values               # RSR band average, like sif_toa
     has_sif = sif_wl > 0.02 * np.nanmax(sif_wl)          # relative ΔSIF is meaningless in the SIF tails
-    sif_txt = rf"water-leaving SIF$_{{678}}$ = {ds.attrs['sif_678']:g} {UNITS}"
+    i678 = int(np.argmin(np.abs(lam - SIF_REF_NM)))
+    sif_nm = ds.attrs.get("sif_lambda_nm", 678.0)
+    sif_txt = (rf"SIF amplitude at {sif_nm:g} nm = {ds.attrs['sif_678']:g}, "
+               rf"band average at {lam[i678]:.1f} nm = {sif_wl[i678]:.3g} {UNITS}")
     for k, c in enumerate(colors):
         rad = ds["radiance_clean"].values[:, k]
         dsif = ds["sif_toa"].values[:, k] - sif_wl
@@ -76,7 +81,7 @@ def main(path, output_name=DEFAULT_OUTPUT_NAME, zoom=DEFAULT_ZOOM):
     ax_rel.set_ylabel("Radiance difference (%)")
     ax_rel.axhline(0, color="0.5", lw=0.7)
     ax_rel.legend(frameon=False, fontsize=8, loc="lower right")
-    ax_sif.set_title(r"(c) $\Delta$SIF = TOA SIF signal − water-leaving SIF" + f"\n({sif_txt})", loc="left")
+    ax_sif.set_title(r"(c) $\Delta$SIF = TOA SIF signal − water-leaving SIF (band averages)" + f"\n({sif_txt})", loc="left")
     ax_sif.set_ylabel(rf"$\Delta$SIF ({UNITS})")
     ax_srel.set_title(r"(d) Relative $\Delta$SIF = $\Delta$SIF / water-leaving SIF" + f"\n({sif_txt})", loc="left")
     ax_srel.set_ylabel(r"$\Delta$SIF / water-leaving SIF (%)")
@@ -100,8 +105,8 @@ def main(path, output_name=DEFAULT_OUTPUT_NAME, zoom=DEFAULT_ZOOM):
     fig.savefig(out, dpi=200)
     print(f"saved {out}")
 
+    print(f"band {lam[i678]:.2f} nm")
     print(f"{'scale':>8} {'τ_R(678)':>9} {'R(678)':>8} {'ΔR(678)%':>9} {'ΔSIF(678)':>10}")
-    i678 = int(np.argmin(np.abs(lam - 678.0)))
     tau = ds["rayleigh_od_column"].values[i678]
     for k, s in enumerate(scales):
         r = ds["radiance_clean"].values[i678, k]
