@@ -21,7 +21,7 @@ import vSmartMOM.Absorption: make_interpolation_model
     =#
 
     # --- General Simulation Parameters ---
-    simulation_id::String    = "wavelength-run" # Unique ID for the simulation
+    simulation_id::String    = "Updated_Resolution_0p01_Oct19" # Unique ID for the simulation
     
     # Paths relative to the script's execution directory
     results_base_dir::String = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection"
@@ -34,23 +34,23 @@ import vSmartMOM.Absorption: make_interpolation_model
     UnevenGrid_Pressure::Bool    = false
     MinPressure_Pa::FT           = 1.
     MaxPressure_Pa::FT           = 105000.
-    deltaPressure_Pa::FT         = 2500.
+    deltaPressure_Pa::FT         = 1000.
     PressureGrid_dir::String     = "default"      # if customized grid, need to specify the jld2 file used
 
     UnevenGrid_Temperature::Bool = false
-    MinTemp_K::FT                = 200.
+    MinTemp_K::FT                = 150.
     MaxTemp_K::FT                = 330.
     deltaTemp_K::FT              = 5.
     TempGrid_dir::String         = "default"      # if customized grid, need to specify the jld2 file used
 
     # --- Wavenumber of interest ---
-    res::FT      = 0.005
-    ν_min::FT    = 610.0
-    ν_max::FT    = 770.0
+    res::FT      = 0.01
+    ν_min::FT    = 12650.0      # ≈ 790 nm
+    ν_max::FT    = 16400.0      # ≈ 610 nm
     
 end
 
-MyModel = ModelParameters{Float32}()
+MyModel = ModelParameters{Float64}()
 
     println("--- generate grids ---")
     ν_min  = MyModel.ν_min
@@ -99,7 +99,7 @@ MyModel = ModelParameters{Float32}()
             Threads.@spawn begin   
                 println("\n--- Spawning task for $molec on $(Threads.threadid()) ---")
                 flush(stdout)        # <--- IMPORTANT: Force flush stdout
-                par  = Absorption.read_hitran(artifact(molec), mol=num, iso=-1, ν_min=1e7/ν_max-40, ν_max=1e7/ν_min+40);
+                par  = Absorption.read_hitran(artifact(molec), mol=num, iso=-1, ν_min=ν_min-40, ν_max=ν_max+40);
                 file = replace(OutPattern, r"MOLEC" => molec)
 
                 itp_model = make_interpolation_model(
@@ -108,7 +108,7 @@ MyModel = ModelParameters{Float32}()
                                     ν_grid,
                                     p_grid,
                                     t_grid,
-                                    wavelength_flag=true,
+                                    wavelength_flag=false,
                                     wing_cutoff=30,
                                 );
                 save_interpolation_model(itp_model, file)

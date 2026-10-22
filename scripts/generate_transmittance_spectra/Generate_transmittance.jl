@@ -1,5 +1,5 @@
 import Pkg; Pkg.activate("/home/zhe2/FraLab/PACE_redSIF_PACE");
-include("/home/zhe2/FraLab/PACE_redSIF_PACE/PACE_SIF.jl")
+include("/home/zhe2/FraLab/PACE_redSIF_PACE/src/PACE_SIF.jl")
 
 using vSmartMOM, vSmartMOM.Absorption
 using JLD2
@@ -32,9 +32,9 @@ if abspath(PROGRAM_FILE) == @__FILE__
 	dir  = "/home/zhe2/data/MERRA2_reanalysis/";
 	file = "MERRA2_400.inst6_3d_ana_Nv.20240705.nc4";
 	# --- specify the output NetCDF filename ---
-	output_filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/transmittance_summer_FineWvResModel_FullRange_Aug01.nc";
+	output_filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/transmittance_summer_FineWvResModel_FullRange_Oct19.nc";
 
-	xsec_subdir = "wavelength-run";
+	xsec_subdir = "Updated_Resolution_0p01_Oct19";
 	xsec_dir = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/interp_xSection/$xsec_subdir";
 	o2_jld2 = joinpath(xsec_dir, "$(xsec_subdir)_O2.jld2");
 	o2_sitp = read_rescale(o2_jld2);
@@ -120,7 +120,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
 
 	# Spectral response function
 	# read data
-	filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI_RSRs.nc";
+	filename = "/home/zhe2/data/MyProjects/PACE_redSIF_PACE/PACE_OCI/PACE_OCI_RSRs.nc";
 	pace = Dataset(filename, "r");
 
 	wavlen = pace["wavelength"][:];
