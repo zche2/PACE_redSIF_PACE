@@ -15,7 +15,7 @@ converged flag               70.7%       59.9%
 n_steps (median)                 7           7
 reduced chi2 (median)        1.299       1.493
 rmse (median)              0.01504     0.01607
-DOF signal (median)          80.25       82.31
+residual DOF n-trA (median)       80.25       82.31
 reduced chi2 p90             3.886       7.586
 
 convergence by subset (bright pixels are mostly cloud / swath edge; dark = open water):

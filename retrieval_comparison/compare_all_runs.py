@@ -37,6 +37,8 @@ OUT = Path(__file__).resolve().parent / "out" / "all_runs"
 OUT.mkdir(parents=True, exist_ok=True)
 BAD_FLAGS = ["ATMFAIL", "LAND", "HIGLINT", "HILT", "HISATZEN", "STRAYLIGHT", "CLDICE", "HISOLZEN", "CHLFAIL"]
 STATUS = {1: "converged", 2: "LM stalled", 0: "max-iter", 4: "failed"}
+# OCI red bands in 640-780 nm used by the fit (checked: tr(A) + stored dof = 100 in the AK files).
+N_BAND = 100
 lines = []
 
 
@@ -121,7 +123,8 @@ for lab, sel in [("clear ocean", clear), ("clear & dark (open water)", clear & d
     row("  reduced chi2 median", lambda r: np.nanmedian(r["reduced_chi2"][sel]))
     row("  reduced chi2 p90", lambda r: np.nanpercentile(r["reduced_chi2"][sel], 90))
     row("  n_steps median", lambda r: np.nanmedian(r["n_steps"][sel]), "{:14.0f}")
-    row("  DOF signal median", lambda r: np.nanmedian(r["dof"][sel]), "{:14.1f}")
+    row("  residual DOF n-trA (stored dof)", lambda r: np.nanmedian(r["dof"][sel]), "{:14.1f}")
+    row("  signal DOF trA = N_BAND - dof", lambda r: N_BAND - np.nanmedian(r["dof"][sel]), "{:14.1f}")
 allc = clear.copy()
 for k in keys:
     allc &= R[k]["converged"] == 1

@@ -122,7 +122,7 @@ for code, name in STATUS_NAMES.items():
     say(f"{name:22s}" + "".join(f"{100 * np.mean(R[k]['status_code'][base] == code):11.1f}%" for k in R))
 say(f"{'converged flag':22s}" + "".join(f"{100 * np.mean(R[k]['converged'][base] == 1):11.1f}%" for k in R))
 for key, lab in [("n_steps", "n_steps (median)"), ("reduced_chi2", "reduced chi2 (median)"),
-                 ("rmse", "rmse (median)"), ("dof", "DOF signal (median)")]:
+                 ("rmse", "rmse (median)"), ("dof", "residual DOF n-trA (median)")]:
     say(f"{lab:22s}" + "".join(f"{np.nanmedian(R[k][key][base]):12.4g}" for k in R))
 say(f"{'reduced chi2 p90':22s}" + "".join(f"{np.nanpercentile(R[k]['reduced_chi2'][base], 90):12.4g}" for k in R))
 say("\nconvergence by subset (bright pixels are mostly cloud / swath edge; dark = open water):")

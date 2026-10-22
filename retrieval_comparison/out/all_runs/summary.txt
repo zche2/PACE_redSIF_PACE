@@ -10,7 +10,8 @@ ocean 2007489 (dark 847524, bright 1159965);  clear 786446 (dark 696677, bright 
   reduced chi2 median                      1.391         1.299         1.215         1.666         1.493
   reduced chi2 p90                         3.999         3.886         2.915         9.039         7.586
   n_steps median                               7             7             7             9             7
-  DOF signal median                         81.2          80.3          78.3          83.0          82.3
+  residual DOF n-trA (stored dof)           81.2          80.3          78.3          83.0          82.3
+  signal DOF trA = N_BAND - dof             18.8          19.7          21.7          17.0          17.7
 -- clear & dark (open water)  (n=696677)
   converged %                              72.1%         74.3%         75.4%         49.2%         61.8%
   LM stalled %                             14.1%         11.1%         10.7%          8.2%         13.7%
@@ -18,7 +19,8 @@ ocean 2007489 (dark 847524, bright 1159965);  clear 786446 (dark 696677, bright 
   reduced chi2 median                      1.316         1.236         1.161         1.556         1.431
   reduced chi2 p90                         3.015         2.988         2.160         7.549         3.746
   n_steps median                               7             7             7             9             7
-  DOF signal median                         81.2          80.3          78.3          83.0          82.3
+  residual DOF n-trA (stored dof)           81.2          80.3          78.3          83.0          82.3
+  signal DOF trA = N_BAND - dof             18.8          19.7          21.7          17.0          17.7
 -- clear & bright  (n=89769)
   converged %                              44.9%         42.7%         47.9%         24.3%         45.3%
   LM stalled %                             11.7%          9.8%         10.8%          3.6%          6.4%
@@ -26,7 +28,8 @@ ocean 2007489 (dark 847524, bright 1159965);  clear 786446 (dark 696677, bright 
   reduced chi2 median                      3.185         3.200         2.094         8.591         2.659
   reduced chi2 p90                        13.814        13.783         9.031        16.073        17.440
   n_steps median                               8             9             8            10            10
-  DOF signal median                         81.2          80.2          78.2          83.3          82.3
+  residual DOF n-trA (stored dof)           81.2          80.2          78.2          83.3          82.3
+  signal DOF trA = N_BAND - dof             18.8          19.8          21.8          16.7          17.7
 -- all ocean (incl. cloud)  (n=2007489)
   converged %                              58.7%         57.1%         62.5%         33.1%         38.2%
   LM stalled %                             19.4%         18.9%         14.7%          4.2%          6.9%
@@ -34,7 +37,8 @@ ocean 2007489 (dark 847524, bright 1159965);  clear 786446 (dark 696677, bright 
   reduced chi2 median                      3.228         2.843         2.314         6.305         4.218
   reduced chi2 p90                       114.256       110.868       101.781       182.657       221.667
   n_steps median                               7             7             7            10            10
-  DOF signal median                         81.2          80.2          78.2          83.0          82.4
+  residual DOF n-trA (stored dof)           81.2          80.2          78.2          83.0          82.4
+  signal DOF trA = N_BAND - dof             18.8          19.8          21.8          17.0          17.6
 converged in ALL runs: 196452 of 786446 clear pixels
   reduced chi2 median there                1.125         1.048         1.016         1.264         1.257
 

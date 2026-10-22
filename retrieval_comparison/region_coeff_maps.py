@@ -1,18 +1,18 @@
-"""Region maps of every fitted state element for three O2A SVD retrievals of one
+"""Region maps of every fitted state element for the O2A SVD retrievals of one
 granule, styled after notebooks/figures/Figure2/Figure2_turbulent_feature.ipynb
 (Gulf of Maine / Georges Bank box, L1B RGB basemap, nFLH from L2 AOP).
 
     python retrieval_comparison/region_coeff_maps.py
 
-Retrievals
-  npoly3     new_svd_retrieval_output_O2A          Aug01 transmittance SVD, 3 Legendre
-  npoly5     new_svd_retrieval_output_npoly5       Aug01 transmittance SVD, 5 Legendre
-  newSVD_npoly3  new_svd_retrieval_output_O2A_newSVD         scattering-included SVD, 3 Legendre
+Retrievals (only those whose output file is complete are included):
+  npoly2         new_svd_retrieval_output_npoly2             Aug01 transmittance SVD, 2 Legendre
+  npoly3         new_svd_retrieval_output_O2A                Aug01 transmittance SVD, 3 Legendre
+  npoly5         new_svd_retrieval_output_npoly5             Aug01 transmittance SVD, 5 Legendre
   newSVD_npoly2  new_svd_retrieval_output_O2A_newSVD_npoly2  scattering-included SVD, 2 Legendre
+  newSVD_npoly3  new_svd_retrieval_output_O2A_newSVD         scattering-included SVD, 3 Legendre
 
-npoly3 and npoly5 share one SVD basis, so their PC coefficients are directly
-comparable; newSVD uses a different basis, so its PC maps get their own colour
-scale and are never differenced against the others.
+Runs on the same SVD basis share a PC colour scale; the two bases have different PCs,
+so their PC maps get separate colour bars and are never differenced against each other.
 """
 from datetime import datetime
 from pathlib import Path
@@ -351,39 +351,62 @@ def transect_vals(fields, step_km=1.0, max_km=1.5):
 
 
 def fig_transect():
+    """A->B transect of SIF, alpha and Legendre p0 for every run.
+
+    All dark ocean pixels with valid nFLH are shown, converged or not; non-converged
+    points are marked with x, and the bottom strip shows where each run did not converge.
+    """
     C = {"npoly2": "#e7298a", "npoly3": "#0B7A75", "npoly5": "#d95f02", "newSVD_npoly2": "#7570b3", "newSVD_npoly3": "#a6761d"}
     fields = {"nflh": NFLH}
     for k in D:
         d = D[k]
-        fields[f"sif_{k}"] = np.where(d["sif_ok"], d["sif"], np.nan)
-        fields[f"alpha_{k}"] = np.where(d["sif_ok"], d["alpha"], np.nan)
-        fields[f"p0_{k}"] = np.where(d["sif_ok"], d["x"][d["names"].index("legendre_p0")], np.nan)
+        shown = d["ocean"] & d["dark"] & HAS & np.isfinite(d["sif"])
+        fields[f"sif_{k}"] = np.where(shown, d["sif"], np.nan)
+        fields[f"alpha_{k}"] = np.where(shown, d["alpha"], np.nan)
+        fields[f"p0_{k}"] = np.where(shown, d["x"][d["names"].index("legendre_p0")], np.nan)
+        fields[f"conv_{k}"] = np.where(shown, d["converged"].astype(float), np.nan)
     lat_p, v = transect_vals(fields)
-    fig, axs = plt.subplots(3, 1, figsize=(8.5, 8), sharex=True)
+    keys = [k for k, *_ in RUNS]
+    fig, axs = plt.subplots(4, 1, figsize=(9, 10), sharex=True,
+                            gridspec_kw=dict(height_ratios=[1.2, 1, 1, 0.12 * len(keys) + 0.15]))
     axs[0].plot(lat_p, v["nflh"], color="0.2", lw=1.0, label="L2 nFLH")
-    for k, *_ in RUNS:
-        axs[0].plot(lat_p, v[f"sif_{k}"], color=C[k], lw=0.9, label=f"SIF {k}")
-        axs[1].plot(lat_p, v[f"alpha_{k}"], color=C[k], lw=0.9, label=k)
-        axs[2].plot(lat_p, v[f"p0_{k}"], color=C[k], lw=0.9, label=k)
+    for k in keys:
+        nc = v[f"conv_{k}"] == 0
+        for ax, f in ((axs[0], "sif"), (axs[1], "alpha"), (axs[2], "p0")):
+            y = v[f"{f}_{k}"]
+            ax.plot(lat_p, y, color=C[k], lw=0.9, label=f"SIF {k}" if f == "sif" else None)
+            ax.plot(lat_p[nc], y[nc], "x", color=C[k], ms=3.5, mew=0.9)
+    axs[0].plot([], [], "x", color="0.3", ms=4, label="× = not converged")
+    # convergence strip: one row per run, a tick wherever that run did not converge
+    for i, k in enumerate(keys):
+        nc = v[f"conv_{k}"] == 0
+        ok = v[f"conv_{k}"] == 1
+        axs[3].plot(lat_p[ok], np.full(ok.sum(), i), "|", color="0.8", ms=6)
+        axs[3].plot(lat_p[nc], np.full(nc.sum(), i), "|", color=C[k], ms=8, mew=1.6)
+    axs[3].set_yticks(range(len(keys)), keys, fontsize=7)
+    axs[3].set_ylim(len(keys) - 0.5, -0.5)
+    axs[3].set_title("not converged (coloured ticks); grey = converged; blank = no valid pixel", fontsize=8, loc="left")
     axs[0].set_ylabel(f"Radiance ({UNITS})", fontsize=9)
     axs[0].legend(ncol=3, frameon=False, fontsize=8, loc="upper right")
     axs[1].set_ylabel(r"$\alpha$", fontsize=10)
     axs[2].set_ylabel("Legendre p0", fontsize=10)
-    axs[2].set_xlim(lat_p[0], lat_p[-1])
-    axs[2].xaxis.set_major_formatter(LatitudeFormatter())
-    axs[2].set_xlabel("Latitude (A at 43.2°N → B at 38.9°N, lon −67.4°)")
+    axs[3].set_xlim(lat_p[0], lat_p[-1])
+    axs[3].xaxis.set_major_formatter(LatitudeFormatter())
+    axs[3].set_xlabel("Latitude (A at 43.2°N → B at 38.9°N, lon −67.4°)")
     for a in axs:
         a.spines[["top", "right"]].set_visible(False)
         a.tick_params(labelsize=8)
-    fig.suptitle(f"{NAME}: transect (converged, dark, ocean pixels only)", fontsize=10)
+    fig.suptitle(f"{NAME}: transect (all dark ocean pixels; × = not converged)", fontsize=10)
     fig.tight_layout()
     fig.savefig(OUT / "E_transect.png", dpi=130)
     plt.close(fig)
-    for k in D:
+    for k in keys:
         s = v[f"sif_{k}"]
         g = np.isfinite(s) & np.isfinite(v["nflh"])
-        say(f"transect {k:7s}: {g.sum():4d}/{g.size} pts   r(nFLH,SIF)={np.corrcoef(v['nflh'][g], s[g])[0, 1]:.3f}"
-            f"   SIF/nFLH slope={np.polyfit(v['nflh'][g], s[g], 1)[0]:.3f}")
+        gc = g & (v[f"conv_{k}"] == 1)
+        say(f"transect {k:14s}: {g.sum():4d}/{g.size} pts, {gc.sum():4d} converged ({100 * gc.sum() / max(g.sum(), 1):5.1f}%)"
+            f"   all: r={np.corrcoef(v['nflh'][g], s[g])[0, 1]:.3f} slope={np.polyfit(v['nflh'][g], s[g], 1)[0]:.3f}"
+            f"   converged: r={np.corrcoef(v['nflh'][gc], s[gc])[0, 1]:.3f} slope={np.polyfit(v['nflh'][gc], s[gc], 1)[0]:.3f}")
 
 
 # ---------------------------------------------------------------- statistics

@@ -1,9 +1,9 @@
 region block rows 1184:1710  cols 314:996  (526 x 682 pixels)
-transect npoly2 :  391/479 pts   r(nFLH,SIF)=0.989   SIF/nFLH slope=1.309
-transect npoly3 :  395/479 pts   r(nFLH,SIF)=0.989   SIF/nFLH slope=1.192
-transect npoly5 :  391/479 pts   r(nFLH,SIF)=0.986   SIF/nFLH slope=0.958
-transect newSVD_npoly2:  281/479 pts   r(nFLH,SIF)=0.975   SIF/nFLH slope=1.064
-transect newSVD_npoly3:  262/479 pts   r(nFLH,SIF)=0.965   SIF/nFLH slope=1.024
+transect npoly2        :  474/479 pts,  391 converged ( 82.5%)   all: r=0.988 slope=1.299   converged: r=0.989 slope=1.309
+transect npoly3        :  474/479 pts,  395 converged ( 83.3%)   all: r=0.989 slope=1.182   converged: r=0.989 slope=1.192
+transect npoly5        :  474/479 pts,  391 converged ( 82.5%)   all: r=0.986 slope=0.958   converged: r=0.986 slope=0.958
+transect newSVD_npoly2 :  474/479 pts,  281 converged ( 59.3%)   all: r=0.989 slope=1.183   converged: r=0.975 slope=1.064
+transect newSVD_npoly3 :  474/479 pts,  262 converged ( 55.3%)   all: r=0.986 slope=1.208   converged: r=0.965 slope=1.024
 
 runs compared: ['npoly2', 'npoly3', 'npoly5', 'newSVD_npoly2', 'newSVD_npoly3']
 region pixels with nFLH: 205925;  valid & converged & dark in ALL runs: 63916
