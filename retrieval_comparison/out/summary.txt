@@ -1,0 +1,62 @@
+Granule 20250724T170203   L2 version V3.2   grid (1710, 1272)
+geolocation check |lat_ret - lat_L2| median = 0.00e+00 deg
+sanity: sif_ev1 == x_hat[sif]  old True  new True
+sanity: ocean/dark masks identical across runs: True
+
+pixels: total 2175120  ocean 2007489 (dark 847524, bright 1159965)  clear = L2 flags ok & chl valid 786446 (dark 696677, bright 89769)
+
+=== 1. CONVERGENCE (clear ocean: L2 flags ok & chl valid) ===
+                               old      newSVD
+max-iter (not conv.)         18.4%       27.2%
+converged                    70.7%       59.9%
+LM stalled                   10.9%       12.9%
+failed                        0.0%        0.0%
+converged flag               70.7%       59.9%
+n_steps (median)                 7           7
+reduced chi2 (median)        1.299       1.493
+rmse (median)              0.01504     0.01607
+DOF signal (median)          80.25       82.31
+reduced chi2 p90             3.886       7.586
+
+convergence by subset (bright pixels are mostly cloud / swath edge; dark = open water):
+subset                                      n  conv% old/new   redchi2 med old/new
+ocean, all                            2007489   57.1/ 38.2        2.84/  4.22
+ocean & dark                           847524   73.1/ 62.1        1.31/  1.50
+ocean & bright (mostly cloud)         1159965   45.5/ 20.8       10.87/ 21.31
+clear [= main set]                     786446   70.7/ 59.9        1.30/  1.49
+  clear & dark                         696677   74.3/ 61.8        1.24/  1.43
+  clear & bright                        89769   42.7/ 45.3        3.20/  2.66
+converged in both 355009   only old 200661   only newSVD 116109
+reduced chi2 on converged-in-both: old=1.136  newSVD=1.314
+
+=== 2. POSTERIOR sigma(SIF@678) and SIF/sigma (clear ocean; W m-2 um-1 sr-1) ===
+                             p5       p25       p50       p75       p95
+sigma old                0.0099    0.0105    0.0111    0.0116    0.0125
+sigma newSVD             0.0109    0.0121    0.0131    0.0142    0.0185
+|SIF|/sigma old          0.4285    1.9632    3.6514    5.9508   20.4763
+|SIF|/sigma newSVD       0.5085    2.1126    3.6421    5.5916   12.3987
+sigma ratio new/old per pixel: median 1.173  p5/p95 1.057/1.612
+
+=== 3. SIF@678 MAGNITUDE (converged in both) ===
+                             p5       p25       p50       p75       p95      mean      std
+old                     -0.0072    0.0183    0.0360    0.0573    0.1654    0.0491   0.0637
+newSVD                  -0.0022    0.0232    0.0414    0.0636    0.1675    0.0542   0.0632
+new-old: mean 0.0051  median 0.0013  rms 0.0133  corr 0.981  fit new = 0.974*old + 0.0064  (n=355009)
+fraction SIF<0:  old 8.3%  newSVD 5.9%
+
+=== 4. LOW-CHL SIF (true SIF should be ~0 to small positive) ===
+chl bin [mg m-3]      n(conv-both)  nFLH med   median old/new      mean old/new        std old/new     %<0 old/new
+ 0.00-0.05           107357     0.0307    0.0229/ 0.0363    0.0209/ 0.0346    0.0281/ 0.0319   17.0/ 9.2
+ 0.05-0.10            76205     0.0148    0.0278/ 0.0313    0.0278/ 0.0319    0.0215/ 0.0236    9.3/ 8.1
+ 0.10-0.30           100926     0.0218    0.0379/ 0.0370    0.0380/ 0.0373    0.0216/ 0.0227    3.8/ 4.6
+ 0.30-1.00            54454     0.0717    0.0830/ 0.0843    0.0918/ 0.0928    0.0467/ 0.0471    0.3/ 0.2
+ 1.00-100.00          16067     0.2201    0.2459/ 0.2471    0.2640/ 0.2671    0.1060/ 0.1051    0.0/ 0.0
+all chl<0.1: n=183562  mean SIF old 0.0238 new 0.0335;  sigma median old 0.0110 new 0.0128
+
+=== 5. SIF vs nFLH (converged in both, nFLH valid) ===
+n=355009  nFLH p5/50/95 = [-3.50475311e-05  2.96299458e-02  1.49564981e-01]
+old      pearson r = 0.910   SIF = 1.032*nFLH + 0.0036
+newSVD   pearson r = 0.927   SIF = 1.044*nFLH + 0.0082
+  chl 0-0.1: old r=0.444 slope=0.438  newSVD r=0.583 slope=0.641
+  chl 0.1-0.3: old r=0.623 slope=0.641  newSVD r=0.661 slope=0.716
+  chl 0.3-100: old r=0.971 slope=1.106  newSVD r=0.972 slope=1.114

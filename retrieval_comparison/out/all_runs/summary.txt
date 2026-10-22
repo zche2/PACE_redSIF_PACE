@@ -1,0 +1,85 @@
+Granule 20250724T170203   runs: ['npoly2', 'npoly3', 'npoly5', 'newSVD_npoly2', 'newSVD_npoly3']   L2 V3.2
+ocean 2007489 (dark 847524, bright 1159965);  clear 786446 (dark 696677, bright 89769)
+
+=== 1. CONVERGENCE ===
+                                          npoly2        npoly3        npoly5 newSVD_npoly2 newSVD_npoly3
+-- clear ocean  (n=786446)
+  converged %                              69.0%         70.7%         72.2%         46.3%         59.9%
+  LM stalled %                             13.9%         10.9%         10.7%          7.6%         12.9%
+  max-iter (not converged) %               17.1%         18.4%         17.0%         46.0%         27.2%
+  reduced chi2 median                      1.391         1.299         1.215         1.666         1.493
+  reduced chi2 p90                         3.999         3.886         2.915         9.039         7.586
+  n_steps median                               7             7             7             9             7
+  DOF signal median                         81.2          80.3          78.3          83.0          82.3
+-- clear & dark (open water)  (n=696677)
+  converged %                              72.1%         74.3%         75.4%         49.2%         61.8%
+  LM stalled %                             14.1%         11.1%         10.7%          8.2%         13.7%
+  max-iter (not converged) %               13.7%         14.7%         13.9%         42.6%         24.5%
+  reduced chi2 median                      1.316         1.236         1.161         1.556         1.431
+  reduced chi2 p90                         3.015         2.988         2.160         7.549         3.746
+  n_steps median                               7             7             7             9             7
+  DOF signal median                         81.2          80.3          78.3          83.0          82.3
+-- clear & bright  (n=89769)
+  converged %                              44.9%         42.7%         47.9%         24.3%         45.3%
+  LM stalled %                             11.7%          9.8%         10.8%          3.6%          6.4%
+  max-iter (not converged) %               43.4%         47.5%         41.3%         72.1%         48.3%
+  reduced chi2 median                      3.185         3.200         2.094         8.591         2.659
+  reduced chi2 p90                        13.814        13.783         9.031        16.073        17.440
+  n_steps median                               8             9             8            10            10
+  DOF signal median                         81.2          80.2          78.2          83.3          82.3
+-- all ocean (incl. cloud)  (n=2007489)
+  converged %                              58.7%         57.1%         62.5%         33.1%         38.2%
+  LM stalled %                             19.4%         18.9%         14.7%          4.2%          6.9%
+  max-iter (not converged) %               21.9%         24.0%         22.7%         62.7%         54.9%
+  reduced chi2 median                      3.228         2.843         2.314         6.305         4.218
+  reduced chi2 p90                       114.256       110.868       101.781       182.657       221.667
+  n_steps median                               7             7             7            10            10
+  DOF signal median                         81.2          80.2          78.2          83.0          82.4
+converged in ALL runs: 196452 of 786446 clear pixels
+  reduced chi2 median there                1.125         1.048         1.016         1.264         1.257
+
+=== 2. POSTERIOR sigma(SIF@678) and |SIF|/sigma  (clear ocean) ===
+                                          npoly2        npoly3        npoly5 newSVD_npoly2 newSVD_npoly3
+sigma median                              0.0100        0.0111        0.0140        0.0114        0.0131
+sigma p95                                 0.0113        0.0125        0.0159        0.0172        0.0185
+|SIF|/sigma median                         4.693         3.651         3.304         4.239         3.642
+  sigma npoly2/npoly3: median 0.904
+  sigma npoly5/npoly3: median 1.259
+  sigma newSVD_npoly2/npoly3: median 1.017
+  sigma newSVD_npoly3/npoly3: median 1.173
+
+=== 3. SIF@678 MAGNITUDE (converged in all runs, n=196452) ===
+                                          npoly2        npoly3        npoly5 newSVD_npoly2 newSVD_npoly3
+  p5                                      0.0052       -0.0046       -0.0086       -0.0055       -0.0040
+  p25                                     0.0274        0.0199        0.0176        0.0184        0.0203
+  p50                                     0.0439        0.0373        0.0364        0.0353        0.0377
+  p75                                     0.0652        0.0582        0.0586        0.0558        0.0591
+  p95                                     0.1724        0.1584        0.1534        0.1577        0.1575
+  mean                                    0.0571        0.0493        0.0473        0.0476        0.0497
+  std                                     0.0603        0.0592        0.0581        0.0593        0.0587
+  fraction SIF<0 %                          3.2%          7.0%          9.1%          7.6%          6.8%
+vs npoly3 (pixel-wise):
+  npoly2  mean diff +0.0078  median +0.0073  rms 0.0146  r 0.979  fit = 0.997*npoly3 +0.0080
+  npoly5  mean diff -0.0020  median -0.0026  rms 0.0143  r 0.971  fit = 0.953*npoly3 +0.0003
+  newSVD_npoly2 mean diff -0.0018  median -0.0018  rms 0.0028  r 0.999  fit = 1.000*npoly3 -0.0018
+  newSVD_npoly3 mean diff +0.0003  median -0.0018  rms 0.0074  r 0.992  fit = 0.983*npoly3 +0.0012
+
+=== 4. SIF BY CHL BIN (converged in all runs; median SIF, % negative) ===
+chl bin (mg m-3)           n  nFLH med            npoly2            npoly3            npoly5     newSVD_npoly2     newSVD_npoly3
+ 0.00-0.05             38586    0.0244     0.0310 / 8.9%     0.0235 /16.2%     0.0276 /14.6%     0.0223 /16.8%     0.0268 /13.6%
+ 0.05-0.10             49374    0.0140     0.0350 / 3.4%     0.0274 / 9.5%     0.0289 /11.2%     0.0258 /10.2%     0.0285 / 9.2%
+ 0.10-0.30             66936    0.0216     0.0428 / 1.7%     0.0373 / 4.2%     0.0319 / 9.4%     0.0349 / 4.9%     0.0358 / 5.1%
+ 0.30-1.00             33681    0.0697     0.0902 / 0.2%     0.0807 / 0.2%     0.0756 / 1.0%     0.0784 / 0.3%     0.0799 / 0.3%
+ 1.00-100.00            7875    0.2126     0.2525 / 0.0%     0.2383 / 0.0%     0.2274 / 0.0%     0.2382 / 0.0%     0.2359 / 0.0%
+
+=== 5. SIF vs nFLH (converged in all runs, nFLH valid) ===
+                                  npoly2        npoly3        npoly5 newSVD_npoly2 newSVD_npoly3
+r     all chl                      0.920         0.922         0.909         0.923         0.926
+slope all chl                      1.054         1.037         1.004         1.040         1.033
+r     chl<0.1                      0.463         0.461         0.487         0.462         0.518
+slope chl<0.1                      0.560         0.522         0.639         0.518         0.612
+r     0.1<=chl<0.3                 0.644         0.637         0.606         0.639         0.653
+slope 0.1<=chl<0.3                 0.674         0.681         0.738         0.672         0.722
+r     chl>=0.3                     0.965         0.969         0.963         0.970         0.970
+slope chl>=0.3                     1.083         1.096         1.070         1.103         1.091
+intercept (all chl)               0.0144        0.0073        0.0066        0.0054        0.0079
