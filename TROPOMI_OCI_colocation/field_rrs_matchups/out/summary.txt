@@ -1,0 +1,34 @@
+fullmatchups_Rrs_GUI.csv: 189 matchups, 19 experiments, 47 cruises/deployments
+dates 2024-04-17 16:50:22+00:00 -> 2026-03-06 20:31:14+00:00
+field Rrs: 315-715 nm (84 bands); PACE Rrs: 315-715 nm (84 bands)
+red window 600-800 nm: data available only up to 715 nm (24 field bands)
+matchups with any field Rrs in 600-715 nm: 183 / 189;  reaching >= 700 nm: 183;  reaching 715 nm: 114
+
+by platform type (n, n with red data, longest field wavelength):
+  Aircraft          59   59   max λ 710 nm
+  Handheld          44   44   max λ 715 nm
+  Underway          36   36   max λ 715 nm
+  Cast              26   20   max λ 715 nm
+  Mooring           12   12   max λ 715 nm
+  Fixed_Platform    12   12   max λ 715 nm
+
+by experiment:
+  pvst_airsharp             59   platform: Aircraft
+  pace-pax                  18   platform: Handheld, Underway
+  pvst_hotpace              16   platform: Underway
+  pvst_pringls              15   platform: Handheld
+  viirs_validation          14   platform: Handheld, Underway
+  TARA-EUROPA               12   platform: Mooring
+  waterhypernet             12   platform: Fixed_Platform
+  PVST_SBCR                  8   platform: Cast
+  PACE-PAX                   7   platform: Cast
+  oceanx_2025                6   platform: Underway
+  pvst_psst                  4   platform: Underway
+  Plumes_and_Blooms          3   platform: Cast
+  pvst_gloc                  3   platform: Handheld
+  PVST_HOTPACE               3   platform: Cast
+  VIIRS_VALIDATION           2   platform: Cast
+  pvst_northern_indian_ocean   2   platform: Underway
+  pvst_pol                   2   platform: Handheld
+  BBOP                       2   platform: Cast
+  PVST_PSST                  1   platform: Cast
