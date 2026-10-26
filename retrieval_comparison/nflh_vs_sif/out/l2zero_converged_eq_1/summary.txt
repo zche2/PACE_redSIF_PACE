@@ -1,0 +1,19 @@
+filter: --l2 zero  --query "converged == 1"
+
+20250115:
+   soundings with L2 nflh                          46,909,728
+   l2_flags == 0                                   12,414,409
+   converged == 1                                  10,065,757
+   finite SIF and nFLH                             10,065,757
+   SIF vs nflh: r = 0.890, SIF = 0.864 nFLH +0.0119
+   SIF − nFLH: mean +0.0023, median +0.0048, std 0.0326, 10-90 % [-0.0371, +0.0391]  [W m^{-2} µm^{-1} sr^{-1}]
+   median SIF / nFLH (nFLH > 0.05) 0.921;  SIF < 0: 1.4%;  nFLH <= 0: 0.0%
+
+20250415:
+   soundings with L2 nflh                          45,054,365
+   l2_flags == 0                                   10,785,572
+   converged == 1                                   8,509,585
+   finite SIF and nFLH                              8,509,585
+   SIF vs nflh: r = 0.947, SIF = 0.870 nFLH +0.0068
+   SIF − nFLH: mean -0.0032, median -0.0001, std 0.0314, 10-90 % [-0.0404, +0.0311]  [W m^{-2} µm^{-1} sr^{-1}]
+   median SIF / nFLH (nFLH > 0.05) 0.860;  SIF < 0: 1.6%;  nFLH <= 0: 0.0%

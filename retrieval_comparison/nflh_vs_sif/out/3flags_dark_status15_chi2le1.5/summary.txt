@@ -1,0 +1,19 @@
+filter: --l2 LAND,COASTZ,HISOLZEN  --query "is_dark == 1 and status_code in [1, 5] and abs(sif_678) <= 5.0 and reduced_chi2 <= 1.5"
+
+20250115:
+   soundings with L2 nflh                          46,909,728
+   flags off: LAND,COASTZ,HISOLZEN                 43,121,876
+   is_dark == 1 and status_code in [1, 5] and abs(sif_678) <= 5.0 and reduced_chi2 <= 1.5   12,697,776
+   finite SIF and nFLH                             12,697,776
+   SIF vs nflh: r = 0.802, SIF = 0.732 nFLH +0.0219
+   SIF − nFLH: mean +0.0087, median +0.0111, std 0.0286, 10-90 % [-0.0254, +0.0414]  [W m^{-2} µm^{-1} sr^{-1}]
+   median SIF / nFLH (nFLH > 0.05) 0.974;  SIF < 0: 2.7%;  nFLH <= 0: 12.1%
+
+20250415:
+   soundings with L2 nflh                          45,054,365
+   flags off: LAND,COASTZ,HISOLZEN                 41,191,882
+   is_dark == 1 and status_code in [1, 5] and abs(sif_678) <= 5.0 and reduced_chi2 <= 1.5   11,612,558
+   finite SIF and nFLH                             11,612,558
+   SIF vs nflh: r = 0.823, SIF = 0.707 nFLH +0.0190
+   SIF − nFLH: mean +0.0051, median +0.0072, std 0.0275, 10-90 % [-0.0285, +0.0369]  [W m^{-2} µm^{-1} sr^{-1}]
+   median SIF / nFLH (nFLH > 0.05) 0.882;  SIF < 0: 3.5%;  nFLH <= 0: 16.0%
