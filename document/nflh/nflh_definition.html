@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>What nFLH Measures</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Same layout as the other pages in document/: one reading column, figures on a light plate so the matplotlib PNGs read in both themes. */
+:root{
+  --bg:#f6f7f8; --surface:#ffffff; --fg:#1d2329; --muted:#5b6670; --rule:#d9dee2;
+  --accent:#1f6fb4; --warm:#c2414f; --plate:#ffffff; --code:#eef1f4;
+  --display:"Newsreader",Georgia,"Times New Roman",serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.62;padding-inline:20px;padding-block:40px 72px}
+main{max-width:1060px;margin:0 auto;display:grid;gap:44px}
+.col{max-width:68ch;min-width:0}
+header{display:grid;gap:14px}
+.eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(34px,5vw,50px);line-height:1.08;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-weight:600;font-size:clamp(23px,3vw,29px);line-height:1.2;margin:0 0 10px;text-wrap:balance}
+h3{font-family:var(--display);font-weight:600;font-size:20px;line-height:1.25;margin:6px 0 6px}
+p{margin:0 0 12px}
+.lede{font-size:18.5px;color:var(--fg)}
+section{display:grid;gap:16px}
+.math{font-family:var(--mono);font-size:14.5px;background:var(--code);border-radius:6px;padding:14px 16px;overflow-x:auto;white-space:pre;line-height:1.55}
+code,.num{font-family:var(--mono);font-size:.92em;font-variant-numeric:tabular-nums}
+figure{margin:0;display:grid;gap:10px}
+figure .plate{background:var(--plate);border:1px solid var(--rule);border-radius:8px;padding:10px;overflow-x:auto}
+figure img{display:block;width:100%;height:auto;max-width:100%}
+figcaption{font-size:14px;color:var(--muted);max-width:80ch}
+figcaption b{color:var(--fg);font-weight:600}
+.key{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.key div{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:14px 16px;display:grid;gap:4px;min-width:0}
+.key .v{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
+.key .l{font-size:13.5px;color:var(--muted)}
+.tbl{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:620px}
+th,td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--rule);font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+thead th{font-weight:600;color:var(--muted);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase}
+tbody tr:last-child td{border-bottom:0}
+.bad{color:var(--warm);font-weight:600}
+.callout{border-left:3px solid var(--accent);padding:4px 0 4px 16px}
+ol,ul{margin:0 0 12px;padding-left:22px}
+li{margin-bottom:6px}
+footer{font-size:13.5px;color:var(--muted);border-top:1px solid var(--rule);padding-top:18px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+
+<header class="col">
+  <div class="eyebrow">PACE OCI red SIF · L2 AOP V3.2 nflh · SVD SIF retrieval</div>
+  <h1>What nFLH Measures</h1>
+  <p class="lede">The L2 <code>nflh</code> product is often read as "chlorophyll fluorescence". It is not the fluorescence radiance leaving the water. It is the height of a spectral line above a straight baseline, computed on a <em>normalized</em> water-leaving radiance that pretends the Sun is overhead, at 1 AU, with no atmosphere. This page shows exactly how the number is built, reproduces it from Rrs, and quantifies the two reasons it differs from the fluorescence our retrieval measures.</p>
+</header>
+
+<section class="key" aria-label="Key numbers">
+  <div><span class="v">1.0000</span><span class="l">median ratio of our recomputed ΔnLw to the L2 nflh, over 524,608 pixels of one granule</span></div>
+  <div><span class="v">0.79</span><span class="l">V3.2 nFLH of a pure fluorescence spectrum, as a fraction of its value at 678.2 nm</span></div>
+  <div><span class="v">0.24–0.54</span><span class="l">actual-illumination line height ÷ L2 nflh at SZA 77°–58° (= cos SZA / esd)</span></div>
+  <div><span class="v">9.7%</span><span class="l">of pixels in the test granule stored at the clip value 0 (negative line height, PRODWARN set)</span></div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>1. Definition</h2>
+    <p>The definition is stored in every L2 AOP file under <code>processing_control/input_parameters</code>. V3.1 and V3.2 use a different baseline and height band from V3.0:</p>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Parameter</th><th>V3.0</th><th>V3.1 / V3.2 (current)</th></tr></thead>
+      <tbody>
+        <tr><td><code>flh_base_wavelengths</code> (nm)</td><td>649.6 … 659.6 (9 bands) | 710.5 … 719.2 (6 bands)</td><td>664.56, 665.79, 667.00 | 710.50, 711.80, 713.00</td></tr>
+        <tr><td><code>flh_height_wavelength</code> (nm)</td><td>678.2</td><td>680.0 (nearest band 679.45)</td></tr>
+        <tr><td><code>flh_offset</code></td><td>0</td><td>0</td></tr>
+        <tr><td>also applied to Rrs</td><td colspan="2"><code>brdf_opt = 7</code> (bidirectional / Fresnel correction), <code>raman_opt = 2</code> (water Raman removed)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <p>With the V3.2 values, l2gen computes, for every pixel:</p>
+  </div>
+  <div class="math">nLw(λ)      = Rrs(λ) · F0(λ)                              F0 = band-mean solar irradiance at 1 AU (AOP sensor_band_parameters/F0)
+baseline(λ) = least-squares straight line through nLw at the six base bands
+nFLH        = nLw(679.45 nm) − baseline(680.0 nm) − flh_offset
+stored      = max(nFLH, 0)                                 negative values → 0, PRODWARN flag set</div>
+  <div class="col">
+    <p>Four details matter when reproducing it. F0 multiplies each band <em>before</em> the baseline is fitted; fitting the baseline on Rrs and multiplying by F0 at the height band gives values about 0.4% low (up to 4% in some SZA bins). The height uses the nearest band, 679.45 nm, but the baseline is evaluated at the nominal 680.0 nm. Evaluating it at 679.45 nm instead gives values 4% low. The short-side base bands carry about 70% of the baseline weight. The units are those of a radiance, W m⁻² µm⁻¹ sr⁻¹, but it is a normalized one.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="fig1_nflh_construction.png" alt="Rrs of a Southern Ocean pixel and its nLw with the six base bands, the least-squares baseline and the line height at 679.4 nm, plus the same spectrum scaled to actual illumination"></div>
+    <figcaption><b>Figure 1.</b> One high-chlorophyll Southern Ocean pixel (granule 20250415T021101, scan 1580, pixel 427; 45.4°S 166.3°E, SZA 58°). (a) L2 Rrs. (b) Blue: nLw = Rrs·F0 with the base bands (squares), the baseline (dashed) and the line height. Recomputed ΔnLw = 0.150, stored nflh = 0.151. Orange: the same spectrum at the actual illumination of this overpass (× cosθs/esd); its line height is 0.079, about half.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <div class="col">
+    <h2>2. The definition reproduces the product exactly</h2>
+    <p>Granule 20250115T215515 (NE Pacific, 36–57°N) has 524,608 pixels with an L2 nflh at solar zenith angles of 58°–77° (median 67.5°), so it tests the algorithm where illumination differs most from the normalized case. Recomputing ΔnLw from Rrs and F0 as above gives a median ratio to the product of <span class="num">1.0000</span>, a median absolute difference of <span class="num">0.0008</span> and a maximum of <span class="num">0.0027</span> W m⁻² µm⁻¹ sr⁻¹ (the rounding precision of the stored Rrs). The ratio is flat across SZA (Figure 2c): <strong>the stored nflh contains no cos SZA and no Earth–Sun distance factor.</strong></p>
+    <p>The 9.7% of pixels stored at the clip value are those whose line height is negative: 97.8% of them have a negative recomputed ΔnLw, and 98.7% carry the <code>PRODWARN</code> flag. Filtering on <code>l2_flags == 0</code> therefore keeps only positive nFLH.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="fig3_granule_test.png" alt="Density plots of recomputed nFLH versus L2 nflh, unscaled and scaled to actual illumination, and their median ratio against solar zenith angle"></div>
+    <figcaption><b>Figure 2.</b> Granule 20250115T215515. (a) Recomputed ΔnLw against the L2 nflh: on the 1:1 line; the vertical stripe at x = 0 is the clip. (b) The same line height at actual illumination, ΔnLw·cosθs/esd, falls far below 1:1, along the cos(60°)–cos(70°) lines. (c) Median ratio to the product against SZA: ΔnLw stays at 1.00; the actual-illumination value follows cos(SZA)/esd exactly, from 0.54 at 58° to 0.24 at 77°.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <div class="col">
+    <h2>3. Why nFLH is not actual fluorescence</h2>
+    <h3>3.1 It is normalized to an overhead Sun at 1 AU with no atmosphere</h3>
+    <p>Fluorescence is light re-emitted by phytoplankton from the light they absorb, so the fluorescence radiance leaving the water scales with the downwelling irradiance that actually reaches it:</p>
+  </div>
+  <div class="math">L_w,fl  = k · E_d(0⁺)                 k: chlorophyll, absorption, quantum yield, escape (the water)
+E_d(0⁺) = F0 · cosθs · t↓ / esd       cosine law · atmospheric transmittance · Earth–Sun distance (esd = (d/AU)², L1B)
+
+Rrs_fl  = L_w,fl / E_d(0⁺) = k        → illumination cancels
+nLw_fl  = Rrs_fl · F0      = k · F0   → nFLH describes the water, as if lit by F0 at normal incidence
+
+actual / normalized = E_d(0⁺) / F0 = cosθs · t↓ / esd</div>
+  <div class="col">
+    <p>The same water therefore has the same nFLH at any sun angle, while the fluorescence it actually emits halves between an overhead Sun and SZA 60°. Our retrieval fits SIF as an additive radiance in the TOA spectrum, <code>y = E0·cosθs/(π·esd)·T↑^α·ρ + T↑·SIF</code>, so the retrieved SIF is the actual water-leaving fluorescence radiance of that overpass. It carries cosθs, t↓ and esd; nFLH does not. At SZA 58°–77° the factor is 0.54–0.24 (Figure 2b, c), ignoring t↓, which lowers it further.</p>
+    <p>The forward model treats SIF as an isotropic source, which removes any dependence on the <em>viewing</em> angle. It does not remove the dependence on the <em>illumination</em>: an isotropic emitter under weaker sunlight still emits less.</p>
+
+    <h3>3.2 It is a line height, not the emission amplitude</h3>
+    <p>The fluorescence band is about 25 nm wide and peaks near 682 nm. Its own tails reach the base bands, so the baseline is lifted by the fluorescence it is supposed to sit under, and the line height captures only part of the emission. Running a pure fluorescence spectrum (the SIF basis used by our retrieval, convolved to the OCI bands) through the V3.2 algorithm:</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="fig2_pure_sif_line_height.png" alt="A fluorescence spectrum normalized at 678.2 nm with the V3.2 and V3.0 baselines and line heights, and a bar chart of each V3.2 base band's contribution to the baseline"></div>
+    <figcaption><b>Figure 3.</b> (a) A pure fluorescence spectrum, = 1 at 678.2 nm, seen by the nFLH algorithm. The V3.2 base bands at 664.6–667.0 nm sit on the rising edge of the emission. (b) Each V3.2 base band's contribution w·SIF to the baseline: the three short-side bands supply most of it.</figcaption>
+  </figure>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Quantity (relative to SIF at 678.2 nm)</th><th>V3.0</th><th>V3.1 / V3.2</th></tr></thead>
+      <tbody>
+        <tr><td>fluorescence at the height band</td><td>1.00 (678.2 nm)</td><td>1.05 (679.45 nm)</td></tr>
+        <tr><td>baseline built from the fluorescence tails</td><td>0.12</td><td class="bad">0.26</td></tr>
+        <tr><td><strong>line height of a pure fluorescence spectrum</strong></td><td><strong>0.88</strong></td><td class="bad"><strong>0.79</strong></td></tr>
+        <tr><td>same, relative to the value at the height band</td><td>0.88</td><td>0.75</td></tr>
+        <tr><td>same, relative to the emission peak (681.9 nm, 1.11)</td><td>0.80</td><td>0.71</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <p>Moving the short-side base bands from 650–660 nm (V3.0) to 664.6–667.0 nm (V3.1/V3.2) put them on the rising edge of the emission, where it is already 26–34% of its 678 nm value, and cut the captured fraction from 0.88 to 0.79. Even with perfect data, <code>nflh ≈ 0.79 × SIF<sub>678</sub></code> (both normalized). The exact factor depends on the emission shape; 0.79 is for the single library shape our retrieval uses.</p>
+
+    <h3>3.3 Other things that shape the number</h3>
+    <ul>
+      <li><strong>Clipping.</strong> Negative line heights are stored as 0 (with <code>PRODWARN</code>). Averages over clipped values are biased high in low-fluorescence water, and the negative half of the noise distribution is lost.</li>
+      <li><strong>One height band.</strong> The height is a single band, so band-level noise and atmospheric-correction residuals enter at full weight. The O₂‑B band (687–692 nm) sits right next to it and often leaves a deep dip or spike in Rrs.</li>
+      <li><strong>Reflectance corrections applied to emission.</strong> <code>brdf_opt = 7</code> corrects Rrs, fluorescence included, for a reflectance-like angular shape that changes with sun and view angle. Fluorescence is isotropic, so this adds a small, geometry-dependent error to nFLH that we have not quantified.</li>
+      <li><strong>Excitation versus normalization band.</strong> Fluorescence is excited by absorbed light across 400–700 nm, but Rrs divides by E_d at about 680 nm. The illumination only cancels to the extent that E_PAR / E_d(680) is constant, which shifts slightly with sun angle and atmosphere.</li>
+      <li><strong>Raman removed.</strong> <code>raman_opt = 2</code> removes water Raman scattering from Rrs; the SIF retrieval does not model it.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>4. Putting SIF and nFLH on the same footing</h2>
+    <p>Combining 3.1 and 3.2, for a perfect retrieval and a perfect L2 product:</p>
+  </div>
+  <div class="math">SIF_678 (actual)            ≈ (nFLH / 0.79) · cosθs · t↓ / esd
+SIF_678 · esd / cosθs       ≈ nFLH / 0.79                (normalized, t↓ ignored)</div>
+  <div class="col">
+    <p>Raw SIF and nFLH agree on average only by coincidence: the two factors cancel when cosθs ≈ 0.79, i.e. SZA ≈ 37°, which is close to the typical overpass sun angle. At high latitude they separate. Figure 4 shows four randomly drawn high-latitude, high-chlorophyll 5×5 boxes. No threshold on the SIF–nFLH difference was used.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="fig4_sif_vs_nflh_boxes.png" alt="Per-pixel retrieved SIF, normalized SIF and actual-illumination nFLH against L2 nflh for four high-latitude boxes, with 1:1 and nFLH/0.79 lines"></div>
+    <figcaption><b>Figure 4.</b> Per-pixel retrieved SIF (filled green), SIF·esd/cosθs (open green) and nflh·cosθs/esd (orange) against the L2 nflh, in four 5×5 boxes (pixels with <code>l2_flags == 0</code>, dark, converged, χ² &lt; 1.5). Dashed: 1:1. Dotted: nflh / 0.79. Normalized SIF follows the dotted line; raw SIF does not follow either.</figcaption>
+  </figure>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Box (median of good pixels)</th><th>n</th><th>SZA</th><th>raw SIF</th><th>L2 nflh</th><th>SIF·esd/cosθs</th><th>nflh / 0.79</th><th>nflh·cosθs/esd</th></tr></thead>
+      <tbody>
+        <tr><td>North Atlantic, 2025-01-15</td><td>17</td><td>68°</td><td>0.075</td><td>0.144</td><td>0.194</td><td>0.182</td><td>0.056</td></tr>
+        <tr><td>Southern Ocean, 2025-01-15</td><td>16</td><td>38°</td><td>0.189</td><td>0.153</td><td>0.232</td><td>0.193</td><td>0.125</td></tr>
+        <tr><td>North Atlantic, 2025-04-15</td><td>17</td><td>54°</td><td>0.090</td><td>0.108</td><td>0.153</td><td>0.136</td><td>0.063</td></tr>
+        <tr><td>Southern Ocean, 2025-04-15</td><td>16</td><td>58°</td><td>0.178</td><td>0.260</td><td>0.341</td><td>0.328</td><td>0.136</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col callout">
+    <p>After both corrections, normalized SIF is within 4–13% of nflh/0.79 in three boxes and 20% above it in the fourth, while raw SIF differs from nflh by −48% to +24%. Two caveats remain: t↓ is ignored, and a small additive SIF offset (about +0.02 W m⁻² µm⁻¹ sr⁻¹ in daily statistics) is amplified by 1/cosθs at low sun. For quantitative comparisons it is safer to bring nFLH to actual radiance, <code>nflh/0.79 · cosθs/esd</code>, than to divide SIF by cosθs.</p>
+  </div>
+</section>
+
+<footer class="col">
+  <p>Figures and every number on this page are produced by <code>make_nflh_figures.py</code> in this folder, from PACE OCI L1B V3 and L2 AOP V3.2 (kiwi), the SVD SIF retrieval <code>new_svd_retrieval_output_O2A</code> (nPC15, Legendre 3, 640–780 nm), and the SIF basis <code>SIF_singular_vector.jld2</code>. Rrs, F0 and the FLH parameters come from the AOP files; SZA and esd (= (d/AU)²) from L1B. The L2 AOP attribute <code>earth_sun_distance_correction</code> is the reciprocal of the L1B one.</p>
+</footer>
+
+</main>
+</body>
+</html>
