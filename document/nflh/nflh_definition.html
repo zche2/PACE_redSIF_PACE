@@ -64,7 +64,7 @@ a{color:var(--accent)}
 <header class="col">
   <div class="eyebrow">PACE OCI red SIF · L2 AOP V3.2 nflh · SVD SIF retrieval</div>
   <h1>What nFLH Measures</h1>
-  <p class="lede">The L2 <code>nflh</code> product is often read as "chlorophyll fluorescence". It is not the fluorescence radiance leaving the water. It is the height of a spectral line above a straight baseline, computed on a <em>normalized</em> water-leaving radiance that pretends the Sun is overhead, at 1 AU, with no atmosphere. This page shows exactly how the number is built, reproduces it from Rrs, and quantifies the two reasons it differs from the fluorescence our retrieval measures.</p>
+  <p class="lede">The L2 <code>nflh</code> product is often read as "chlorophyll fluorescence". It is not the fluorescence radiance leaving the water. It is the height of a spectral line above a straight baseline, computed on a <em>normalized</em> water-leaving radiance that pretends the Sun is overhead, at 1 AU, with no atmosphere. This page defines remote-sensing reflectance and normalized radiance, shows exactly how the number is built, reproduces it from Rrs, and quantifies the two reasons it differs from the fluorescence our retrieval measures.</p>
 </header>
 
 <section class="key" aria-label="Key numbers">
@@ -76,7 +76,45 @@ a{color:var(--accent)}
 
 <section>
   <div class="col">
-    <h2>1. Definition</h2>
+    <h2>1. Remote-sensing reflectance and normalized radiance</h2>
+    <p>Ocean-colour products start from the <strong>water-leaving radiance</strong> L<sub>w</sub>(λ): the radiance coming up out of the water just above the surface, after the atmosphere, sun glint, whitecaps and reflected skylight have been removed from the top-of-atmosphere signal by the atmospheric correction. L<sub>w</sub> is a radiance (W m⁻² µm⁻¹ sr⁻¹), and it is proportional to how much light falls on the water: the same water gives a smaller L<sub>w</sub> under a low sun, a hazier sky, or in July when the Earth is farther from the Sun.</p>
+    <p><strong>Remote-sensing reflectance</strong> removes that dependence by dividing by the downwelling plane irradiance just above the surface, E<sub>d</sub>(0⁺):</p>
+  </div>
+  <div class="math">Rrs(λ)  = L_w(λ, 0⁺) / E_d(λ, 0⁺)                         [sr⁻¹]   radiance ÷ irradiance
+E_d(0⁺) = F0(λ) · cosθs · t↓(λ, θs) / esd                    what actually reaches the sea surface
+          F0    = extraterrestrial solar irradiance at 1 AU, at normal incidence
+          cosθs = cosine law for a horizontal surface;  t↓ = downward atmospheric transmittance
+          esd   = (d / AU)²  (L1B earth_sun_distance_correction; the L2 attribute is its reciprocal)</div>
+  <div class="col">
+    <p>Rrs describes the water, not the light: it depends on the water's absorption and backscattering (roughly Rrs ∝ b<sub>b</sub>/(a + b<sub>b</sub>)) and only weakly on viewing geometry, which l2gen also corrects (<code>brdf_opt = 7</code>). For a perfectly diffuse (Lambertian) reflector Rrs = ρ/π. Typical open-ocean values in the red are 10⁻⁴–10⁻³ sr⁻¹.</p>
+    <p><strong>Normalized water-leaving radiance</strong> turns Rrs back into a radiance, but for one fixed, standard illumination: the Sun at zenith, at the mean Earth–Sun distance, with no atmosphere. That is the radiance the water would emit if it were lit by F0 at normal incidence:</p>
+  </div>
+  <div class="math">nLw(λ) = Rrs(λ) · F0(λ)  =  L_w(λ) · F0 / E_d(0⁺)  =  L_w(λ) / (cosθs · t↓ / esd)       [W m⁻² µm⁻¹ sr⁻¹]</div>
+  <div class="col">
+    <p>The <strong>n</strong> in nFLH is this normalization: nFLH is the fluorescence line height measured on nLw instead of on L<sub>w</sub>. It does <em>not</em> mean normalized by chlorophyll. Normalizing makes the product comparable between scenes, seasons and latitudes, because the water's properties are separated from the day's illumination, and that is exactly why it is not the radiance that was emitted:</p>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Quantity</th><th>Definition</th><th>Units</th><th>Depends on the day's illumination?</th></tr></thead>
+      <tbody>
+        <tr><td>L<sub>w</sub> water-leaving radiance</td><td>atmospherically corrected upwelling radiance at 0⁺</td><td>W m⁻² µm⁻¹ sr⁻¹</td><td class="bad">yes (cosθs, t↓, esd)</td></tr>
+        <tr><td>E<sub>d</sub>(0⁺) downwelling irradiance</td><td>F0 · cosθs · t↓ / esd</td><td>W m⁻² µm⁻¹</td><td class="bad">yes</td></tr>
+        <tr><td>Rrs remote-sensing reflectance</td><td>L<sub>w</sub> / E<sub>d</sub>(0⁺)</td><td>sr⁻¹</td><td>no</td></tr>
+        <tr><td>nLw normalized water-leaving radiance</td><td>Rrs · F0</td><td>W m⁻² µm⁻¹ sr⁻¹</td><td>no (standard illumination)</td></tr>
+        <tr><td>FLH on L<sub>w</sub> (not produced by L2)</td><td>line height of L<sub>w</sub></td><td>W m⁻² µm⁻¹ sr⁻¹</td><td class="bad">yes</td></tr>
+        <tr><td><strong>nFLH</strong> (L2 <code>nflh</code>)</td><td>line height of nLw</td><td>W m⁻² µm⁻¹ sr⁻¹</td><td>no</td></tr>
+        <tr><td>retrieved SIF (this work)</td><td>additive radiance in the TOA fit, propagated by T↑</td><td>W m⁻² µm⁻¹ sr⁻¹</td><td class="bad">yes</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <p>nLw and nFLH carry radiance units, which makes it easy to compare them directly with a retrieved radiance. They are radiances for an illumination that never occurred; converting back to the overpass needs the factor cosθs · t↓ / esd (Section 4.1).</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>2. Definition</h2>
     <p>The definition is stored in every L2 AOP file under <code>processing_control/input_parameters</code>. V3.1 and V3.2 use a different baseline and height band from V3.0:</p>
   </div>
   <div class="tbl">
@@ -108,7 +146,7 @@ stored      = max(nFLH, 0)                                 negative values → 0
 
 <section>
   <div class="col">
-    <h2>2. The definition reproduces the product exactly</h2>
+    <h2>3. The definition reproduces the product exactly</h2>
     <p>Granule 20250115T215515 (NE Pacific, 36–57°N) has 524,608 pixels with an L2 nflh at solar zenith angles of 58°–77° (median 67.5°), so it tests the algorithm where illumination differs most from the normalized case. Recomputing ΔnLw from Rrs and F0 as above gives a median ratio to the product of <span class="num">1.0000</span>, a median absolute difference of <span class="num">0.0008</span> and a maximum of <span class="num">0.0027</span> W m⁻² µm⁻¹ sr⁻¹ (the rounding precision of the stored Rrs). The ratio is flat across SZA (Figure 2c): <strong>the stored nflh contains no cos SZA and no Earth–Sun distance factor.</strong></p>
     <p>The 9.7% of pixels stored at the clip value are those whose line height is negative: 97.8% of them have a negative recomputed ΔnLw, and 98.7% carry the <code>PRODWARN</code> flag. Filtering on <code>l2_flags == 0</code> therefore keeps only positive nFLH.</p>
   </div>
@@ -120,8 +158,8 @@ stored      = max(nFLH, 0)                                 negative values → 0
 
 <section>
   <div class="col">
-    <h2>3. Why nFLH is not actual fluorescence</h2>
-    <h3>3.1 It is normalized to an overhead Sun at 1 AU with no atmosphere</h3>
+    <h2>4. Why nFLH is not actual fluorescence</h2>
+    <h3>4.1 It is normalized to an overhead Sun at 1 AU with no atmosphere</h3>
     <p>Fluorescence is light re-emitted by phytoplankton from the light they absorb, so the fluorescence radiance leaving the water scales with the downwelling irradiance that actually reaches it:</p>
   </div>
   <div class="math">L_w,fl  = k · E_d(0⁺)                 k: chlorophyll, absorption, quantum yield, escape (the water)
@@ -135,7 +173,7 @@ actual / normalized = E_d(0⁺) / F0 = cosθs · t↓ / esd</div>
     <p>The same water therefore has the same nFLH at any sun angle, while the fluorescence it actually emits halves between an overhead Sun and SZA 60°. Our retrieval fits SIF as an additive radiance in the TOA spectrum, <code>y = E0·cosθs/(π·esd)·T↑^α·ρ + T↑·SIF</code>, so the retrieved SIF is the actual water-leaving fluorescence radiance of that overpass. It carries cosθs, t↓ and esd; nFLH does not. At SZA 58°–77° the factor is 0.54–0.24 (Figure 2b, c), ignoring t↓, which lowers it further.</p>
     <p>The forward model treats SIF as an isotropic source, which removes any dependence on the <em>viewing</em> angle. It does not remove the dependence on the <em>illumination</em>: an isotropic emitter under weaker sunlight still emits less.</p>
 
-    <h3>3.2 It is a line height, not the emission amplitude</h3>
+    <h3>4.2 It is a line height, not the emission amplitude</h3>
     <p>The fluorescence band is about 25 nm wide and peaks near 682 nm. Its own tails reach the base bands, so the baseline is lifted by the fluorescence it is supposed to sit under, and the line height captures only part of the emission. Running a pure fluorescence spectrum (the SIF basis used by our retrieval, convolved to the OCI bands) through the V3.2 algorithm:</p>
   </div>
   <figure>
@@ -157,7 +195,7 @@ actual / normalized = E_d(0⁺) / F0 = cosθs · t↓ / esd</div>
   <div class="col">
     <p>Moving the short-side base bands from 650–660 nm (V3.0) to 664.6–667.0 nm (V3.1/V3.2) put them on the rising edge of the emission, where it is already 26–34% of its 678 nm value, and cut the captured fraction from 0.88 to 0.79. Even with perfect data, <code>nflh ≈ 0.79 × SIF<sub>678</sub></code> (both normalized). The exact factor depends on the emission shape; 0.79 is for the single library shape our retrieval uses.</p>
 
-    <h3>3.3 Other things that shape the number</h3>
+    <h3>4.3 Other things that shape the number</h3>
     <ul>
       <li><strong>Clipping.</strong> Negative line heights are stored as 0 (with <code>PRODWARN</code>). Averages over clipped values are biased high in low-fluorescence water, and the negative half of the noise distribution is lost.</li>
       <li><strong>One height band.</strong> The height is a single band, so band-level noise and atmospheric-correction residuals enter at full weight. The O₂‑B band (687–692 nm) sits right next to it and often leaves a deep dip or spike in Rrs.</li>
@@ -170,8 +208,8 @@ actual / normalized = E_d(0⁺) / F0 = cosθs · t↓ / esd</div>
 
 <section>
   <div class="col">
-    <h2>4. Putting SIF and nFLH on the same footing</h2>
-    <p>Combining 3.1 and 3.2, for a perfect retrieval and a perfect L2 product:</p>
+    <h2>5. Putting SIF and nFLH on the same footing</h2>
+    <p>Combining 4.1 and 4.2, for a perfect retrieval and a perfect L2 product:</p>
   </div>
   <div class="math">SIF_678 (actual)            ≈ (nFLH / 0.79) · cosθs · t↓ / esd
 SIF_678 · esd / cosθs       ≈ nFLH / 0.79                (normalized, t↓ ignored)</div>
