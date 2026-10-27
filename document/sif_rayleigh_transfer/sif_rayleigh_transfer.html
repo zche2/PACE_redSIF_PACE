@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SIF Through Rayleigh</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column (~68ch) with figures allowed to run wider; figures sit on a fixed light plate so the matplotlib PNGs read in both themes. */
+:root{
+  --bg:#f6f7f8; --surface:#ffffff; --fg:#1d2329; --muted:#5b6670; --rule:#d9dee2;
+  --accent:#1f6fb4; --warm:#c2414f; --plate:#ffffff; --code:#eef1f4;
+  --display:"Newsreader",Georgia,"Times New Roman",serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.62;padding-inline:20px;padding-block:40px 72px}
+main{max-width:1060px;margin:0 auto;display:grid;gap:44px}
+.col{max-width:68ch;min-width:0}
+header{display:grid;gap:14px}
+.eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(34px,5vw,50px);line-height:1.08;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-weight:600;font-size:clamp(23px,3vw,29px);line-height:1.2;margin:0 0 10px;text-wrap:balance}
+p{margin:0 0 12px}
+.lede{font-size:18.5px;color:var(--fg)}
+section{display:grid;gap:16px}
+.math{font-family:var(--mono);font-size:14.5px;background:var(--code);border-radius:6px;padding:14px 16px;overflow-x:auto;white-space:pre;line-height:1.55}
+code,.num{font-family:var(--mono);font-size:.92em;font-variant-numeric:tabular-nums}
+figure{margin:0;display:grid;gap:10px}
+figure .plate{background:var(--plate);border:1px solid var(--rule);border-radius:8px;padding:10px;overflow-x:auto}
+figure img{display:block;width:100%;height:auto;max-width:100%}
+figcaption{font-size:14px;color:var(--muted);max-width:80ch}
+figcaption b{color:var(--fg);font-weight:600}
+.key{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.key div{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:14px 16px;display:grid;gap:4px;min-width:0}
+.key .v{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
+.key .l{font-size:13.5px;color:var(--muted)}
+.tbl{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:620px}
+th,td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--rule);font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+thead th{font-weight:600;color:var(--muted);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase}
+tbody tr:last-child td{border-bottom:0}
+.bad{color:var(--warm);font-weight:600}
+.callout{border-left:3px solid var(--accent);padding:4px 0 4px 16px}
+ol,ul{margin:0 0 12px;padding-left:22px}
+li{margin-bottom:6px}
+footer{font-size:13.5px;color:var(--muted);border-top:1px solid var(--rule);padding-top:18px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<main>
+<header class="col">
+  <div class="eyebrow">PACE OCI red SIF · surrogate RT · vSmartMOM 2.1 / Google‑RT GCHPIO</div>
+  <h1>Why an isotropic SIF source still loses light to Rayleigh scattering</h1>
+  <p class="lede">Water-leaving SIF is emitted isotropically, yet the RT delivers only about 98% of it to the top of the atmosphere at near-nadir views, and about 96% at 60°. The retrieval's forward model multiplies SIF by gas transmittance only, so it misses this loss. This page explains where the loss comes from, why it is close to half the Rayleigh slant optical depth, why aerosols remove much less per unit optical depth, and how much of the retrieval bias it accounts for.</p>
+</header>
+
+<section class="key" aria-label="Key numbers">
+  <div><span class="v">0.47</span><span class="l">Rayleigh b from the RT: loss per unit slant optical depth (single-scattering theory ½)</span></div>
+  <div><span class="v">0.15</span><span class="l">Aerosol b, GCHP column 100: forward-peaked scattering returns most light upward</span></div>
+  <div><span class="v">2.0% · 0.7%</span><span class="l">SIF lost at 678 nm, VZA 15°: Rayleigh (τ<sub>R</sub> = 0.040) · aerosol (AOD = 0.049)</span></div>
+  <div><span class="v">≈ 1/5</span><span class="l">share of the retrieval's view-angle trend (k ≈ 0.11) explained by this loss (k ≈ 0.02)</span></div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>What happens along the line of sight</h2>
+    <p>Isotropy describes how the surface emits, not what happens on the way up. The sensor sees one beam from the pixel to the satellite. Molecules along that beam scatter some photons out of it; Rayleigh scattering does not absorb, so those photons are redirected, not destroyed. On its own the beam would be weakened by exp(−τ<sub>R</sub>/μ<sub>v</sub>), with μ<sub>v</sub> = cos VZA.</p>
+    <p>Because the surface also emits SIF in every other upward direction, photons from neighbouring beams are scattered <em>into</em> the line of sight, which replaces part of the loss. It cannot replace all of it: some of the scattered light goes into the lower hemisphere, toward a dark ocean that absorbs nearly all of it. That fraction is lost for good.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Why b = ½ for Rayleigh</h2>
+    <p>Single-scattering bookkeeping for a thin layer (τ ≪ 1): a beam leaves the surface in direction μ with radiance I₀, and the surface emits I₀ isotropically into the whole upper hemisphere.</p>
+  </div>
+  <div class="math">Loss:  ΔI_out = −(τ/μ) · I₀
+Gain:  ΔI_in  = +(τ/μ) · I₀ · ½∫₀¹ p(μ, μ′) dμ′       (only μ′ &gt; 0: nothing comes from below)
+
+Net:   ΔI = −b · (τ/μ) · I₀,     b = 1 − ½∫₀¹ p(μ, μ′) dμ′
+
+p = azimuth-averaged phase function, normalised so ½∫₋₁¹ p dμ′ = 1</div>
+  <div class="col">
+    <p>The Rayleigh phase function contains only the Legendre terms P₀ and P₂:</p>
+  </div>
+  <div class="math">P(Θ) = ¾(1 + cos²Θ) = 1 + ½ P₂(cos Θ)
+p(μ, μ′) = 1 + ½ P₂(μ) P₂(μ′)
+
+½∫₀¹ p dμ′ = ½ + ¼ P₂(μ) ∫₀¹ P₂(μ′) dμ′ = ½      since ∫₀¹ (3μ′² − 1)/2 dμ′ = 0
+
+⇒  gain = ½ of the loss,  b = ½  for every view angle</div>
+  <div class="col">
+    <p>In words: of all the light scattered out of upward beams, half goes back into upward directions and half goes downward. The phase function treats Θ and π − Θ alike, so it cannot favour either hemisphere. The upward half refills the isotropic field, and so every view direction equally; the downward half is lost to the surface. Molecular depolarization (δ ≈ 0.03) only scales the P₂ term, so b stays at ½.</p>
+    <p class="callout">The view-angle dependence comes from the path: the loss grows as τ/μ<sub>v</sub>, while the in-scattered light from the isotropic field does not grow at the same rate. So the TOA SIF radiance is not isotropic even though the source is.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>What the RT shows</h2>
+    <p>A single scene (SZA 30°, VZA 15°, VAZ 0°, Lambertian albedo 0.02, SIF<sub>678</sub> = 0.3 W m⁻² sr⁻¹ µm⁻¹) was run with the Rayleigh optical depth scaled by 10⁻⁸, 0.01, 0.1, 0.5 and 1, with and without the GCHPIO aerosol of GCHP column 100, each with and without SIF. The TOA SIF signal is the difference between the runs with and without SIF.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="f1_rayleigh_scaling_no_aerosol.png" alt="TOA radiance and SIF signal for five Rayleigh scalings, no aerosol"></div>
+    <figcaption><b>Figure 1.</b> No aerosol. (a, b) TOA radiance and its change relative to full Rayleigh: over this dark ocean, Rayleigh path radiance is 32–45% of the TOA signal. (c, d) TOA SIF minus water-leaving SIF, absolute and relative. Outside the O₂ and H₂O bands the deficit grows steadily with the Rayleigh scaling; inside them, gas absorption dominates. (e) The RT grid in the O₂-B region.</figcaption>
+  </figure>
+  <figure>
+    <div class="plate"><img src="f2_rayleigh_scaling_aerosol_col100.png" alt="Same as figure 1 with GCHPIO aerosol of column 100"></div>
+    <figcaption><b>Figure 2.</b> Same with the GCHPIO aerosol of column 100 (AOD ≈ 0.05 at 640 nm, falling to ≈ 0.036 at 850 nm). The aerosol adds a small, Rayleigh-independent shift to the SIF deficit.</figcaption>
+  </figure>
+  <figure>
+    <div class="plate"><img src="f3_sif_transfer_and_b.png" alt="Fraction of surface SIF reaching TOA and effective b per OCI band"></div>
+    <figcaption><b>Figure 3.</b> (a) Fraction of the water-leaving SIF that reaches TOA, per OCI band; grey shading marks the gas bands. (b) Effective b from the same runs, outside the gas bands: Rayleigh b = [t(×10⁻⁸) − t(×1)] / (τ<sub>R</sub>/μ<sub>v</sub>); aerosol b = [t(no aerosol) − t(aerosol)] / (AOD/μ<sub>v</sub>), both at full Rayleigh. b<sub>R</sub> stays at 0.47–0.48 and b<sub>aer</sub> at 0.145–0.148 at every band, even though τ<sub>R</sub> and AOD both change across the window.</figcaption>
+  </figure>
+  <div class="tbl"><table>
+    <thead><tr><th>λ (nm)</th><th>τ<sub>R</sub></th><th>Rayleigh loss</th><th>b<sub>R</sub></th><th>AOD</th><th>Aerosol loss</th><th>b<sub>aer</sub></th></tr></thead>
+    <tbody>
+      <tr><td>665</td><td>0.0434</td><td>0.0213</td><td>0.474</td><td>0.0499</td><td>0.0076</td><td>0.147</td></tr>
+      <tr><td>678</td><td>0.0400</td><td>0.0196</td><td>0.473</td><td>0.0485</td><td>0.0074</td><td>0.147</td></tr>
+      <tr><td>701</td><td>0.0351</td><td>0.0170</td><td>0.468</td><td>0.0464</td><td>0.0069</td><td>0.144</td></tr>
+      <tr><td>741</td><td>0.0280</td><td>0.0139</td><td>0.479</td><td>0.0430</td><td>0.0065</td><td>0.146</td></tr>
+    </tbody>
+  </table></div>
+  <div class="col">
+    <p>The RT's b<sub>R</sub> ≈ 0.47 rather than 0.50 because the single-scattering estimate leaves out higher orders of scattering, which send part of the downward-scattered light back up, and the 2% of light the surface reflects. The aerosol shift is the same at every Rayleigh scaling (−0.0074 at 678 nm), so for layers this thin the two losses simply add: loss ≈ (b<sub>R</sub>τ<sub>R</sub> + b<sub>aer</sub>AOD)/μ<sub>v</sub>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Why aerosols remove less per unit optical depth</h2>
+    <p>The same formula applies, but the aerosol phase function is strongly forward-peaked (asymmetry g ≈ 0.7). Light scattered out of an upward beam stays close to its original direction, so most of it stays in the upper hemisphere and keeps refilling the isotropic field. Only roughly the backscattered fraction, about (1 − g)/2 ≈ 0.15, goes down to the surface, which is what the RT gives. A little absorption (ω̃ slightly below 1 from sulfate, organics and black carbon) adds about τ(1 − ω̃)/μ ≈ 0.0005.</p>
+    <p>So in this scene the aerosol has slightly <em>more</em> optical depth than Rayleigh (0.049 vs 0.040 at 678 nm) but removes less than half as much SIF (0.74% vs 1.96%). Rayleigh has b ≈ ½; a purely forward scatterer would have b = 0; a strong backward scatterer approaches 1. Absorption adds directly to b, because absorbed photons never come back.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Surface reflectance</h2>
+    <p>For SIF, a Lambertian surface of albedo A returns a fraction A of the downward-scattered light upward and isotropically, so to first order b<sub>eff</sub> ≈ ½(1 − A). Over the ocean (A ≈ 0.02) this is 0.49 instead of 0.50, a negligible change. Over vegetation it matters mainly in the far-red, where albedo is 0.3–0.5 (b<sub>eff</sub> ≈ 0.25–0.35); near the 685 nm peak, chlorophyll keeps vegetation albedo low, around 0.03–0.08. Elevated land also has less air above it, so τ<sub>R</sub> is proportionally smaller.</p>
+    <p>For reflected sunlight, albedo sets how much of the TOA signal is Rayleigh. The path term does not depend on the surface, while the surface term scales with A: ρ<sub>TOA</sub> = ρ<sub>path</sub> + T↓T↑A / (1 − S·A). Over this dark ocean the Rayleigh path radiance is 45% of the TOA radiance at 645 nm, 39% at 678 nm and 32% at 741 nm (Figure 1a, b).</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Inside the O₂ bands: Rayleigh makes them shallower</h2>
+    <p>The same path-length argument applies to reflected sunlight. To see it, the scene was run with SIF switched off (SZA 30°, VAZ 0°, Lambertian 0.02, GCHP column 100 aerosol scaled by 10⁻⁸, 1 and 5), and each run with Rayleigh on was divided by the identical run with Rayleigh off: same view, same aerosol, same surface. Geometry, aerosol and surface cancel, and the ratio shows only what Rayleigh adds.</p>
+  </div>
+  <figure>
+    <div class="plate"><img src="f4_rayleigh_ratio_O2A_O2B.png" alt="TOA radiance ratio Rayleigh on over Rayleigh off around O2-B and O2-A for three aerosol loadings and three view angles"></div>
+    <figcaption><b>Figure 4.</b> R(Rayleigh ×1) / R(Rayleigh off) (solid) and R(Rayleigh ×0.1) / R(Rayleigh off) (dashed), SIF = 0, for O₂-B (top) and O₂-A (bottom); columns are aerosol ×10⁻⁸, ×1 (AOD₆₇₈ 0.049) and ×5 (0.243). Outside the bands Rayleigh is a smooth boost; inside them the boost is larger, a bump at the band centre.</figcaption>
+  </figure>
+  <div class="tbl"><table>
+    <thead><tr><th>Aerosol (AOD 678)</th><th>VZA</th><th>O₂-B continuum ratio</th><th>O₂-B in-band excess</th><th>O₂-A continuum ratio</th><th>O₂-A in-band excess</th></tr></thead>
+    <tbody>
+      <tr><td>none (0)</td><td>15°</td><td>1.63</td><td>+1.8%</td><td>1.40</td><td>+17.0%</td></tr>
+      <tr><td>none</td><td>60°</td><td>1.86</td><td>+2.4%</td><td>1.53</td><td class="bad">+24.9%</td></tr>
+      <tr><td>×1 (0.049)</td><td>15°</td><td>1.57</td><td>+1.5%</td><td>1.37</td><td>+14.7%</td></tr>
+      <tr><td>×1</td><td>60°</td><td>1.63</td><td>+1.7%</td><td>1.42</td><td>+17.6%</td></tr>
+      <tr><td>×5 (0.243)</td><td>15°</td><td>1.39</td><td>+1.0%</td><td>1.26</td><td>+9.5%</td></tr>
+      <tr><td>×5</td><td>60°</td><td>1.26</td><td>+0.8%</td><td>1.19</td><td>+8.1%</td></tr>
+    </tbody>
+  </table></div>
+  <div class="col">
+    <p>"In-band excess" is the ratio at the band centre (688.1 nm for O₂-B, 761.8 nm for O₂-A) divided by the ratio interpolated across the band from its edges, minus one. VZA 30° (not shown) sits between 15° and 60°.</p>
+    <p><b>Why the band gets shallower although Rayleigh scattering is elastic.</b> No photon changes wavelength; each wavelength is independent. At one wavelength the TOA signal is the sum of surface-reflected light, which crosses the whole O₂ column twice, and Rayleigh light, which turns around where it scattered and crosses only the O₂ above that level, about half the optical depth:</p>
+  </div>
+  <div class="math">I(λ) ≈ A · T_full(λ) + ρ_R · T_R(λ),          T_R ≈ T_full^½
+
+continuum (T = 1):    ratio = (A + ρ_R) / A
+band centre:          ratio = 1 + (ρ_R / A) · T_R / T_full   &gt; continuum ratio</div>
+  <div class="col">
+    <p>At 761.8 nm the surface light has an O₂ optical depth of 0.85 and the Rayleigh light 0.40, so inside the band the Rayleigh share is enhanced by about e^(0.85−0.40) ≈ 1.6 relative to the continuum. Against the continuum the band looks partly filled in, but the cause is a shorter path, not a wavelength shift; "band-depth reduction from path shortening" is the more accurate name.</p>
+    <ul>
+      <li><b>O₂-A vs O₂-B.</b> At OCI resolution O₂-A is deep (band transmittance ≈ 0.4–0.5), so the half-path Rayleigh light becomes a much bigger share inside it: +15–25%. O₂-B is shallow (≈ 0.82), so the excess is only +1–2%.</li>
+      <li><b>Aerosol dilutes it.</b> Aerosol sits low and returns light with nearly the full O₂ path, lowering the Rayleigh share: five times the aerosol halves the O₂-A excess.</li>
+      <li><b>Slant views amplify it</b> when aerosol is low (+25% at 60°), because the longer Rayleigh path adds more half-path light; with heavy aerosol the trend reverses as the aerosol path grows too.</li>
+      <li><b>It scales almost linearly with Rayleigh:</b> at ×0.1 the continuum ratio is about 1.04–1.06 and the O₂-A excess about +2%.</li>
+    </ul>
+    <p class="callout">For the SVD retrieval this is a shape change of the O₂ bands that a gas-only basis with T↑↓ = T↑^α cannot follow, and its size depends on Rayleigh share, aerosol and geometry. It matters most for windows that include O₂-A; in the 640–756 nm window, whose only O₂ band is O₂-B, it is a 1–2% effect.</p>
+    <p><b>True fill-in is a different, inelastic process.</b> Rotational Raman scattering by N₂ and O₂ shifts a small fraction of photons by a few cm⁻¹, moving light from bright neighbouring wavelengths into absorption and solar (Fraunhofer) lines: the Ring effect, a few percent in Fraunhofer lines. These runs used vSmartMOM with Raman off (<code>noRS</code>), so it is absent here, but real OCI spectra contain it. Because SIF also fills in Fraunhofer and O₂ lines, Raman fill-in can be mistaken for SIF.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>What this means for the SIF retrieval</h2>
+    <ul>
+      <li>The forward model writes TOA SIF as <code>trans_up · SIF</code> with <code>trans_up = exp(PCs·c)</code>, gas transmittance only. It misses this scattering loss, so retrieved SIF is low by roughly b<sub>R</sub>τ<sub>R</sub>/μ<sub>v</sub> + b<sub>aer</sub>AOD/μ<sub>v</sub>: about 2–3% near nadir and 4–5% at 60° over the ocean.</li>
+      <li>In five GCHPIO ensemble samples spanning VZA 0–60°, the fraction of SIF reaching TOA was 0.948–0.977 (Rayleigh-only 0.960–0.980), while the retrieval returned 0.78–0.91 of the true SIF. After removing the scattering loss, about −0.03 W m⁻² sr⁻¹ µm⁻¹ per sample remains.</li>
+      <li>The scattering loss implies k ≈ 0.02 in exp(−k/cos VZA); the w756 retrievals give k ≈ 0.11. So this effect explains roughly a fifth of the view-angle trend. Most of the bias comes from the retrieval itself; candidates are a fitted <code>trans_up</code> that departs from 1 near 678 nm, and SIF trading off against the reflectance polynomial.</li>
+      <li>A simple fix for this part is to multiply the SIF term by a continuum transmittance, about exp(−½τ<sub>R</sub>(λ)·p<sub>s</sub>/p₀/μ<sub>v</sub>), or to fit a free scalar on it.</li>
+    </ul>
+  </div>
+</section>
+
+<footer class="col">
+  <p>Method: vSmartMOM 2.1 (GCHPIO pin 2cd6934), <code>ocean_lambertian_1010_wavnum0p05_NoRayl.yaml</code> (0.05 cm⁻¹, 623–850 nm, 11 streams, aerosol truncation NoTruncation in these runs), MERRA sea profile, GCHPIO optics for GCHP column 100, Rayleigh τ scaled in place after <code>update_model!</code>, OCI RSR convolution. Source files: <code>surrogate_meas/full_RT_construction/output_rayleigh_scaling/rt_toa_rayleigh_scaling_*.nc</code>. Figure 4 uses <code>rt_toa_rayleigh_scaling_ocean_lambertian_1010_wavnum0p05_NoRayl_sunlight_on_AerColumn_100_grid.nc</code> (<code>radiance_nosif</code>; Rayleigh ×10⁻⁸/0.1/1, aerosol ×10⁻⁸/1/5, VZA 15/30/60°). Losses are differences of t = TOA SIF / water-leaving SIF between runs at the same band, so gas absorption cancels. b values are single-band, single-geometry estimates from a thin-layer formula; δBGE truncation could shift the aerosol numbers slightly. The five-sample VZA test used the GCHPIO 0.05 cm⁻¹ n200 ensemble, 672–684 nm.</p>
+</footer>
+</main>
+</body>
+</html>

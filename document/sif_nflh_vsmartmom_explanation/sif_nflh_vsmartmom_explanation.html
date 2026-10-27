@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>nFLH vs SVD SIF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column (~68ch) with figures allowed to run wider; figures sit on a fixed light plate so the matplotlib PNGs read in both themes. */
+:root{
+  --bg:#f6f7f8; --surface:#ffffff; --fg:#1d2329; --muted:#5b6670; --rule:#d9dee2;
+  --accent:#1f6fb4; --warm:#c2414f; --plate:#ffffff; --code:#eef1f4;
+  --display:"Newsreader",Georgia,"Times New Roman",serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161a; --surface:#1a2026; --fg:#e4e8ec; --muted:#9aa6b0; --rule:#2c343c;
+  --accent:#6aa9e6; --warm:#ef7c88; --plate:#ffffff; --code:#222a31; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.62;padding-inline:20px;padding-block:40px 72px}
+main{max-width:1060px;margin:0 auto;display:grid;gap:44px}
+.col{max-width:68ch;min-width:0}
+header{display:grid;gap:14px}
+.eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(34px,5vw,50px);line-height:1.08;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-weight:600;font-size:clamp(23px,3vw,29px);line-height:1.2;margin:0 0 10px;text-wrap:balance}
+p{margin:0 0 12px}
+.lede{font-size:18.5px;color:var(--fg)}
+section{display:grid;gap:16px}
+.math{font-family:var(--mono);font-size:14.5px;background:var(--code);border-radius:6px;padding:14px 16px;overflow-x:auto;white-space:pre;line-height:1.55}
+code,.num{font-family:var(--mono);font-size:.92em;font-variant-numeric:tabular-nums}
+figure{margin:0;display:grid;gap:10px}
+figure .plate{background:var(--plate);border:1px solid var(--rule);border-radius:8px;padding:10px;overflow-x:auto}
+figure img{display:block;width:100%;height:auto;max-width:100%}
+figcaption{font-size:14px;color:var(--muted);max-width:80ch}
+figcaption b{color:var(--fg);font-weight:600}
+.key{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.key div{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:14px 16px;display:grid;gap:4px;min-width:0}
+.key .v{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
+.key .l{font-size:13.5px;color:var(--muted)}
+.tbl{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:620px}
+th,td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--rule);font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+thead th{font-weight:600;color:var(--muted);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase}
+tbody tr:last-child td{border-bottom:0}
+.bad{color:var(--warm);font-weight:600}
+.callout{border-left:3px solid var(--accent);padding:4px 0 4px 16px}
+ol,ul{margin:0 0 12px;padding-left:22px}
+li{margin-bottom:6px}
+footer{font-size:13.5px;color:var(--muted);border-top:1px solid var(--rule);padding-top:18px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<main>
+<header class="col">
+  <div class="eyebrow">PACE OCI red SIF · surrogate RT · vSmartMOM 2.1 / Google‑RT GCHPIO</div>
+  <h1>What nFLH and the SVD retrieval each measure in a vSmartMOM scene with known SIF</h1>
+  <p class="lede">The same simulated ocean scenes, with known water-leaving SIF, are passed to two estimators. The first is a mock nFLH computed from surface Rrs. The second is the SVD retrieval run on the TOA radiance. Neither returns the water-leaving SIF itself. The standard nFLH baseline removes about 30% of the signal. Even with a SIF-free baseline, nFLH still reads high by 1/t<sub>d</sub>, and without the cos θ<sub>s</sub> factor it is high by 1/(cos θ<sub>s</sub> · t<sub>d</sub>). SVD returns SIF at TOA, which is low by the upward transmittance, and adds an offset that depends on the fitting window.</p>
+</header>
+
+<section class="key" aria-label="Key numbers">
+  <div><span class="v">0.70</span><span class="l">nFLH·cosθ<sub>s</sub> slope with the standard 667/748 nm baseline, no atmosphere: SIF is 36% of its peak at 667 nm</span></div>
+  <div><span class="v">1.00 → 1.14</span><span class="l">nFLH·cosθ<sub>s</sub> slope with the SIF-free 630/800 nm baseline: no atmosphere → aerosol ×5, SZA 60.5°</span></div>
+  <div><span class="v">2.03 → 2.31</span><span class="l">the same nFLH without cos θ<sub>s</sub>, SZA 60.5°</span></div>
+  <div><span class="v">0.99 → 0.88</span><span class="l">SVD npoly3 slope: near nadir and clear → aerosol ×5 at VZA 60°. Independent of SZA</span></div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>The scenes</h2>
+    <p>Two RT grids were produced with <code>generate_rayleigh_scaling_surface.jl</code>. They are identical except for the solar zenith angle:</p>
+    <ul>
+      <li><code>…_NoRayl_sunlight_on_AerColumn_100_grid_surface.nc</code>: SZA 30°.</li>
+      <li><code>…_NoRayl_sza60p5_sunlight_on_AerColumn_100_grid_surface.nc</code>: SZA 60.5°. SZA 60° itself is avoided because a Gauss node at μ = 0.5 double-counts the direct beam in the surface fluxes.</li>
+    </ul>
+    <p>Each file holds a full factorial grid:</p>
+    <ul>
+      <li>Rayleigh scale: 10⁻⁸, 0.1, 1.</li>
+      <li>GCHPIO aerosol scale (GCHP column 100): 10⁻⁸, 1, 5.</li>
+      <li>VZA: 15°, 30°, 60°.</li>
+      <li>SIF<sub>678</sub> amplitude: 0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 1.</li>
+    </ul>
+    <p>Each file also stores the TOA radiance <code>L_toa</code>, the surface fields <code>Ed</code> and <code>Lw</code>, <code>Rrs = Lw/Ed</code>, and the true water-leaving SIF spectrum <code>sif_waterleaving</code>. The surface is Lambertian with albedo 0.02, so without SIF Rrs = 0.02/π exactly. Any curvature in Rrs is SIF divided by Ed.</p>
+    <p>The truth used throughout is water-leaving SIF in the OCI band at 678.21 nm, in mW m⁻² nm⁻¹ sr⁻¹ (= W m⁻² µm⁻¹ sr⁻¹).</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>The two estimators</h2>
+    <p><b>Mock nFLH.</b> Computed from the RT's own surface Rrs, which is equivalent to a perfect atmospheric correction:</p>
+  </div>
+  <div class="math">nFLH = F0(678.21) · [ Rrs(678.21) − baseline(678.21) ]
+baseline = straight line through Rrs at the two baseline bands
+
+standard  : 667.03 nm and 748.04 nm   (OCI bands nearest 667 and 748)
+SIF-free  : 629.90 nm and 799.39 nm   (OCI bands nearest 630 and 800)
+
+F0(678.21) = 1453.2 W m⁻² µm⁻¹   vSmartMOM's own solar spectrum (5777 K blackbody × Toon lines), OCI-convolved
+             (the L1B F0 would be 1507.9; using it scales every nFLH by 1.038)</div>
+  <div class="col">
+    <p>Using the RT's own F0 keeps the mock consistent with the radiative transfer, so nothing in the nFLH comparison comes from a solar mismatch. The comparison plots nFLH × cos θ<sub>s</sub>; the reason is given below.</p>
+    <p><b>SVD retrieval.</b> <code>run_pseudo_svd_retrieval</code> is run on noise-free <code>L_toa</code> for every grid case. The reported value is <code>(sif_basis · sif_coeff)</code> at 678.2 nm.</p>
+    <ul>
+      <li>Fitting windows:
+        <ul>
+          <li><code>svd_nPC15_npoly3</code>: 640–756 nm, 83 bands.</li>
+          <li><code>svd_nPC15_npoly3_O2A</code>: 640–780 nm, 100 bands.</li>
+        </ul>
+      </li>
+      <li>Each window was run with two solar spectra:
+        <ul>
+          <li>The <b>L1B</b> F0 of granule 20240830T131442, with its Earth–Sun distance, as in <code>retrieve_rt_grid.jl</code>.</li>
+          <li>The <b>RT</b> solar spectrum, the same vSmartMOM spectrum used for nFLH, with esd = 1.</li>
+        </ul>
+      </li>
+    </ul>
+    <p>For each geometry and atmosphere, a straight line is fitted through the seven SIF amplitudes. Its slope and intercept describe each estimator.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Why the standard baseline loses 30%</h2>
+    <p>The SIF emission in the RT is broad, so the 667 nm baseline band sits on its short-wavelength shoulder. The water-leaving SIF spectrum, relative to its value at 678.21 nm:</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Band</th><th>629.90</th><th>667.03</th><th>678.21</th><th>748.04</th><th>799.39</th></tr></thead>
+    <tbody><tr><td>SIF / SIF(678.21)</td><td>2×10⁻⁴</td><td class="bad">0.356</td><td>1</td><td>0.031</td><td>0.004</td></tr></tbody>
+  </table></div>
+  <div class="col">
+    <p>A straight line through 667 and 748 nm passes 0.31 above zero at 678 nm. The standard line height is therefore only 0.69 of the peak, before any atmosphere is involved. The 630/800 nm pair has essentially no SIF, so its line height equals the peak.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>What nFLH measures</h2>
+    <p>Rrs divides the water-leaving radiance by the irradiance that actually reaches the surface. nFLH then multiplies by the top-of-atmosphere F0:</p>
+  </div>
+  <div class="math">Ed = F0 · cos θs · t_d                         (t_d = direct + diffuse downward transmittance)
+
+nFLH = F0 · LH / Ed = LH / (cos θs · t_d)       (LH = line height of water-leaving SIF)
+
+nFLH · cos θs = LH / t_d</div>
+  <div class="col">
+    <p>SIF does not scale with sunlight in these scenes, so normalising by Ed does not cancel anything; it inflates the result. Raw nFLH carries a geometric factor 1/cos θ<sub>s</sub>, which is 1.15 at 30° and 2.03 at 60.5°. On top of that comes 1/t<sub>d</sub>, which grows with Rayleigh, aerosol and SZA. Multiplying by cos θ<sub>s</sub> removes the geometric factor but leaves 1/t<sub>d</sub>.</p>
+    <p>nFLH from surface Rrs does not depend on VZA. A real nFLH would inherit any VZA dependence from the atmospheric correction, which is not modelled here.</p>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Slope vs water-leaving SIF(678)<br>(no atmosphere → aerosol ×5, Rayleigh ×1)</th><th>SZA 30°</th><th>SZA 60.5°</th></tr></thead>
+    <tbody>
+      <tr><td>raw nFLH, 667/748 baseline</td><td>0.80 → 0.84</td><td class="bad">1.41 → 1.60</td></tr>
+      <tr><td>raw nFLH, 630/800 baseline</td><td>1.15 → 1.21</td><td class="bad">2.03 → 2.31</td></tr>
+      <tr><td>nFLH × cos θ<sub>s</sub>, 667/748 baseline</td><td>0.70 → 0.73</td><td>0.70 → 0.79</td></tr>
+      <tr><td>nFLH × cos θ<sub>s</sub>, 630/800 baseline</td><td>1.00 → 1.05</td><td>1.00 → 1.14</td></tr>
+      <tr><td>SVD npoly3, VZA 15° (RT solar)</td><td>0.99 → 0.94</td><td>0.99 → 0.94</td></tr>
+    </tbody>
+  </table></div>
+  <div class="col">
+    <p class="callout">With the SIF-free baseline, nFLH × cos θ<sub>s</sub> is exactly 1/t<sub>d</sub>. That gives t<sub>d</sub> = 0.95 at SZA 30° and 0.88 at SZA 60.5° for aerosol ×5 with full Rayleigh. With the standard baseline, the 0.69 loss and the 1/(cos θ<sub>s</sub> t<sub>d</sub>) gain partly cancel. At SZA 60.5°, raw standard nFLH lands closer to 1:1 than the "corrected" one, but only by coincidence.</p>
+  </div>
+</section>
+
+<section>
+  <div class="col">
+    <h2>What the SVD retrieval measures</h2>
+    <p>The forward model adds SIF at TOA, multiplied only by gas transmittance. The retrieved SIF is therefore water-leaving SIF times the upward continuum transmittance, about 1 − b<sub>R</sub>τ<sub>R</sub>/μ<sub>v</sub> − b<sub>aer</sub>AOD/μ<sub>v</sub> (see <a href="../sif_rayleigh_transfer/sif_rayleigh_transfer.html">SIF through Rayleigh</a>). On top of that comes an additive offset from imperfect fitting.</p>
+    <ul>
+      <li><b>Slope.</b> It falls with Rayleigh, aerosol and VZA: 0.99 when clear, 0.94 for aerosol ×5 with full Rayleigh at VZA 15°, and 0.88–0.92 for aerosol ×5 at VZA 60°. It is the same at SZA 30° and 60.5° to within 0.003, because only the upward path matters. This is the opposite of nFLH, which depends on SZA but not on VZA.</li>
+      <li><b>Offset, npoly3 (640–756).</b> Negative or near zero: −0.03 to 0 at VZA ≤ 30°. With aerosol ×5 at VZA 60° it reaches −0.16 with the L1B solar and −0.07 with the RT solar (SZA 60.5°). With the RT solar it is roughly half the size it is with the L1B solar (−0.017 vs −0.029 for the clear SZA 30°, VZA 15° case). This matches the earlier solar-swap test: about half of the SIF-free leakage comes from the solar-spectrum mismatch between the RT and L1B.</li>
+      <li><b>Offset, npoly3_O2A (640–780).</b> Positive: +0.015 to +0.10 at VZA ≤ 30°. At VZA 60° it becomes unstable, reaching about +0.5 at SZA 60.5° with aerosol ×5, where the O₂-A slant path is very long. Here the L1B solar gives a smaller offset than the RT solar, so the solar error partly cancels a positive bias from the window.</li>
+      <li><b>Convergence.</b> Even without noise, most fits stop at the 15-iteration cap. Converged: npoly3 143/378 (L1B solar) and 137/378 (RT solar); npoly3_O2A only 12/378 and 15/378. The values are kept, as in <code>retrieve_rt_grid.jl</code>, but the O2A results at VZA 60° should not be trusted.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <figure>
+    <div class="plate"><img src="f1_nflh_vs_svd_summary.png" alt="Slope, intercept and ratio at SIF 0.3 for nFLH and SVD across aerosol and Rayleigh scalings, SZA 30 and 60.5"></div>
+    <figcaption><b>Figure 1.</b> Summary by scenario (x-axis: aerosol × / Rayleigh ×); left column SZA 30°, right column SZA 60.5°. (a) Slope against water-leaving SIF(678); nFLH is multiplied by cos θ<sub>s</sub>. Solid markers are VZA 15°; faded squares are VZA 60° (SVD only). (b) SVD intercept. (c) Estimate ÷ truth at SIF<sub>678</sub> = 0.3, VZA 30°, combining slope and offset.</figcaption>
+  </figure>
+  <figure>
+    <div class="plate"><img src="f2_scatter_sza30.png" alt="Scatter of each estimator against water-leaving SIF, SZA 30"></div>
+    <figcaption><b>Figure 2.</b> SZA 30°. Top: each estimate against water-leaving SIF(678), with the 1:1 line. Bottom: estimate − truth. Columns, left to right: raw nFLH with the 667/748 and 630/800 baselines (shaded panels, wider y-range); nFLH × cos θ<sub>s</sub> with the same two baselines; SVD npoly3 with the RT and L1B solar; SVD npoly3_O2A with the RT and L1B solar. Colour family shows aerosol (blue ×0, green ×1, red ×5); darker shades mean more Rayleigh. Marker shape shows VZA (● 15°, ▲ 30°, ■ 60°); nFLH is shown at VZA 15° only.</figcaption>
+  </figure>
+  <figure>
+    <div class="plate"><img src="f3_scatter_sza60p5.png" alt="Scatter of each estimator against water-leaving SIF, SZA 60.5"></div>
+    <figcaption><b>Figure 3.</b> As figure 2, for SZA 60.5°. Raw nFLH is about double the truth, while the SVD panels barely change from SZA 30°. In the npoly3_O2A panels, the two cases about 0.4–0.5 above the line are aerosol ×5 at VZA 60°.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <div class="col">
+    <h2>Implications for comparing nFLH with SVD SIF</h2>
+    <ul>
+      <li>Even in this ideal case (perfect atmospheric correction, no noise, Lambertian surface), the ratio of SVD SIF to nFLH is not a constant. For the SIF-free baseline it is about cos θ<sub>s</sub> · t<sub>d</sub> · T<sub>↑</sub>, plus the SVD offset divided by nFLH. It therefore varies with SZA, VZA, aerosol and Rayleigh.</li>
+      <li>Converting nFLH to a radiance comparable with SVD requires at least multiplying by cos θ<sub>s</sub>. Ideally it should also be multiplied by t<sub>d</sub>, since nFLH × cos θ<sub>s</sub> × t<sub>d</sub> = LH, which is water-leaving SIF times the baseline factor. Even after that, SVD returns SIF at TOA and the two still differ by T<sub>↑</sub>.</li>
+      <li>The standard 667/748 baseline is a fixed −31% for the SIF shape used in this RT. The true factor depends on the actual SIF spectral shape, so it is a model assumption, not a constant of nature.</li>
+      <li>For SVD at low SIF, the offset matters more than the slope: −0.03 to 0 (npoly3) or +0.02 to +0.10 (npoly3_O2A) when typical ocean SIF is 0.05–0.3.</li>
+    </ul>
+  </div>
+</section>
+
+<footer class="col">
+  <p>Method: vSmartMOM 2.1 (GCHPIO pin 2cd6934), <code>ocean_lambertian_1010_wavnum0p05_NoRayl.yaml</code> (0.05 cm⁻¹, 11 streams), MERRA sea profile, GCHPIO optics for GCHP column 100, Rayleigh τ scaled in place, Lambertian albedo 0.02, VAZ 0°, OCI RSR convolution. Surface fields come from <code>rt_run</code>: <code>hdr</code> → Lw, <code>bhr_dw</code> → Ed, checked so that Lw/Ed = albedo/π and Eu/Ed = albedo hold exactly without SIF. Source files: <code>surrogate_meas/full_RT_construction/output_rayleigh_scaling/rt_toa_rayleigh_scaling_ocean_lambertian_1010_wavnum0p05_NoRayl{,_sza60p5}_sunlight_on_AerColumn_100_grid_surface.nc</code>. Scripts in <code>scripts/</code>:</p>
+  <ul>
+    <li><code>svd_on_surface_grid.jl</code>: SVD retrievals → <code>svd_retrievals.csv</code>, including the status of each fit.</li>
+    <li><code>nflh_compare.py</code>: mock nFLH and merge → <code>compare_all.csv</code>.</li>
+    <li><code>summary.py</code>: slopes and intercepts.</li>
+    <li><code>fig2.py</code>: figures.</li>
+    <li><code>rt_solar_oci.csv</code>: vSmartMOM solar spectrum on OCI bands.</li>
+  </ul>
+  <p>Slopes and intercepts are least-squares lines through the seven SIF amplitudes for each geometry and atmosphere; for nFLH the intercept is zero to rounding.</p>
+</footer>
+</main>
+</body>
+</html>
